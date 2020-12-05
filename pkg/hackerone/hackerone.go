@@ -25,12 +25,13 @@ type Program struct {
 	outOfScope []string
 }
 
-type ProgramsData struct {
+type programsData struct {
 	mu      sync.Mutex
 	handles []Program
 }
 
-func getGraphQLToken(h1Token string) string {
+// GetGraphQLToken gets a GraphQL token by using the session cookie
+func GetGraphQLToken(cookie string) string {
 	req, err := http.NewRequest("GET", H1_GRAPHQL_TOKEN_ENDPOINT, nil)
 	if err != nil {
 		log.Fatal(err)
@@ -39,7 +40,7 @@ func getGraphQLToken(h1Token string) string {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", USER_AGENT)
 	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Cookie", "__Host-session="+h1Token)
+	req.Header.Set("Cookie", "__Host-session="+cookie)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -52,10 +53,9 @@ func getGraphQLToken(h1Token string) string {
 	return string(gjson.Get(string(body), "graphql_token").Str)
 }
 
-func GetProgramScope(h1Token string, graphQLToken string, handle string, categories []string, bbpOnly bool, pvtOnly bool) Program {
+func getProgramScope(graphQLToken string, handle string, categories []string, bbpOnly bool, pvtOnly bool) Program {
 	var p Program
 	p.handle = handle
-	p.outOfScope = []string{"all"}
 
 	scopeQuery := `{
 		"query":"query Team_assets($first_0:Int!) {query {id,...F0}} fragment F0 on Query {me {_membership_A:membership(team_handle:\"__REPLACEME__\") {permissions,id},id},_team_A:team(handle:\"__REPLACEME__\") {handle,_structured_scope_versions_A:structured_scope_versions(archived:false) {max_updated_at},_structured_scopes_B:structured_scopes(first:$first_0,archived:false,eligible_for_submission:true) {edges {node {id,asset_type,asset_identifier,rendered_instruction,max_severity,eligible_for_bounty},cursor},pageInfo {hasNextPage,hasPreviousPage}},_structured_scopes_C:structured_scopes(first:$first_0,archived:false,eligible_for_submission:false) {edges {node {id,asset_type,asset_identifier,rendered_instruction},cursor},pageInfo {hasNextPage,hasPreviousPage}},id},id}",
@@ -74,7 +74,6 @@ func GetProgramScope(h1Token string, graphQLToken string, handle string, categor
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", USER_AGENT)
 	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Cookie", "__Host-session="+h1Token)
 	req.Header.Set("X-Auth-Token", graphQLToken)
 
 	client := &http.Client{}
@@ -104,7 +103,7 @@ func GetProgramScope(h1Token string, graphQLToken string, handle string, categor
 	return p
 }
 
-func GetH1Categories(input string) []string {
+func getCategories(input string) []string {
 	categories := map[string][]string{
 		"url":      []string{"URL"},
 		"cidr":     []string{"CIDR"},
@@ -124,13 +123,8 @@ func GetH1Categories(input string) []string {
 	return selectedCategory
 }
 
-func GetScope(h1Token string, bbpOnly bool, pvtOnly bool, categories string, h1CmdPrintProgramURLs bool) {
-	graphQLToken := getGraphQLToken(h1Token)
-
-	if graphQLToken == "----" {
-		log.Fatal("Invalid __Host-session token")
-		return
-	}
+// GetAllScope returns an array of programs data
+func GetAllScope(graphQLToken string, bbpOnly bool, pvtOnly bool, categories string) []Program {
 
 	getProgramsQuery := `
 	{
@@ -169,7 +163,7 @@ func GetScope(h1Token string, bbpOnly bool, pvtOnly bool, categories string, h1C
 	lastCursor := ""
 
 	var programHandles []string
-	var pData ProgramsData
+	var pData programsData
 
 	for {
 		currentProgramsQuery, _ := sjson.Set(getProgramsQuery, "variables.cursor", lastCursor)
@@ -190,7 +184,6 @@ func GetScope(h1Token string, bbpOnly bool, pvtOnly bool, categories string, h1C
 		defer resp.Body.Close()
 
 		body, _ := ioutil.ReadAll(resp.Body)
-		//fmt.Println(string(body))
 
 		if len(gjson.Get(string(body), "data.teams.edges").Array()) == 0 {
 			break
@@ -198,7 +191,6 @@ func GetScope(h1Token string, bbpOnly bool, pvtOnly bool, categories string, h1C
 
 		for _, edge := range gjson.Get(string(body), "data.teams.edges").Array() {
 			lastCursor = gjson.Get(edge.Raw, "cursor").Str
-			//fmt.Println(lastCursor + "  =>  " + gjson.Get(edge.Raw, "node.name").Str + "  " + gjson.Get(edge.Raw, "node.state").Str + "  https://hackerone.com/" + gjson.Get(edge.Raw, "node.handle").Str)
 			if !pvtOnly || (pvtOnly && gjson.Get(edge.Raw, "node.state").Str == "soft_launched") {
 				programHandles = append(programHandles, gjson.Get(edge.Raw, "node.handle").Str)
 			}
@@ -219,9 +211,7 @@ func GetScope(h1Token string, bbpOnly bool, pvtOnly bool, categories string, h1C
 					break
 				}
 
-				//fmt.Println(handleIndex)
-
-				temp := GetProgramScope(h1Token, graphQLToken, programHandles[handleIndex], GetH1Categories(categories), bbpOnly, pvtOnly)
+				temp := getProgramScope(graphQLToken, programHandles[handleIndex], getCategories(categories), bbpOnly, pvtOnly)
 				pData.mu.Lock()
 				pData.handles = append(pData.handles, temp)
 				pData.mu.Unlock()
@@ -238,21 +228,36 @@ func GetScope(h1Token string, bbpOnly bool, pvtOnly bool, categories string, h1C
 	close(handleIndices)
 	processGroup.Wait()
 
-	for _, p := range pData.handles {
-		for _, target := range p.inScope {
-			if h1CmdPrintProgramURLs {
-				fmt.Println(target + " " + "http://hackerone.com/" + p.handle)
+	return pData.handles
+
+}
+
+// PrintScope prints to stdout all the scope targets
+func PrintScope(h1Token string, bbpOnly bool, pvtOnly bool, categories string, urlsToo bool, noToken bool) {
+	graphQLToken := ""
+	if !noToken {
+		graphQLToken = GetGraphQLToken(h1Token)
+
+		if graphQLToken == "----" {
+			log.Fatal("Invalid __Host-session token. Use --noToken if you want public programs only")
+		}
+	}
+
+	programs := GetAllScope(graphQLToken, bbpOnly, pvtOnly, categories)
+	for _, program := range programs {
+		for _, target := range program.inScope {
+			if urlsToo {
+				fmt.Println(target + " http://hackerone.com/" + program.handle)
 			} else {
 				fmt.Println(target)
 			}
 		}
 	}
-
 }
 
 /*
 
-Resp example
+GraphQL response example
 
 {
    "data":{

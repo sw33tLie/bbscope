@@ -16,7 +16,8 @@ var h1Cmd = &cobra.Command{
 		pvtOnly, _ := cmd.Flags().GetBool("pvtOnly")
 		categories, _ := cmd.Flags().GetString("categories")
 		urlsToo, _ := cmd.Flags().GetBool("urlsToo")
-		hackerone.GetScope(token, bbpOnly, pvtOnly, categories, urlsToo)
+		noToken, _ := cmd.Flags().GetBool("noToken")
+		hackerone.PrintScope(token, bbpOnly, pvtOnly, categories, urlsToo, noToken)
 	},
 }
 
@@ -27,4 +28,5 @@ func init() {
 	h1Cmd.Flags().BoolP("pvtOnly", "p", false, "Only fetch data from private programs")
 	h1Cmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, other, hardware, code)")
 	h1Cmd.Flags().BoolP("urlsToo", "u", false, "Also print the program URL (on each line)")
+	h1Cmd.Flags().BoolP("noToken", "", false, "Don't use a session token (aka public programs only)")
 }
