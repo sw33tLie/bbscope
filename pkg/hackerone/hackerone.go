@@ -247,7 +247,7 @@ func PrintScope(h1Token string, bbpOnly bool, pvtOnly bool, categories string, u
 	for _, program := range programs {
 		for _, target := range program.inScope {
 			if urlsToo {
-				fmt.Println(target + " http://hackerone.com/" + program.handle)
+				fmt.Println(target + " https://hackerone.com/" + program.handle)
 			} else {
 				fmt.Println(target)
 			}
