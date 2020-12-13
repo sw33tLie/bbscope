@@ -10,7 +10,7 @@ Reverse engineering god? No worries, you can get a list of binaries to analyze t
 Make sure you've a recent version of the Go compiler installed on your system.
 Then just run:
 ```
-GO111MODULE=on go get github.com/sw33tLie/bbscope
+GO111MODULE=on go get -u github.com/sw33tLie/bbscope
 ```
 
 ## Usage
