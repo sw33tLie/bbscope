@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	strip "github.com/grokify/html-strip-tags-go"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -53,7 +54,7 @@ func GetGraphQLToken(cookie string) string {
 	return string(gjson.Get(string(body), "graphql_token").Str)
 }
 
-func getProgramScope(graphQLToken string, handle string, categories []string, bbpOnly bool, pvtOnly bool) Program {
+func getProgramScope(graphQLToken string, handle string, bbpOnly bool, pvtOnly bool, categories []string, descToo bool) Program {
 	var p Program
 	p.handle = handle
 
@@ -96,7 +97,15 @@ func getProgramScope(graphQLToken string, handle string, categories []string, bb
 		}
 		if catFound {
 			if (bbpOnly && gjson.Get(edge.Raw, "node.eligible_for_bounty").Bool()) || !bbpOnly {
-				p.inScope = append(p.inScope, gjson.Get(edge.Raw, "node.asset_identifier").Str)
+				if !descToo {
+					p.inScope = append(p.inScope, gjson.Get(edge.Raw, "node.asset_identifier").Str)
+				} else {
+					desc := gjson.Get(edge.Raw, "node.rendered_instruction").Str
+					if desc != "" {
+						desc = " => " + strip.StripTags(strings.ReplaceAll(desc, "\n", " "))
+					}
+					p.inScope = append(p.inScope, gjson.Get(edge.Raw, "node.asset_identifier").Str+desc)
+				}
 			}
 		}
 	}
@@ -124,7 +133,7 @@ func getCategories(input string) []string {
 }
 
 // GetAllScope returns an array of programs data
-func GetAllScope(graphQLToken string, bbpOnly bool, pvtOnly bool, categories string) []Program {
+func GetAllScope(graphQLToken string, bbpOnly bool, pvtOnly bool, categories string, descToo bool) []Program {
 
 	getProgramsQuery := `
 	{
@@ -211,7 +220,7 @@ func GetAllScope(graphQLToken string, bbpOnly bool, pvtOnly bool, categories str
 					break
 				}
 
-				temp := getProgramScope(graphQLToken, programHandles[handleIndex], getCategories(categories), bbpOnly, pvtOnly)
+				temp := getProgramScope(graphQLToken, programHandles[handleIndex], bbpOnly, pvtOnly, getCategories(categories), descToo)
 				pData.mu.Lock()
 				pData.handles = append(pData.handles, temp)
 				pData.mu.Unlock()
@@ -233,7 +242,7 @@ func GetAllScope(graphQLToken string, bbpOnly bool, pvtOnly bool, categories str
 }
 
 // PrintScope prints to stdout all the scope targets
-func PrintScope(h1Token string, bbpOnly bool, pvtOnly bool, categories string, urlsToo bool, noToken bool) {
+func PrintScope(h1Token string, bbpOnly bool, pvtOnly bool, categories string, descToo bool, urlsToo bool, noToken bool) {
 	graphQLToken := ""
 	if !noToken {
 		graphQLToken = GetGraphQLToken(h1Token)
@@ -243,7 +252,7 @@ func PrintScope(h1Token string, bbpOnly bool, pvtOnly bool, categories string, u
 		}
 	}
 
-	programs := GetAllScope(graphQLToken, bbpOnly, pvtOnly, categories)
+	programs := GetAllScope(graphQLToken, bbpOnly, pvtOnly, categories, descToo)
 	for _, program := range programs {
 		for _, target := range program.inScope {
 			if urlsToo {
