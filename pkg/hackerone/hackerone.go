@@ -281,14 +281,12 @@ func ListPrograms(h1Token string, bbpOnly bool, pvtOnly bool, categories string,
 	}
 
 	if !bbpOnly && categories == "all" {
-		fmt.Println("AAA")
 		// If we don't want BBPs or custom categories, we can do it faster
 		programHandles := getProgramHandles(graphQLToken, pvtOnly)
 		for _, handle := range programHandles {
 			fmt.Println("https://hackerone.com/" + handle)
 		}
 	} else {
-		fmt.Println("BBB")
 		programs := GetAllScope(graphQLToken, bbpOnly, pvtOnly, categories, false)
 		for _, program := range programs {
 			fmt.Println("https://hackerone.com/" + program.handle)
