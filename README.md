@@ -29,9 +29,10 @@ HackerOne:
 $ bbscope h1 --help
 
   -b, --bbpOnly             Only fetch programs offering monetary rewards
-  -c, --categories string   Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, other, hardware, code) (default "all")
+  -c, --categories string   Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, other, hardware, code, executable) (default "all")
   -d, --descToo             Also print the scope description (some URLs might be here)
   -h, --help                help for h1
+  -l, --list                List programs instead of grabbing their scope
       --noToken             Don't use a session token (aka public programs only)
   -p, --pvtOnly             Only fetch data from private programs
   -t, --token string        HackerOne session token (__Host-session cookie)

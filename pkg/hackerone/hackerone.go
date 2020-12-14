@@ -96,7 +96,7 @@ func getProgramScope(graphQLToken string, handle string, bbpOnly bool, pvtOnly b
 			}
 		}
 		if catFound {
-			if (bbpOnly && gjson.Get(edge.Raw, "node.eligible_for_bounty").Bool()) || !bbpOnly {
+			if !bbpOnly || (bbpOnly && gjson.Get(edge.Raw, "node.eligible_for_bounty").Bool()) {
 				if !descToo {
 					p.inScope = append(p.inScope, gjson.Get(edge.Raw, "node.asset_identifier").Str)
 				} else {
@@ -114,15 +114,16 @@ func getProgramScope(graphQLToken string, handle string, bbpOnly bool, pvtOnly b
 
 func getCategories(input string) []string {
 	categories := map[string][]string{
-		"url":      []string{"URL"},
-		"cidr":     []string{"CIDR"},
-		"mobile":   []string{"GOOGLE_PLAY_APP_ID", "OTHER_APK", "APPLE_STORE_APP_ID"},
-		"android":  []string{"GOOGLE_PLAY_APP_ID", "OTHER_APK"},
-		"apple":    []string{"APPLE_STORE_APP_ID"},
-		"other":    []string{"OTHER"},
-		"hardware": []string{"HARDWARE"},
-		"all":      []string{"URL", "CIDR", "GOOGLE_PLAY_APP_ID", "OTHER_APK", "APPLE_STORE_APP_ID", "OTHER", "HARDWARE"},
-		"code":     []string{"SOURCE_CODE"},
+		"url":        []string{"URL"},
+		"cidr":       []string{"CIDR"},
+		"mobile":     []string{"GOOGLE_PLAY_APP_ID", "OTHER_APK", "APPLE_STORE_APP_ID"},
+		"android":    []string{"GOOGLE_PLAY_APP_ID", "OTHER_APK"},
+		"apple":      []string{"APPLE_STORE_APP_ID"},
+		"other":      []string{"OTHER"},
+		"hardware":   []string{"HARDWARE"},
+		"code":       []string{"SOURCE_CODE"},
+		"executable": []string{"DOWNLOADABLE_EXECUTABLES"},
+		"all":        []string{"URL", "CIDR", "GOOGLE_PLAY_APP_ID", "OTHER_APK", "APPLE_STORE_APP_ID", "OTHER", "HARDWARE", "SOURCE_CODE", "DOWNLOADABLE_EXECUTABLES"},
 	}
 
 	selectedCategory, ok := categories[strings.ToLower(input)]
@@ -132,9 +133,7 @@ func getCategories(input string) []string {
 	return selectedCategory
 }
 
-// GetAllScope returns an array of programs data
-func GetAllScope(graphQLToken string, bbpOnly bool, pvtOnly bool, categories string, descToo bool) []Program {
-
+func getProgramHandles(graphQLToken string, pvtOnly bool) []string {
 	getProgramsQuery := `
 	{
 		"operationName":"MyProgramsQuery",
@@ -170,9 +169,7 @@ func GetAllScope(graphQLToken string, bbpOnly bool, pvtOnly bool, categories str
 	 }`
 
 	lastCursor := ""
-
 	var programHandles []string
-	var pData programsData
 
 	for {
 		currentProgramsQuery, _ := sjson.Set(getProgramsQuery, "variables.cursor", lastCursor)
@@ -186,6 +183,7 @@ func GetAllScope(graphQLToken string, bbpOnly bool, pvtOnly bool, categories str
 		req.Header.Set("X-Auth-Token", graphQLToken)
 
 		client := &http.Client{}
+
 		resp, err := client.Do(req)
 		if err != nil {
 			panic(err)
@@ -206,6 +204,14 @@ func GetAllScope(graphQLToken string, bbpOnly bool, pvtOnly bool, categories str
 		}
 	}
 
+	return programHandles
+}
+
+// GetAllScope returns an array of programs data
+func GetAllScope(graphQLToken string, bbpOnly bool, pvtOnly bool, categories string, descToo bool) []Program {
+	var pData programsData
+
+	programHandles := getProgramHandles(graphQLToken, pvtOnly)
 	threads := 50
 	handleIndices := make(chan int, threads)
 	processGroup := new(sync.WaitGroup)
@@ -260,6 +266,32 @@ func PrintScope(h1Token string, bbpOnly bool, pvtOnly bool, categories string, d
 			} else {
 				fmt.Println(target)
 			}
+		}
+	}
+}
+
+func ListPrograms(h1Token string, bbpOnly bool, pvtOnly bool, categories string, noToken bool) {
+	graphQLToken := ""
+	if !noToken {
+		graphQLToken = GetGraphQLToken(h1Token)
+
+		if graphQLToken == "----" {
+			log.Fatal("Invalid __Host-session token. Use --noToken if you want public programs only")
+		}
+	}
+
+	if !bbpOnly && categories == "all" {
+		fmt.Println("AAA")
+		// If we don't want BBPs or custom categories, we can do it faster
+		programHandles := getProgramHandles(graphQLToken, pvtOnly)
+		for _, handle := range programHandles {
+			fmt.Println("https://hackerone.com/" + handle)
+		}
+	} else {
+		fmt.Println("BBB")
+		programs := GetAllScope(graphQLToken, bbpOnly, pvtOnly, categories, false)
+		for _, program := range programs {
+			fmt.Println("https://hackerone.com/" + program.handle)
 		}
 	}
 }
