@@ -34,6 +34,7 @@ $ bbscope h1 --help
   -h, --help                help for h1
   -l, --list                List programs instead of grabbing their scope
       --noToken             Don't use a session token (aka public programs only)
+      --proxy string        HTTP Proxy (Useful for debugging. Example: http://127.0.0.1:8080)
   -p, --pvtOnly             Only fetch data from private programs
   -t, --token string        HackerOne session token (__Host-session cookie)
   -u, --urlsToo             Also print the program URL (on each line)
@@ -47,6 +48,7 @@ $ bbscope bc --help
       --concurrency int     Concurrency (default 2)
   -h, --help                help for bc
   -l, --list                List programs instead of grabbing their scope
+      --proxy string        HTTP Proxy (Useful for debugging. Example: http://127.0.0.1:8080)
   -p, --pvtOnly             Only fetch data from private programs
   -t, --token string        Bugcrowd session token (_crowdcontrol_session cookie)
   -u, --urlsToo             Also print the program URL (on each line)
@@ -60,6 +62,7 @@ $ bbscope it --help
   -c, --categories string   Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, device, other) (default "all")
   -h, --help                help for it
   -l, --list                List programs instead of grabbing their scope
+      --proxy string        HTTP Proxy (Useful for debugging. Example: http://127.0.0.1:8080)
   -p, --pvtOnly             Only fetch data from private programs
   -t, --token string        Intigriti Authentication Bearer Token (From api.intigriti.com)
   -u, --urlsToo             Also print the program URL (on each line)

@@ -1,6 +1,11 @@
 package cmd
 
 import (
+	"crypto/tls"
+	"log"
+	"net/http"
+	"net/url"
+
 	"github.com/spf13/cobra"
 	"github.com/sw33tLie/bbscope/pkg/hackerone"
 )
@@ -19,6 +24,16 @@ var h1Cmd = &cobra.Command{
 		urlsToo, _ := cmd.Flags().GetBool("urlsToo")
 		noToken, _ := cmd.Flags().GetBool("noToken")
 		list, _ := cmd.Flags().GetBool("list")
+		proxy, _ := cmd.Flags().GetString("proxy")
+
+		if proxy != "" {
+			proxyURL, err := url.Parse(proxy)
+			if err != nil {
+				log.Fatal("Invalid Proxy String")
+			}
+			http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+			http.DefaultTransport.(*http.Transport).Proxy = http.ProxyURL(proxyURL)
+		}
 
 		if !list {
 			hackerone.PrintScope(token, bbpOnly, pvtOnly, categories, descToo, urlsToo, noToken)
@@ -38,4 +53,5 @@ func init() {
 	h1Cmd.Flags().BoolP("urlsToo", "u", false, "Also print the program URL (on each line)")
 	h1Cmd.Flags().BoolP("noToken", "", false, "Don't use a session token (aka public programs only)")
 	h1Cmd.Flags().BoolP("list", "l", false, "List programs instead of grabbing their scope")
+	h1Cmd.Flags().StringP("proxy", "", "", "HTTP Proxy (Useful for debugging. Example: http://127.0.0.1:8080)")
 }

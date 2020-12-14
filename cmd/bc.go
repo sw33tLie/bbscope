@@ -1,6 +1,11 @@
 package cmd
 
 import (
+	"crypto/tls"
+	"log"
+	"net/http"
+	"net/url"
+
 	"github.com/spf13/cobra"
 	"github.com/sw33tLie/bbscope/pkg/bugcrowd"
 )
@@ -18,6 +23,16 @@ var bcCmd = &cobra.Command{
 		urlsToo, _ := cmd.Flags().GetBool("urlsToo")
 		concurrency, _ := cmd.Flags().GetInt("concurrency")
 		list, _ := cmd.Flags().GetBool("list")
+		proxy, _ := cmd.Flags().GetString("proxy")
+
+		if proxy != "" {
+			proxyURL, err := url.Parse(proxy)
+			if err != nil {
+				log.Fatal("Invalid Proxy String")
+			}
+			http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+			http.DefaultTransport.(*http.Transport).Proxy = http.ProxyURL(proxyURL)
+		}
 
 		if !list {
 			bugcrowd.GetScope(token, bbpOnly, pvtOnly, categories, urlsToo, concurrency)
@@ -36,5 +51,5 @@ func init() {
 	bcCmd.Flags().BoolP("urlsToo", "u", false, "Also print the program URL (on each line)")
 	bcCmd.Flags().IntP("concurrency", "", 2, "Concurrency")
 	bcCmd.Flags().BoolP("list", "l", false, "List programs instead of grabbing their scope")
-
+	bcCmd.Flags().StringP("proxy", "", "", "HTTP Proxy (Useful for debugging. Example: http://127.0.0.1:8080)")
 }
