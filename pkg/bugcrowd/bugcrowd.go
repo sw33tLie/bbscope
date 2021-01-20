@@ -79,8 +79,7 @@ func PrintProgramScope(url string, token string, categories string, urlsToo bool
 
 	body, _ := ioutil.ReadAll(resp.Body)
 
-	// Yeah, HTML parsing is a pain @arcwhite do something damn it :D
-	// Or at least, don't break this tool aka don't change HTML stuff <3
+	// Times @arcwhite broke our HTML parsing: #1 and counting :D
 
 	var scope []string
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
@@ -89,36 +88,45 @@ func PrintProgramScope(url string, token string, categories string, urlsToo bool
 		log.Fatal(err)
 	}
 
-	doc.Find("#user-guides__bounty-brief__targets-table").Each(func(index int, tablehtml *goquery.Selection) {
-		tablehtml.Find("tr").Each(func(indextr int, rowhtml *goquery.Selection) {
+	doc.Find(".react-component-researcher-target-groups").Each(func(index int, s *goquery.Selection) {
+		json, ok := s.Attr("data-react-props")
+		if !ok {
+			fmt.Printf("ERR")
+		}
+
+		for _, scopeElement := range gjson.Get(string(json), "groups.#(in_scope==true).targets").Array() {
 			var currentTarget struct {
-				line     string
-				category string
+				line       string
+				categories []string
+			}
+			currentTarget.line = scopeElement.Map()["name"].Str
+			if urlsToo {
+				currentTarget.line += " " + url
 			}
 
-			rowhtml.Find("tbody td").Each(func(indexth int, tablecell *goquery.Selection) {
-				if indexth == 0 {
-					if urlsToo {
-						currentTarget.line = strings.TrimSpace(tablecell.Text()) + " " + url
-					} else {
-						currentTarget.line = strings.TrimSpace(tablecell.Text())
-					}
-				} else if indexth == 1 {
-					currentTarget.category = strings.TrimSpace(tablecell.Text())
+			for _, x := range scopeElement.Map()["target"].Map() {
+				for _, y := range x.Array() {
+					currentTarget.categories = append(currentTarget.categories, y.Map()["name"].Str)
 				}
-			})
+			}
 
 			catMatches := false
 			for _, cat := range GetCategories(categories) {
-				if cat == currentTarget.category {
-					catMatches = true
+				for _, cCat := range currentTarget.categories {
+					if cat == cCat {
+						catMatches = true
+						break
+					}
+				}
+
+				if catMatches {
+					scope = append(scope, currentTarget.line)
 					break
 				}
+
 			}
-			if catMatches {
-				scope = append(scope, currentTarget.line)
-			}
-		})
+
+		}
 	})
 
 	for _, s := range scope {
@@ -128,14 +136,14 @@ func PrintProgramScope(url string, token string, categories string, urlsToo bool
 
 func GetCategories(input string) []string {
 	categories := map[string][]string{
-		"url":      []string{"Website Testing"},
-		"api":      []string{"API Testing"},
-		"mobile":   []string{"Android", "iOS"},
-		"android":  []string{"Android"},
-		"apple":    []string{"iOS"},
-		"other":    []string{"Other"},
-		"hardware": []string{"Hardware Testing"},
-		"all":      []string{"Website Testing", "API Testing", "Android", "iOS", "Other", "Hardware Testing"},
+		"url":      {"Website Testing"},
+		"api":      {"API Testing"},
+		"mobile":   {"Android", "iOS"},
+		"android":  {"Android"},
+		"apple":    {"iOS"},
+		"other":    {"Other"},
+		"hardware": {"Hardware Testing"},
+		"all":      {"Website Testing", "API Testing", "Android", "iOS", "Other", "Hardware Testing"},
 	}
 
 	selectedCategory, ok := categories[strings.ToLower(input)]
