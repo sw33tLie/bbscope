@@ -68,6 +68,23 @@ $ bbscope it --help
   -u, --urlsToo             Also print the program URL (on each line)
 ```
 
+## Beware of scope oddities
+In an ideal world, all programs use the in-scope table in the same way to clearly show what's in scope, and make parsing easy.
+Unfortunately, that's not always the case.
+
+Sometimes assets are assigned the wrong category.
+For example, if you're going after URLs using the `-c url`, double checking using `-c all` is often a good idea.
+
+Other times, on HackerOne, you will find targets written in the scope description, instead of in the scope title.
+A few programs that do this are:
+- [Verizon Media](https://hackerone.com/verizonmedia/?type=team)
+- [Mail.ru](https://hackerone.com/mailru)
+If you want to grep those URLs as well, you **MUST** use the `--descToo` flag.
+
+Sometimes it gets even stranger: [Spotify](https://hackerone.com/spotify) uses titles of the in-scope table to list wildcards, but then lists the actually in-scope subdomains in the targets description.
+
+Human minds are weird and this tool does not attempt to parse nonsense, you'll have to do that manually (or bother people that can make this change, maybe?).
+
 ## Thanks
 - [0xatul](https://github.com/0xatul)
 - [JoeMilian](https://github.com/JoeMilian)
