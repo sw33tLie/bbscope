@@ -79,6 +79,7 @@ Other times, on HackerOne, you will find targets written in the scope descriptio
 A few programs that do this are:
 - [Verizon Media](https://hackerone.com/verizonmedia/?type=team)
 - [Mail.ru](https://hackerone.com/mailru)
+
 If you want to grep those URLs as well, you **MUST** use the `--descToo` flag.
 
 Sometimes it gets even stranger: [Spotify](https://hackerone.com/spotify) uses titles of the in-scope table to list wildcards, but then lists the actually in-scope subdomains in the targets description.
@@ -90,3 +91,4 @@ Human minds are weird and this tool does not attempt to parse nonsense, you'll h
 - [JoeMilian](https://github.com/JoeMilian)
 - [ByteOven](https://github.com/ByteOven)
 - [dee-see](https://gitlab.com/dee-see)
+- [jub0bs](https://jub0bs.com)
