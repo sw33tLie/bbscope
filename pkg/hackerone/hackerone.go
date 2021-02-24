@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	strip "github.com/grokify/html-strip-tags-go"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -59,7 +58,7 @@ func getProgramScope(graphQLToken string, handle string, bbpOnly bool, pvtOnly b
 	p.handle = handle
 
 	scopeQuery := `{
-		"query":"query Team_assets($first_0:Int!) {query {id,...F0}} fragment F0 on Query {me {_membership_A:membership(team_handle:\"__REPLACEME__\") {permissions,id},id},_team_A:team(handle:\"__REPLACEME__\") {handle,_structured_scope_versions_A:structured_scope_versions(archived:false) {max_updated_at},_structured_scopes_B:structured_scopes(first:$first_0,archived:false,eligible_for_submission:true) {edges {node {id,asset_type,asset_identifier,rendered_instruction,max_severity,eligible_for_bounty},cursor},pageInfo {hasNextPage,hasPreviousPage}},_structured_scopes_C:structured_scopes(first:$first_0,archived:false,eligible_for_submission:false) {edges {node {id,asset_type,asset_identifier,rendered_instruction},cursor},pageInfo {hasNextPage,hasPreviousPage}},id},id}",
+		"query":"query Team_assets($first_0:Int!) {query {id,...F0}} fragment F0 on Query {me {_membership_A:membership(team_handle:\"__REPLACEME__\") {permissions,id},id},_team_A:team(handle:\"__REPLACEME__\") {handle,_structured_scope_versions_A:structured_scope_versions(archived:false) {max_updated_at},_structured_scopes_B:structured_scopes(first:$first_0,archived:false,eligible_for_submission:true) {edges {node {id,asset_type,asset_identifier,instruction,max_severity,eligible_for_bounty},cursor},pageInfo {hasNextPage,hasPreviousPage}},_structured_scopes_C:structured_scopes(first:$first_0,archived:false,eligible_for_submission:false) {edges {node {id,asset_type,asset_identifier,instruction},cursor},pageInfo {hasNextPage,hasPreviousPage}},id},id}",
 		"variables":{
 		   "first_0":500
 		}
@@ -100,9 +99,9 @@ func getProgramScope(graphQLToken string, handle string, bbpOnly bool, pvtOnly b
 				if !descToo {
 					p.inScope = append(p.inScope, gjson.Get(edge.Raw, "node.asset_identifier").Str)
 				} else {
-					desc := gjson.Get(edge.Raw, "node.rendered_instruction").Str
+					desc := gjson.Get(edge.Raw, "node.instruction").Str
 					if desc != "" {
-						desc = " => " + strip.StripTags(strings.ReplaceAll(desc, "\n", " "))
+						desc = " => " + strings.ReplaceAll(desc, "\n", " ")
 					}
 					p.inScope = append(p.inScope, gjson.Get(edge.Raw, "node.asset_identifier").Str+desc)
 				}
@@ -114,16 +113,16 @@ func getProgramScope(graphQLToken string, handle string, bbpOnly bool, pvtOnly b
 
 func getCategories(input string) []string {
 	categories := map[string][]string{
-		"url":        []string{"URL"},
-		"cidr":       []string{"CIDR"},
-		"mobile":     []string{"GOOGLE_PLAY_APP_ID", "OTHER_APK", "APPLE_STORE_APP_ID"},
-		"android":    []string{"GOOGLE_PLAY_APP_ID", "OTHER_APK"},
-		"apple":      []string{"APPLE_STORE_APP_ID"},
-		"other":      []string{"OTHER"},
-		"hardware":   []string{"HARDWARE"},
-		"code":       []string{"SOURCE_CODE"},
-		"executable": []string{"DOWNLOADABLE_EXECUTABLES"},
-		"all":        []string{"URL", "CIDR", "GOOGLE_PLAY_APP_ID", "OTHER_APK", "APPLE_STORE_APP_ID", "OTHER", "HARDWARE", "SOURCE_CODE", "DOWNLOADABLE_EXECUTABLES"},
+		"url":        {"URL"},
+		"cidr":       {"CIDR"},
+		"mobile":     {"GOOGLE_PLAY_APP_ID", "OTHER_APK", "APPLE_STORE_APP_ID"},
+		"android":    {"GOOGLE_PLAY_APP_ID", "OTHER_APK"},
+		"apple":      {"APPLE_STORE_APP_ID"},
+		"other":      {"OTHER"},
+		"hardware":   {"HARDWARE"},
+		"code":       {"SOURCE_CODE"},
+		"executable": {"DOWNLOADABLE_EXECUTABLES"},
+		"all":        {"URL", "CIDR", "GOOGLE_PLAY_APP_ID", "OTHER_APK", "APPLE_STORE_APP_ID", "OTHER", "HARDWARE", "SOURCE_CODE", "DOWNLOADABLE_EXECUTABLES"},
 	}
 
 	selectedCategory, ok := categories[strings.ToLower(input)]
