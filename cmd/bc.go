@@ -7,6 +7,7 @@ import (
 	"net/url"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"github.com/sw33tLie/bbscope/pkg/bugcrowd"
 )
 
@@ -25,6 +26,9 @@ var bcCmd = &cobra.Command{
 		list, _ := cmd.Flags().GetBool("list")
 		proxy, _ := cmd.Flags().GetString("proxy")
 
+		email := viper.GetViper().GetString("bugcrowd-email")
+		password := viper.GetViper().GetString("bugcrowd-password")
+
 		if proxy != "" {
 			proxyURL, err := url.Parse(proxy)
 			if err != nil {
@@ -32,6 +36,10 @@ var bcCmd = &cobra.Command{
 			}
 			http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 			http.DefaultTransport.(*http.Transport).Proxy = http.ProxyURL(proxyURL)
+		}
+
+		if email != "" && password != "" && token == "" {
+			token = bugcrowd.Login(email, password)
 		}
 
 		if !list {
@@ -52,4 +60,11 @@ func init() {
 	bcCmd.Flags().IntP("concurrency", "", 2, "Concurrency")
 	bcCmd.Flags().BoolP("list", "l", false, "List programs instead of grabbing their scope")
 	bcCmd.Flags().StringP("proxy", "", "", "HTTP Proxy (Useful for debugging. Example: http://127.0.0.1:8080)")
+
+	bcCmd.Flags().StringP("email", "E", "", "Login email")
+	viper.BindPFlag("bugcrowd-email", bcCmd.Flags().Lookup("email"))
+
+	bcCmd.Flags().StringP("password", "P", "", "Login password")
+	viper.BindPFlag("bugcrowd-password", bcCmd.Flags().Lookup("password"))
+
 }
