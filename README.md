@@ -53,7 +53,7 @@ bbscope h1 -t <YOUR_TOKEN> -o t -c android
 ### Print all in-scope targets from all your HackerOne programs with extra data
 
 ```
-bbscope h1 -t <YOUR_TOKEN> -o -tdu -d ", "
+bbscope h1 -t <YOUR_TOKEN> -o tdu -d ", "
 ```
 
 This will print a list of in-scope targets from all your HackerOne programs (including public ones and VDPs) but, on the same line, it will also print the target description (when available) and the program's URL.
