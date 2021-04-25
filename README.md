@@ -22,50 +22,56 @@ How to get the session token:
 - Bugcrowd: login, then grab the `_crowdcontrol_session` cookie
 - Intigriti: login, then intercept a request to api.intigriti.com and look for the `Authentication: Bearer XXX` header. XXX is your token
 
-## Flags
+Remember that you can use the --help flag to get a description for all flags.
 
-HackerOne:
-```
-$ bbscope h1 --help
+## Examples
+Below you'll find some example commands.
+Keep in mind that all of them work with Bugcrowd and Intigriti subcommands (`bc` and `it`) as well, not just with `h1`.
 
-  -b, --bbpOnly             Only fetch programs offering monetary rewards
-  -c, --categories string   Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, other, hardware, code, executable) (default "all")
-  -d, --descToo             Also print the scope description (some URLs might be here)
-  -h, --help                help for h1
-  -l, --list                List programs instead of grabbing their scope
-      --noToken             Don't use a session token (aka public programs only)
-      --proxy string        HTTP Proxy (Useful for debugging. Example: http://127.0.0.1:8080)
-  -p, --pvtOnly             Only fetch data from private programs
-  -t, --token string        HackerOne session token (__Host-session cookie)
-  -u, --urlsToo             Also print the program URL (on each line)
+### Print all in-scope targets from all your HackerOne programs that offer rewards
 ```
-Bugcrowd:
+bbscope h1 -t <YOUR_TOKEN> -b -o t
 ```
-$ bbscope bc --help
-
-  -b, --bbpOnly             Only fetch programs offering monetary rewards
-  -c, --categories string   Scope categories, comma separated (Available: all, url, api, mobile, android, apple, other, hardware) (default "all")
-      --concurrency int     Concurrency (default 2)
-  -h, --help                help for bc
-  -l, --list                List programs instead of grabbing their scope
-      --proxy string        HTTP Proxy (Useful for debugging. Example: http://127.0.0.1:8080)
-  -p, --pvtOnly             Only fetch data from private programs
-  -t, --token string        Bugcrowd session token (_crowdcontrol_session cookie)
-  -u, --urlsToo             Also print the program URL (on each line)
+The output will look like this:
+```
+app.example.com
+*.user.example.com
+*.demo.com
+www.something.com
 ```
 
-Intigriti:
+### Print all in-scope targets from all your private HackerOne programs that offer rewards
 ```
-$ bbscope it --help
+bbscope h1 -t <YOUR_TOKEN> -b -p -o t
+```
 
-  -b, --bbpOnly             Only fetch programs offering monetary rewards
-  -c, --categories string   Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, device, other) (default "all")
-  -h, --help                help for it
-  -l, --list                List programs instead of grabbing their scope
-      --proxy string        HTTP Proxy (Useful for debugging. Example: http://127.0.0.1:8080)
-  -p, --pvtOnly             Only fetch data from private programs
-  -t, --token string        Intigriti Authentication Bearer Token (From api.intigriti.com)
-  -u, --urlsToo             Also print the program URL (on each line)
+### Print all in-scope Android APKs from all your HackerOne programs
+```
+bbscope h1 -t <YOUR_TOKEN> -o t -c android
+```
+
+
+### Print all in-scope targets from all your HackerOne programs with extra data
+
+```
+bbscope h1 -t <YOUR_TOKEN> -o -tdu -d ", "
+```
+
+This will print a list of in-scope targets from all your HackerOne programs (including public ones and VDPs) but, on the same line, it will also print the target description (when available) and the program's URL.
+It might look like this:
+```
+something.com, Something's main website, https://hackerone.com/something
+*.demo.com, All assets owned by Demo are in scope, https://hackerone.com/demo
+```
+### Get program URLs for your HackerOne private programs
+
+```
+bbscope h1 -t <YOUR_TOKEN> -o u | sort -u
+```
+You'll get a list like this:
+```
+https://hackerone.com/demo
+https://hackerone.com/something
 ```
 
 ## Beware of scope oddities
@@ -80,7 +86,7 @@ A few programs that do this are:
 - [Verizon Media](https://hackerone.com/verizonmedia/?type=team)
 - [Mail.ru](https://hackerone.com/mailru)
 
-If you want to grep those URLs as well, you **MUST** use the `--descToo` flag.
+If you want to grep those URLs as well, you **MUST** include `d` in the printing options flag (`-o`).
 
 Sometimes it gets even stranger: [Spotify](https://hackerone.com/spotify) uses titles of the in-scope table to list wildcards, but then lists the actually in-scope subdomains in the targets description.
 
