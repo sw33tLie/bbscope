@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/sw33tLie/bbscope/internal/scope"
 	"github.com/tidwall/gjson"
 )
 
@@ -24,6 +25,7 @@ func Login(email string, password string) string {
 	// Send GET to https://bugcrowd.com/user/sign_in
 	// Get _crowdcontrol_session cookie
 	// Get <meta name="csrf-token" content="Da...ktOQ==" />
+	// Still under development
 
 	req, err := http.NewRequest("GET", BUGCROWD_LOGIN_PAGE, nil)
 	if err != nil {
@@ -106,7 +108,7 @@ func Login(email string, password string) string {
 	return sessionToken
 }
 
-func GetProgramPagePaths(sessionToken string, bbpOnly bool, pvtOnly bool) []string {
+func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string {
 	allProgramsCount := 0
 	currentProgramIndex := 0
 	listEndpointURL := "https://bugcrowd.com/programs.json?"
@@ -126,7 +128,7 @@ func GetProgramPagePaths(sessionToken string, bbpOnly bool, pvtOnly bool) []stri
 		}
 
 		req.Header.Set("Cookie", "_crowdcontrol_session="+sessionToken)
-		req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:82.0) Gecko/20100101 Firefox/82.0")
+		req.Header.Set("User-Agent", USER_AGENT)
 
 		client := &http.Client{}
 		resp, err := client.Do(req)
@@ -155,14 +157,16 @@ func GetProgramPagePaths(sessionToken string, bbpOnly bool, pvtOnly bool) []stri
 	return paths
 }
 
-func PrintProgramScope(url string, token string, categories string, urlsToo bool) {
-	req, err := http.NewRequest("GET", url, nil)
+func GetProgramScope(handle string, categories string, token string) (pData scope.ProgramData) {
+	pData.Url = "https://bugcrowd.com" + handle
+
+	req, err := http.NewRequest("GET", pData.Url, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	req.Header.Set("Cookie", "_crowdcontrol_session="+token)
-	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:82.0) Gecko/20100101 Firefox/82.0")
+	req.Header.Set("User-Agent", USER_AGENT)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -174,7 +178,6 @@ func PrintProgramScope(url string, token string, categories string, urlsToo bool
 
 	// Times @arcwhite broke our HTML parsing: #1 and counting :D
 
-	var scope []string
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
 	if err != nil {
 		fmt.Println("No url found")
@@ -184,7 +187,7 @@ func PrintProgramScope(url string, token string, categories string, urlsToo bool
 	doc.Find(".react-component-researcher-target-groups").Each(func(index int, s *goquery.Selection) {
 		json, ok := s.Attr("data-react-props")
 		if !ok {
-			log.Fatal("Error parsing HTML of", url)
+			log.Fatal("Error parsing HTML of ", pData.Url)
 		}
 
 		for _, scopeElement := range gjson.Get(string(json), "groups.#(in_scope==true).targets").Array() {
@@ -193,9 +196,6 @@ func PrintProgramScope(url string, token string, categories string, urlsToo bool
 				categories []string
 			}
 			currentTarget.line = scopeElement.Map()["name"].Str
-			if urlsToo {
-				currentTarget.line += " " + url
-			}
 
 			for _, x := range scopeElement.Map()["target"].Map() {
 				for _, y := range x.Array() {
@@ -214,20 +214,18 @@ func PrintProgramScope(url string, token string, categories string, urlsToo bool
 					}
 
 					if catMatches {
-						scope = append(scope, currentTarget.line)
+						pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: "", Category: strings.Join(currentTarget.categories, " ")})
 						break
 					}
 				}
 			} else {
-				scope = append(scope, currentTarget.line)
+				pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: "", Category: strings.Join(currentTarget.categories, " ")})
 			}
 
 		}
 	})
 
-	for _, s := range scope {
-		fmt.Println(s)
-	}
+	return pData
 }
 
 func GetCategories(input string) []string {
@@ -249,42 +247,50 @@ func GetCategories(input string) []string {
 	return selectedCategory
 }
 
-// GetScope fetches the scope for all programs
-func GetScope(token string, bbpOnly bool, pvtOnly bool, categories string, urlsToo bool, concurrency int) {
-	programPaths := GetProgramPagePaths(token, bbpOnly, pvtOnly)
+func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories string, concurrency int) (programs []scope.ProgramData) {
+	programHandles := GetProgramHandles(token, bbpOnly, pvtOnly)
 
-	urls := make(chan string, concurrency)
+	handles := make(chan string, concurrency)
 	processGroup := new(sync.WaitGroup)
 	processGroup.Add(concurrency)
 
 	for i := 0; i < concurrency; i++ {
 		go func() {
 			for {
-				url := <-urls
+				handle := <-handles
 
-				if url == "" {
+				if handle == "" {
 					break
 				}
 
-				PrintProgramScope(url, token, categories, urlsToo)
+				programs = append(programs, GetProgramScope(handle, categories, token))
 			}
 			processGroup.Done()
 		}()
 	}
 
-	for _, path := range programPaths {
-		urls <- "https://bugcrowd.com" + path
+	for _, handle := range programHandles {
+		handles <- handle
 	}
 
-	close(urls)
+	close(handles)
 	processGroup.Wait()
-
+	return programs
 }
 
+// PrintAllScope prints to stdout all scope elements of all targets
+func PrintAllScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, delimiter string, concurrency int) {
+	programs := GetAllProgramsScope(token, bbpOnly, pvtOnly, categories, concurrency)
+	for _, pData := range programs {
+		scope.PrintProgramScope(pData, outputFlags, delimiter)
+	}
+}
+
+/*
 // ListPrograms prints a list of available programs
 func ListPrograms(token string, bbpOnly bool, pvtOnly bool) {
 	programPaths := GetProgramPagePaths(token, bbpOnly, pvtOnly)
 	for _, path := range programPaths {
 		fmt.Println("https://bugcrowd.com" + path)
 	}
-}
+}*/

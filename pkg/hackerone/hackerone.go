@@ -2,13 +2,13 @@ package hackerone
 
 import (
 	"bytes"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"strings"
 	"sync"
 
+	"github.com/sw33tLie/bbscope/internal/scope"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -18,17 +18,6 @@ const (
 	H1_GRAPHQL_ENDPOINT       = "https://hackerone.com/graphql"
 	USER_AGENT                = "Mozilla/5.0 (X11; Linux x86_64; rv:82.0) Gecko/20100101 Firefox/82.0"
 )
-
-type Program struct {
-	handle     string
-	inScope    []string
-	outOfScope []string
-}
-
-type programsData struct {
-	mu      sync.Mutex
-	handles []Program
-}
 
 // GetGraphQLToken gets a GraphQL token by using the session cookie
 func GetGraphQLToken(cookie string) string {
@@ -53,9 +42,8 @@ func GetGraphQLToken(cookie string) string {
 	return string(gjson.Get(string(body), "graphql_token").Str)
 }
 
-func getProgramScope(graphQLToken string, handle string, bbpOnly bool, pvtOnly bool, categories []string, descToo bool) Program {
-	var p Program
-	p.handle = handle
+func getProgramScope(graphQLToken string, handle string, bbpOnly bool, pvtOnly bool, categories []string) (pData scope.ProgramData) {
+	pData.Url = "https://hackerone.com/" + handle
 
 	scopeQuery := `{
 		"query":"query Team_assets($first_0:Int!) {query {id,...F0}} fragment F0 on Query {me {_membership_A:membership(team_handle:\"__REPLACEME__\") {permissions,id},id},_team_A:team(handle:\"__REPLACEME__\") {handle,_structured_scope_versions_A:structured_scope_versions(archived:false) {max_updated_at},_structured_scopes_B:structured_scopes(first:$first_0,archived:false,eligible_for_submission:true) {edges {node {id,asset_type,asset_identifier,instruction,max_severity,eligible_for_bounty},cursor},pageInfo {hasNextPage,hasPreviousPage}},_structured_scopes_C:structured_scopes(first:$first_0,archived:false,eligible_for_submission:false) {edges {node {id,asset_type,asset_identifier,instruction},cursor},pageInfo {hasNextPage,hasPreviousPage}},id},id}",
@@ -96,19 +84,22 @@ func getProgramScope(graphQLToken string, handle string, bbpOnly bool, pvtOnly b
 		}
 		if catFound {
 			if !bbpOnly || (bbpOnly && gjson.Get(edge.Raw, "node.eligible_for_bounty").Bool()) {
-				if !descToo {
-					p.inScope = append(p.inScope, gjson.Get(edge.Raw, "node.asset_identifier").Str)
-				} else {
-					desc := gjson.Get(edge.Raw, "node.instruction").Str
-					if desc != "" {
-						desc = " => " + strings.ReplaceAll(desc, "\n", " ")
-					}
-					p.inScope = append(p.inScope, gjson.Get(edge.Raw, "node.asset_identifier").Str+desc)
-				}
+				pData.InScope = append(pData.InScope, scope.ScopeElement{
+					Target:      gjson.Get(edge.Raw, "node.asset_identifier").Str,
+					Description: strings.ReplaceAll(gjson.Get(edge.Raw, "node.instruction").Str, "\n", "  "),
+					Category:    "", // TODO
+				})
+
+				/*
+					if !descToo {
+						p.inScope = append(p.inScope)
+					} else {
+						p.inScope = append(p.inScope, gjson.Get(edge.Raw, "node.asset_identifier").Str+desc)
+					}*/
 			}
 		}
 	}
-	return p
+	return pData
 }
 
 func getCategories(input string) []string {
@@ -206,10 +197,8 @@ func getProgramHandles(graphQLToken string, pvtOnly bool) []string {
 	return programHandles
 }
 
-// GetAllScope returns an array of programs data
-func GetAllScope(graphQLToken string, bbpOnly bool, pvtOnly bool, categories string, descToo bool) []Program {
-	var pData programsData
-
+// GetAllProgramsScope xxx
+func GetAllProgramsScope(graphQLToken string, bbpOnly bool, pvtOnly bool, categories string) (programs []scope.ProgramData) {
 	programHandles := getProgramHandles(graphQLToken, pvtOnly)
 	threads := 50
 	handleIndices := make(chan int, threads)
@@ -225,11 +214,7 @@ func GetAllScope(graphQLToken string, bbpOnly bool, pvtOnly bool, categories str
 					break
 				}
 
-				temp := getProgramScope(graphQLToken, programHandles[handleIndex], bbpOnly, pvtOnly, getCategories(categories), descToo)
-				pData.mu.Lock()
-				pData.handles = append(pData.handles, temp)
-				pData.mu.Unlock()
-
+				programs = append(programs, getProgramScope(graphQLToken, programHandles[handleIndex], bbpOnly, pvtOnly, getCategories(categories)))
 			}
 			processGroup.Done()
 		}()
@@ -242,12 +227,11 @@ func GetAllScope(graphQLToken string, bbpOnly bool, pvtOnly bool, categories str
 	close(handleIndices)
 	processGroup.Wait()
 
-	return pData.handles
-
+	return programs
 }
 
-// PrintScope prints to stdout all the scope targets
-func PrintScope(h1Token string, bbpOnly bool, pvtOnly bool, categories string, descToo bool, urlsToo bool, noToken bool) {
+// PrintAllScope prints to stdout all scope elements of all targets
+func PrintAllScope(h1Token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, delimiter string, noToken bool) {
 	graphQLToken := ""
 	if !noToken {
 		graphQLToken = GetGraphQLToken(h1Token)
@@ -257,18 +241,13 @@ func PrintScope(h1Token string, bbpOnly bool, pvtOnly bool, categories string, d
 		}
 	}
 
-	programs := GetAllScope(graphQLToken, bbpOnly, pvtOnly, categories, descToo)
-	for _, program := range programs {
-		for _, target := range program.inScope {
-			if urlsToo {
-				fmt.Println(target + " https://hackerone.com/" + program.handle)
-			} else {
-				fmt.Println(target)
-			}
-		}
+	programs := GetAllProgramsScope(graphQLToken, bbpOnly, pvtOnly, categories)
+	for _, pData := range programs {
+		scope.PrintProgramScope(pData, outputFlags, delimiter)
 	}
 }
 
+/*
 func ListPrograms(h1Token string, bbpOnly bool, pvtOnly bool, categories string, noToken bool) {
 	graphQLToken := ""
 	if !noToken {
@@ -286,9 +265,9 @@ func ListPrograms(h1Token string, bbpOnly bool, pvtOnly bool, categories string,
 			fmt.Println("https://hackerone.com/" + handle)
 		}
 	} else {
-		programs := GetAllScope(graphQLToken, bbpOnly, pvtOnly, categories, false)
+		programs := GetAllProgramsScope(graphQLToken, bbpOnly, pvtOnly, categories, false)
 		for _, program := range programs {
 			fmt.Println("https://hackerone.com/" + program.handle)
 		}
 	}
-}
+}*/

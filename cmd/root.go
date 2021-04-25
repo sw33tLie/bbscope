@@ -35,6 +35,13 @@ func init() {
 	cobra.OnInitialize(initConfig)
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.bbscope.yaml)")
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+
+	// Global flags
+	rootCmd.PersistentFlags().StringP("proxy", "", "", "HTTP Proxy (Useful for debugging. Example: http://127.0.0.1:8080)")
+	rootCmd.PersistentFlags().StringP("output", "o", "t", "Output flags. Supported: t (target), d (target description), c (category), u (program URL). Can be combined. Example: -o tdu")
+	rootCmd.PersistentFlags().StringP("delimiter", "d", " ", "Delimiter character used when printing multiple data using the output flag")
+	rootCmd.PersistentFlags().BoolP("bbpOnly", "b", false, "Only fetch programs offering monetary rewards")
+	rootCmd.PersistentFlags().BoolP("pvtOnly", "p", false, "Only fetch data from private programs")
 }
 
 // initConfig reads in config file and ENV variables if set.

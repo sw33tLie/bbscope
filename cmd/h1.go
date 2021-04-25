@@ -17,14 +17,14 @@ var h1Cmd = &cobra.Command{
 	Long:  "Gathers data from HackerOne (https://hackerone.com/)",
 	Run: func(cmd *cobra.Command, args []string) {
 		token, _ := cmd.Flags().GetString("token")
-		bbpOnly, _ := cmd.Flags().GetBool("bbpOnly")
-		pvtOnly, _ := cmd.Flags().GetBool("pvtOnly")
 		categories, _ := cmd.Flags().GetString("categories")
-		descToo, _ := cmd.Flags().GetBool("descToo")
-		urlsToo, _ := cmd.Flags().GetBool("urlsToo")
 		noToken, _ := cmd.Flags().GetBool("noToken")
-		list, _ := cmd.Flags().GetBool("list")
-		proxy, _ := cmd.Flags().GetString("proxy")
+
+		outputFlags, _ := rootCmd.PersistentFlags().GetString("output")
+		delimiterCharacter, _ := rootCmd.PersistentFlags().GetString("delimiter")
+		proxy, _ := rootCmd.PersistentFlags().GetString("proxy")
+		bbpOnly, _ := rootCmd.Flags().GetBool("bbpOnly")
+		pvtOnly, _ := rootCmd.Flags().GetBool("pvtOnly")
 
 		if proxy != "" {
 			proxyURL, err := url.Parse(proxy)
@@ -35,23 +35,13 @@ var h1Cmd = &cobra.Command{
 			http.DefaultTransport.(*http.Transport).Proxy = http.ProxyURL(proxyURL)
 		}
 
-		if !list {
-			hackerone.PrintScope(token, bbpOnly, pvtOnly, categories, descToo, urlsToo, noToken)
-		} else {
-			hackerone.ListPrograms(token, bbpOnly, pvtOnly, categories, noToken)
-		}
+		hackerone.PrintAllScope(token, bbpOnly, pvtOnly, categories, outputFlags, delimiterCharacter, noToken)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(h1Cmd)
 	h1Cmd.Flags().StringP("token", "t", "", "HackerOne session token (__Host-session cookie)")
-	h1Cmd.Flags().BoolP("bbpOnly", "b", false, "Only fetch programs offering monetary rewards")
-	h1Cmd.Flags().BoolP("pvtOnly", "p", false, "Only fetch data from private programs")
 	h1Cmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, other, hardware, code, executable)")
-	h1Cmd.Flags().BoolP("descToo", "d", false, "Also print the scope description (some URLs might be here)")
-	h1Cmd.Flags().BoolP("urlsToo", "u", false, "Also print the program URL (on each line)")
 	h1Cmd.Flags().BoolP("noToken", "", false, "Don't use a session token (aka public programs only)")
-	h1Cmd.Flags().BoolP("list", "l", false, "List programs instead of grabbing their scope")
-	h1Cmd.Flags().StringP("proxy", "", "", "HTTP Proxy (Useful for debugging. Example: http://127.0.0.1:8080)")
 }
