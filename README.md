@@ -50,7 +50,6 @@ bbscope h1 -t <YOUR_TOKEN> -b -p -o t
 bbscope h1 -t <YOUR_TOKEN> -o t -c android
 ```
 
-
 ### Print all in-scope targets from all your HackerOne programs with extra data
 
 ```
@@ -66,7 +65,7 @@ something.com, Something's main website, https://hackerone.com/something
 ### Get program URLs for your HackerOne private programs
 
 ```
-bbscope h1 -t <YOUR_TOKEN> -o u | sort -u
+bbscope h1 -t <YOUR_TOKEN> -o u -p | sort -u
 ```
 You'll get a list like this:
 ```
