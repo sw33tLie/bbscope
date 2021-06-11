@@ -225,6 +225,10 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 		}
 	})
 
+	if len(pData.InScope) == 0 {
+		pData.InScope = append(pData.InScope, scope.ScopeElement{Target: "NO_IN_SCOPE_TABLE", Description: "", Category: ""})
+	}
+
 	return pData
 }
 

@@ -99,6 +99,10 @@ func getProgramScope(graphQLToken string, handle string, bbpOnly bool, pvtOnly b
 			}
 		}
 	}
+
+	if len(pData.InScope) == 0 {
+		pData.InScope = append(pData.InScope, scope.ScopeElement{Target: "NO_IN_SCOPE_TABLE", Description: "", Category: ""})
+	}
 	return pData
 }
 

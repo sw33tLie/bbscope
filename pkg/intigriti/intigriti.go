@@ -76,6 +76,11 @@ func GetProgramScope(token string, companyHandle string, programHandle string, c
 			})
 		}
 	}
+
+	if len(pData.InScope) == 0 {
+		pData.InScope = append(pData.InScope, scope.ScopeElement{Target: "NO_IN_SCOPE_TABLE", Description: "", Category: ""})
+	}
+
 	return pData
 	//return Program{companyHandle, programHandle, endpoints}
 }
