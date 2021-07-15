@@ -116,7 +116,7 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 		listEndpointURL = listEndpointURL + "accepted_invite[]=true&"
 	}
 	if bbpOnly {
-		listEndpointURL = listEndpointURL + "points_only[]=false&"
+		listEndpointURL = listEndpointURL + "vdp[]=false&"
 	}
 	listEndpointURL = listEndpointURL + "hidden[]=false&sort[]=invited-desc&sort[]=promoted-desc&offset[]="
 	paths := []string{}
