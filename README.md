@@ -15,10 +15,10 @@ GO111MODULE=on go get -u github.com/sw33tLie/bbscope
 
 ## Usage
 ```
-bbscope (h1|bc|it) -t <session-token> <other-flags>
+bbscope (h1|bc|it) -t <YOUR_TOKEN> <other-flags>
 ```
 How to get the session token:
-- HackerOne: login, then grab the `__Host-session` cookie
+- HackerOne: login, then grab your API token [here](https://hackerone.com/settings/api_token/edit)
 - Bugcrowd: login, then grab the `_crowdcontrol_session` cookie
 - Intigriti: login, then intercept a request to api.intigriti.com and look for the `Authentication: Bearer XXX` header. XXX is your token
 
