@@ -28,6 +28,14 @@ var h1Cmd = &cobra.Command{
 		bbpOnly, _ := rootCmd.Flags().GetBool("bbpOnly")
 		pvtOnly, _ := rootCmd.Flags().GetBool("pvtOnly")
 
+		if username == "" {
+			log.Fatal("Please provide your HackerOne username (-u flag)")
+		}
+
+		if token == "" {
+			log.Fatal("Please provide your HackerOne API token (-t flag)")
+		}
+
 		if pvtOnly && publicOnly {
 			log.Fatal("Both public programs only and privates only flag true")
 		}
