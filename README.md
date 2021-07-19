@@ -32,7 +32,7 @@ Keep in mind that all of them work with Bugcrowd and Intigriti subcommands (`bc`
 
 ### Print all in-scope targets from all your HackerOne programs that offer rewards
 ```
-bbscope h1 -t <YOUR_TOKEN> -b -o t
+bbscope h1 -t <YOUR_TOKEN> -u <YOUR_H1_USERNAME> -b -o t
 ```
 The output will look like this:
 ```
@@ -42,20 +42,20 @@ app.example.com
 www.something.com
 ```
 
-### Print all in-scope targets from all your private HackerOne programs that offer rewards
+### Print all in-scope targets from all your private Bugcrowd programs that offer rewards
 ```
-bbscope h1 -t <YOUR_TOKEN> -b -p -o t
+bbscope bc -t <YOUR_TOKEN> -b -p -o t
 ```
 
 ### Print all in-scope Android APKs from all your HackerOne programs
 ```
-bbscope h1 -t <YOUR_TOKEN> -o t -c android
+bbscope h1 -t <YOUR_TOKEN> -u <YOUR_H1_USERNAME> -o t -c android
 ```
 
 ### Print all in-scope targets from all your HackerOne programs with extra data
 
 ```
-bbscope h1 -t <YOUR_TOKEN> -o tdu -d ", "
+bbscope h1 -t <YOUR_TOKEN> -u <YOUR_H1_USERNAME> -o tdu -d ", "
 ```
 
 This will print a list of in-scope targets from all your HackerOne programs (including public ones and VDPs) but, on the same line, it will also print the target description (when available) and the program's URL.
@@ -67,7 +67,7 @@ something.com, Something's main website, https://hackerone.com/something
 ### Get program URLs for your HackerOne private programs
 
 ```
-bbscope h1 -t <YOUR_TOKEN> -o u -p | sort -u
+bbscope h1 -t <YOUR_TOKEN> -u <YOUR_H1_USERNAME> -o u -p | sort -u
 ```
 You'll get a list like this:
 ```
