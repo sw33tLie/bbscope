@@ -22,6 +22,8 @@ How to get the session token:
 - Bugcrowd: login, then grab the `_crowdcontrol_session` cookie
 - Intigriti: login, then intercept a request to api.intigriti.com and look for the `Authentication: Bearer XXX` header. XXX is your token
 
+When using bbscope for HackerOne, the username flag (`-u`) is mandatory.
+
 Remember that you can use the --help flag to get a description for all flags.
 
 ## Examples
