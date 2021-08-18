@@ -190,36 +190,40 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 			log.Fatal("Error parsing HTML of ", pData.Url)
 		}
 
-		for _, scopeElement := range gjson.Get(string(json), "groups.#(in_scope==true).targets").Array() {
-			var currentTarget struct {
-				line       string
-				categories []string
-			}
-			currentTarget.line = scopeElement.Map()["name"].Str
+		for _, scopeElement := range gjson.Get(string(json), "groups.#(in_scope==true)#.targets").Array() {
 
-			for _, x := range scopeElement.Map()["target"].Map() {
-				for _, y := range x.Array() {
-					currentTarget.categories = append(currentTarget.categories, y.Map()["name"].Str)
+			for _, e := range scopeElement.Array() {
+
+				var currentTarget struct {
+					line       string
+					categories []string
 				}
-			}
+				currentTarget.line = strings.TrimSpace(gjson.Get(e.Raw, "name").Str)
 
-			if categories != "all" {
-				catMatches := false
-				for _, cat := range GetCategories(categories) {
-					for _, cCat := range currentTarget.categories {
-						if cat == cCat {
-							catMatches = true
+				for _, x := range gjson.Get(e.Raw, "target").Map() {
+					for _, y := range x.Array() {
+						currentTarget.categories = append(currentTarget.categories, y.Map()["name"].Str)
+					}
+				}
+
+				if categories != "all" {
+					catMatches := false
+					for _, cat := range GetCategories(categories) {
+						for _, cCat := range currentTarget.categories {
+							if cat == cCat {
+								catMatches = true
+								break
+							}
+						}
+
+						if catMatches {
+							pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: "", Category: strings.Join(currentTarget.categories, " ")})
 							break
 						}
 					}
-
-					if catMatches {
-						pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: "", Category: strings.Join(currentTarget.categories, " ")})
-						break
-					}
+				} else {
+					pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: "", Category: strings.Join(currentTarget.categories, " ")})
 				}
-			} else {
-				pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: "", Category: strings.Join(currentTarget.categories, " ")})
 			}
 
 		}
