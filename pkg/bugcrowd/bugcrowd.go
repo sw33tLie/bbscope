@@ -96,7 +96,7 @@ func Login(email string, password string) string {
 	sessionToken := ""
 	for _, cookie := range resp2.Header["Set-Cookie"] {
 		if strings.HasPrefix(cookie, "_crowdcontrol_session") {
-			sessionToken = cookie
+			sessionToken = strings.TrimPrefix(cookie, "_crowdcontrol_session=")
 			break
 		}
 	}
