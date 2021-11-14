@@ -88,7 +88,7 @@ func getCategories(input string) []string {
 	return selectedCategory
 }
 
-func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool) (handles []string) {
+func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, active bool) (handles []string) {
 	currentURL := "https://api.hackerone.com/v1/hackers/programs"
 	for {
 		req, err := http.NewRequest("GET", currentURL, nil)
@@ -118,11 +118,23 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool) (han
 
 			if !publicOnly {
 				if !pvtOnly || (pvtOnly && gjson.Get(string(body), "data."+strconv.Itoa(i)+".attributes.state").Str == "soft_launched") {
-					handles = append(handles, handle.Str)
+					if active {
+						if gjson.Get(string(body), "data."+strconv.Itoa(i)+".attributes.submission_state").Str == "open" {
+							handles = append(handles, handle.Str)
+						}
+					} else {
+						handles = append(handles, handle.Str)
+					}
 				}
 			} else {
 				if gjson.Get(string(body), "data."+strconv.Itoa(i)+".attributes.state").Str == "public_mode" {
-					handles = append(handles, handle.Str)
+					if active {
+						if gjson.Get(string(body), "data."+strconv.Itoa(i)+".attributes.submission_state").Str == "open" {
+							handles = append(handles, handle.Str)
+						}
+					} else {
+						handles = append(handles, handle.Str)
+					}
 				}
 			}
 		}
@@ -139,8 +151,8 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool) (han
 }
 
 // GetAllProgramsScope xxx
-func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string) (programs []scope.ProgramData) {
-	programHandles := getProgramHandles(authorization, pvtOnly, publicOnly)
+func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, active bool) (programs []scope.ProgramData) {
+	programHandles := getProgramHandles(authorization, pvtOnly, publicOnly, active)
 	threads := 50
 	ids := make(chan string, threads)
 	processGroup := new(sync.WaitGroup)
@@ -172,8 +184,8 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 }
 
 // PrintAllScope prints to stdout all scope elements of all targets
-func PrintAllScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, outputFlags string, delimiter string) {
-	programs := GetAllProgramsScope(authorization, bbpOnly, pvtOnly, publicOnly, categories)
+func PrintAllScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, outputFlags string, delimiter string, active bool) {
+	programs := GetAllProgramsScope(authorization, bbpOnly, pvtOnly, publicOnly, categories, active)
 	for _, pData := range programs {
 		scope.PrintProgramScope(pData, outputFlags, delimiter)
 	}

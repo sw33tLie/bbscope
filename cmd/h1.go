@@ -21,6 +21,7 @@ var h1Cmd = &cobra.Command{
 		username, _ := cmd.Flags().GetString("username")
 		categories, _ := cmd.Flags().GetString("categories")
 		publicOnly, _ := cmd.Flags().GetBool("public-only")
+		active, _ := cmd.Flags().GetBool("active-only")
 
 		outputFlags, _ := rootCmd.PersistentFlags().GetString("output")
 		delimiterCharacter, _ := rootCmd.PersistentFlags().GetString("delimiter")
@@ -49,7 +50,7 @@ var h1Cmd = &cobra.Command{
 			http.DefaultTransport.(*http.Transport).Proxy = http.ProxyURL(proxyURL)
 		}
 
-		hackerone.PrintAllScope(b64.StdEncoding.EncodeToString([]byte(username+":"+token)), bbpOnly, pvtOnly, publicOnly, categories, outputFlags, delimiterCharacter)
+		hackerone.PrintAllScope(b64.StdEncoding.EncodeToString([]byte(username+":"+token)), bbpOnly, pvtOnly, publicOnly, categories, outputFlags, delimiterCharacter, active)
 	},
 }
 
@@ -59,5 +60,5 @@ func init() {
 	h1Cmd.Flags().StringP("token", "t", "", "HackerOne API token, get it here: https://hackerone.com/settings/api_token/edit")
 	h1Cmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, other, hardware, code, executable)")
 	h1Cmd.Flags().BoolP("public-only", "", false, "Only print scope for public programs")
-
+	h1Cmd.Flags().BoolP("active-only", "a", false, "Show only active programs")
 }
