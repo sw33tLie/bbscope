@@ -2,7 +2,6 @@ package bugcrowd
 
 import (
 	"bytes"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -158,7 +157,7 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 }
 
 func GetProgramScope(handle string, categories string, token string) (pData scope.ProgramData) {
-	pData.Url = "https://bugcrowd.com" + handle
+	pData.Url = "https://bugcrowd.com" + handle + "/target_groups"
 
 	req, err := http.NewRequest("GET", pData.Url, nil)
 	if err != nil {
@@ -167,6 +166,8 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 
 	req.Header.Set("Cookie", "_crowdcontrol_session="+token)
 	req.Header.Set("User-Agent", USER_AGENT)
+	req.Header.Set("Accept", "*/*")
+
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -176,58 +177,54 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 
 	body, _ := ioutil.ReadAll(resp.Body)
 
-	// Times @arcwhite broke our HTML parsing: #1 and counting :D
+	// Times @arcwhite broke our code: #2 and counting :D
 
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
-	if err != nil {
-		fmt.Println("No url found")
-		log.Fatal(err)
-	}
-
-	doc.Find(".react-component-researcher-target-groups").Each(func(index int, s *goquery.Selection) {
-		json, ok := s.Attr("data-react-props")
-		if !ok {
-			log.Fatal("Error parsing HTML of ", pData.Url)
+	for _, scopeTableURL := range gjson.Get(string(body), "groups.#(in_scope==true)#.targets_url").Array() {
+		// Send HTTP request for each table
+		req2, err := http.NewRequest("GET", "https://bugcrowd.com"+scopeTableURL.String(), nil)
+		if err != nil {
+			log.Fatal(err)
 		}
 
-		for _, scopeElement := range gjson.Get(string(json), "groups.#(in_scope==true)#.targets").Array() {
+		req2.Header.Set("Cookie", "_crowdcontrol_session="+token)
+		req2.Header.Set("User-Agent", USER_AGENT)
+		req2.Header.Set("Accept", "*/*")
 
-			for _, e := range scopeElement.Array() {
+		resp2, err := client.Do(req2)
+		if err != nil {
+			panic(err)
+		}
 
-				var currentTarget struct {
-					line       string
-					categories []string
-				}
-				currentTarget.line = strings.TrimSpace(gjson.Get(e.Raw, "name").Str)
+		defer resp2.Body.Close()
+		body2, _ := ioutil.ReadAll(resp2.Body)
 
-				for _, x := range gjson.Get(e.Raw, "target").Map() {
-					for _, y := range x.Array() {
-						currentTarget.categories = append(currentTarget.categories, y.Map()["name"].Str)
-					}
-				}
-
-				if categories != "all" {
-					catMatches := false
-					for _, cat := range GetCategories(categories) {
-						for _, cCat := range currentTarget.categories {
-							if cat == cCat {
-								catMatches = true
-								break
-							}
-						}
-
-						if catMatches {
-							pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: "", Category: strings.Join(currentTarget.categories, " ")})
-							break
-						}
-					}
-				} else {
-					pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: "", Category: strings.Join(currentTarget.categories, " ")})
-				}
+		chunkData := gjson.GetMany(string(body2), "targets.#.name", "targets.#.category", "targets.#.description")
+		for i := 0; i < len(chunkData[0].Array()); i++ {
+			var currentTarget struct {
+				line     string
+				category string
 			}
+			currentTarget.line = strings.TrimSpace(chunkData[0].Array()[i].String())
+			currentTarget.category = chunkData[1].Array()[i].String()
 
+			if categories != "all" {
+				catMatches := false
+				for _, cat := range GetCategories(categories) {
+					if cat == currentTarget.category {
+						catMatches = true
+						break
+					}
+
+					if catMatches {
+						pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: chunkData[2].Array()[i].String(), Category: currentTarget.category})
+						break
+					}
+				}
+			} else {
+				pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: chunkData[2].Array()[i].String(), Category: currentTarget.category})
+			}
 		}
-	})
+	}
 
 	if len(pData.InScope) == 0 {
 		pData.InScope = append(pData.InScope, scope.ScopeElement{Target: "NO_IN_SCOPE_TABLE", Description: "", Category: ""})
@@ -238,14 +235,13 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 
 func GetCategories(input string) []string {
 	categories := map[string][]string{
-		"url":      {"Website Testing"},
-		"api":      {"API Testing"},
-		"mobile":   {"Android", "iOS"},
-		"android":  {"Android"},
-		"apple":    {"iOS"},
-		"other":    {"Other"},
-		"hardware": {"Hardware Testing"},
-		"all":      {},
+		"url":      {"website"},
+		"api":      {"api"},
+		"mobile":   {"android", "ios"},
+		"android":  {"android"},
+		"apple":    {"ios"},
+		"other":    {"other"},
+		"hardware": {"hardware"},
 	}
 
 	selectedCategory, ok := categories[strings.ToLower(input)]
