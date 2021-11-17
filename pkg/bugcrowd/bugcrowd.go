@@ -157,9 +157,9 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 }
 
 func GetProgramScope(handle string, categories string, token string) (pData scope.ProgramData) {
-	pData.Url = "https://bugcrowd.com" + handle + "/target_groups"
+	pData.Url = "https://bugcrowd.com" + handle
 
-	req, err := http.NewRequest("GET", pData.Url, nil)
+	req, err := http.NewRequest("GET", pData.Url+"/target_groups", nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -179,6 +179,7 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 
 	// Times @arcwhite broke our code: #2 and counting :D
 
+	noScopeTable := true
 	for _, scopeTableURL := range gjson.Get(string(body), "groups.#(in_scope==true)#.targets_url").Array() {
 		// Send HTTP request for each table
 		req2, err := http.NewRequest("GET", "https://bugcrowd.com"+scopeTableURL.String(), nil)
@@ -209,24 +210,23 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 
 			if categories != "all" {
 				catMatches := false
-				for _, cat := range GetCategories(categories) {
-					if cat == currentTarget.category {
-						catMatches = true
-						break
-					}
-
-					if catMatches {
-						pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: chunkData[2].Array()[i].String(), Category: currentTarget.category})
-						break
-					}
+				if currentTarget.category == GetCategories(categories)[0] {
+					catMatches = true
 				}
+
+				if catMatches {
+					pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: chunkData[2].Array()[i].String(), Category: currentTarget.category})
+				}
+
 			} else {
 				pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: chunkData[2].Array()[i].String(), Category: currentTarget.category})
 			}
+
 		}
+		noScopeTable = false
 	}
 
-	if len(pData.InScope) == 0 {
+	if noScopeTable {
 		pData.InScope = append(pData.InScope, scope.ScopeElement{Target: "NO_IN_SCOPE_TABLE", Description: "", Category: ""})
 	}
 
