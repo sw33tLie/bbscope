@@ -1,5 +1,5 @@
 # bbscope
-The ultimate scope gathering tool for HackerOne, Bugcrowd, and Intigriti by sw33tLie.
+The ultimate scope gathering tool for [HackerOne](https://hackerone.com/), [Bugcrowd](https://bugcrowd.com/), [Intigriti](https://intigriti.com) and [Immunefi](https://immunefi.com/) by sw33tLie.
 
 Need to grep all the large scope domains that you've got on your bug bounty platforms? This is the right tool for the job.  
 What about getting a list of android apps that you are allowed to test? We've got you covered as well.
