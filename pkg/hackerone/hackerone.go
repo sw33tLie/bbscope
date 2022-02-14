@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sw33tLie/bbscope/internal/scope"
+	"github.com/sw33tLie/bbscope/pkg/scope"
 	"github.com/tidwall/gjson"
 )
 
