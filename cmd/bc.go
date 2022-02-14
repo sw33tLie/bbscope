@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/sw33tLie/bbscope/pkg/bugcrowd"
+	"github.com/sw33tLie/bbscope/pkg/platforms/bugcrowd"
 )
 
 // bcCmd represents the bc command

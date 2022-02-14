@@ -7,7 +7,7 @@ import (
 	"net/url"
 
 	"github.com/spf13/cobra"
-	"github.com/sw33tLie/bbscope/pkg/intigriti"
+	"github.com/sw33tLie/bbscope/pkg/platforms/intigriti"
 )
 
 // itCmd represents the it command

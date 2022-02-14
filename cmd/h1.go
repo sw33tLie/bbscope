@@ -8,7 +8,7 @@ import (
 	"net/url"
 
 	"github.com/spf13/cobra"
-	"github.com/sw33tLie/bbscope/pkg/hackerone"
+	"github.com/sw33tLie/bbscope/pkg/platforms/hackerone"
 )
 
 // h1Cmd represents the h1 command
