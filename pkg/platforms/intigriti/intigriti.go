@@ -138,11 +138,12 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 
 	body, _ := ioutil.ReadAll(resp.Body)
 
-	data := gjson.GetMany(string(body), "#.companyHandle", "#.handle", "#.maxBounty", "#.confidentialityLevel")
+	data := gjson.GetMany(string(body), "#.companyHandle", "#.handle", "#.minBounty.value", "#.confidentialityLevel")
 
 	allCompanyHandles := data[0].Array()
 	allHandles := data[1].Array()
 	allMinBounties := data[2].Array()
+
 	confidentialityLevels := data[3].Array()
 
 	for i := 0; i < len(allHandles); i++ {
