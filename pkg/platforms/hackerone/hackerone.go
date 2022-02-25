@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sw33tLie/bbscope/pkg/scope"
 	"github.com/tidwall/gjson"
@@ -14,6 +15,9 @@ import (
 
 const (
 	USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:82.0) Gecko/20100101 Firefox/82.0"
+	RATE_LIMIT_WAIT_TIME_SEC = 5
+	RATE_LIMIT_MAX_RETRIES = 10
+	RATE_LIMIT_HTTP_STATUS = 429
 )
 
 func getProgramScope(authorization string, id string, bbpOnly bool, categories []string) (pData scope.ProgramData) {
@@ -26,16 +30,34 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 	req.Header.Set("User-Agent", USER_AGENT)
 	req.Header.Set("Authorization", "Basic "+authorization)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		panic(err)
+	var resp *http.Response
+
+	var lastStatus int = -1
+	for i := 0; i < RATE_LIMIT_MAX_RETRIES; i++ {
+		client := &http.Client{}
+		resp2, err := client.Do(req)
+		if err != nil {
+			panic(err)
+		}
+		resp = resp2
+		lastStatus = resp.StatusCode
+		defer resp.Body.Close()
+		// exit the loop if we succeeded
+		if resp.StatusCode != RATE_LIMIT_HTTP_STATUS {
+			break
+		} else {
+				// encountered rate limit
+			time.Sleep(RATE_LIMIT_WAIT_TIME_SEC * time.Second)
+		}
 	}
-	defer resp.Body.Close()
+	if lastStatus > 200 {
+		// if we completed the requests with a final (non-429) status and we still failed
+		log.Fatal("Could not retrieve data for id ", id, " with status ", lastStatus)
+	}
 
 	body, _ := ioutil.ReadAll(resp.Body)
 
-	pData.Url = "https://hackerone.com/" + gjson.Get(string(body), "attributes.handle").Str
+	pData.Url = "https://hackerone.com/" + id
 
 	l := int(gjson.Get(string(body), "relationships.structured_scopes.data.#").Int())
 	for i := 0; i < l; i++ {
@@ -63,6 +85,7 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 	}
 	if l == 0 {
 		pData.InScope = append(pData.InScope, scope.ScopeElement{Target: "NO_IN_SCOPE_TABLE", Description: "", Category: ""})
+		// debugging fmt.Println("Missing Scope:", id, resp.StatusCode, string(body))
 	}
 	return pData
 }
@@ -108,6 +131,10 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 		defer resp.Body.Close()
 
 		body, _ := ioutil.ReadAll(resp.Body)
+
+		if(resp.StatusCode != 200) {
+			log.Fatal("Status Code:", resp.StatusCode)
+		}
 
 		if strings.Contains(string(body), ":401}") {
 			log.Fatal("Invalid username or token")
