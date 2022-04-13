@@ -20,6 +20,7 @@ var immunefiCmd = &cobra.Command{
 		categories, _ := cmd.Flags().GetString("categories")
 		outputFlags, _ := rootCmd.PersistentFlags().GetString("output")
 		delimiterCharacter, _ := rootCmd.PersistentFlags().GetString("delimiter")
+		concurrency, _ := cmd.Flags().GetInt("concurrency")
 
 		if proxy != "" {
 			proxyURL, err := url.Parse(proxy)
@@ -30,12 +31,13 @@ var immunefiCmd = &cobra.Command{
 			http.DefaultTransport.(*http.Transport).Proxy = http.ProxyURL(proxyURL)
 		}
 
-		immunefi.PrintAllScope(categories, outputFlags, delimiterCharacter)
+		immunefi.PrintAllScope(categories, outputFlags, delimiterCharacter, concurrency)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(immunefiCmd)
-	immunefiCmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, other, hardware, code, executable)")
+	immunefiCmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, web, contracts)")
+	immunefiCmd.Flags().IntP("concurrency", "", 40, "Concurrency threshold")
 
 }
