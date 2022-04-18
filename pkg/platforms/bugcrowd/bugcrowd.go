@@ -108,8 +108,9 @@ func Login(email string, password string) string {
 }
 
 func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string {
-	allProgramsCount := 0
-	currentProgramIndex := 0
+	totalPages := 0
+	pageIndex := 1
+
 	listEndpointURL := "https://bugcrowd.com/programs.json?"
 	if pvtOnly {
 		listEndpointURL = listEndpointURL + "accepted_invite[]=true&"
@@ -117,11 +118,12 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 	if bbpOnly {
 		listEndpointURL = listEndpointURL + "vdp[]=false&"
 	}
-	listEndpointURL = listEndpointURL + "hidden[]=false&sort[]=invited-desc&sort[]=promoted-desc&offset[]="
+	listEndpointURL = listEndpointURL + "hidden[]=false&sort[]=invited-desc&sort[]=promoted-desc&page[]="
 	paths := []string{}
 
 	for {
-		req, err := http.NewRequest("GET", listEndpointURL+strconv.Itoa(currentProgramIndex), nil)
+
+		req, err := http.NewRequest("GET", listEndpointURL+strconv.Itoa(pageIndex), nil)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -138,19 +140,21 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 
 		body, _ := ioutil.ReadAll(resp.Body)
 
-		if allProgramsCount == 0 {
-			allProgramsCount = int(gjson.Get(string(body), "meta.totalHits").Int())
+		if totalPages == 0 {
+			totalPages = int(gjson.Get(string(body), "meta.totalPages").Int())
 		}
 
 		chunkData := gjson.Get(string(body), "programs.#.program_url")
 		for i := 0; i < len(chunkData.Array()); i++ {
 			paths = append(paths, chunkData.Array()[i].Str)
 		}
-		currentProgramIndex += 25
 
-		if allProgramsCount <= currentProgramIndex {
+		pageIndex++
+
+		if pageIndex > totalPages {
 			break
 		}
+
 	}
 
 	return paths
