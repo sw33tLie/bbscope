@@ -11,4 +11,5 @@ require (
 	github.com/sw33tLie/fleex v0.0.0-20210708174758-524c14fa45e5 // indirect
 	github.com/tidwall/gjson v1.8.1
 	github.com/tidwall/sjson v1.1.6
+	golang.org/x/net v0.0.0-20210614182718-04defd469f4e // indirect
 )
