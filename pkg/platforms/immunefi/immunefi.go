@@ -111,7 +111,6 @@ func GetAllProgramsScope(categories string, concurrency int) (programs []scope.P
 				doc.Find("#__NEXT_DATA__").Each(func(index int, s *goquery.Selection) {
 					json := s.Contents().Text()
 					jsonProgram := gjson.Get(json, "props.pageProps.bounty.legacy")
-					//fmt.Println(jsonProgram)
 					var tempScope []scope.ScopeElement
 
 					for _, scopeElement := range gjson.Get(jsonProgram.Raw, "assets_in_scope").Array() {
