@@ -1,7 +1,6 @@
 package immunefi
 
 import (
-	"io/ioutil"
 	"log"
 	"net/http"
 	"strings"
@@ -9,11 +8,11 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/sw33tLie/bbscope/pkg/scope"
+	"github.com/sw33tLie/bbscope/pkg/whttp"
 	"github.com/tidwall/gjson"
 )
 
 const (
-	USER_AGENT   = "Mozilla/5.0 (X11; Linux x86_64; rv:82.0) Gecko/20100101 Firefox/82.0"
 	PLATFORM_URL = "https://immunefi.com"
 )
 
@@ -39,23 +38,21 @@ func getCategories(input string) []string {
 }
 
 func GetAllProgramsScope(categories string, concurrency int) (programs []scope.ProgramData) {
-	req, err := http.NewRequest("GET", PLATFORM_URL+"/explore/", nil)
+
+	res, err := whttp.SendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "GET",
+			URL:    PLATFORM_URL + "/explore/",
+			Headers: []whttp.WHTTPHeader{
+				{Name: "Accept", Value: "*/*"},
+			},
+		}, http.DefaultClient)
+
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("HTTP request failed: ", err)
 	}
 
-	req.Header.Set("User-Agent", USER_AGENT)
-	req.Header.Set("Accept", "*/*")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		panic(err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := ioutil.ReadAll(resp.Body)
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(res.BodyString))
 
 	if err != nil {
 		log.Fatal("Failed to parse HTML")
@@ -92,24 +89,20 @@ func GetAllProgramsScope(categories string, concurrency int) (programs []scope.P
 					break
 				}
 
-				req, err := http.NewRequest("GET", url, nil)
+				res, err := whttp.SendHTTPRequest(
+					&whttp.WHTTPReq{
+						Method: "GET",
+						URL:    url,
+						Headers: []whttp.WHTTPHeader{
+							{Name: "Accept", Value: "*/*"},
+						},
+					}, http.DefaultClient)
+
 				if err != nil {
-					log.Fatal(err)
+					log.Fatal("HTTP request failed: ", err)
 				}
 
-				req.Header.Set("User-Agent", USER_AGENT)
-				req.Header.Set("Accept", "*/*")
-
-				client := &http.Client{}
-				resp, err := client.Do(req)
-				if err != nil {
-					panic(err)
-				}
-				defer resp.Body.Close()
-
-				body, _ := ioutil.ReadAll(resp.Body)
-
-				doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
+				doc, err := goquery.NewDocumentFromReader(strings.NewReader(res.BodyString))
 
 				if err != nil {
 					log.Fatal("Failed to parse HTML")
