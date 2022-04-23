@@ -1,7 +1,6 @@
 package hackerone
 
 import (
-	"io/ioutil"
 	"log"
 	"net/http"
 	"strconv"
@@ -10,43 +9,41 @@ import (
 	"time"
 
 	"github.com/sw33tLie/bbscope/pkg/scope"
+	"github.com/sw33tLie/bbscope/pkg/whttp"
 	"github.com/tidwall/gjson"
 )
 
 const (
-	USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:82.0) Gecko/20100101 Firefox/82.0"
 	RATE_LIMIT_WAIT_TIME_SEC = 5
-	RATE_LIMIT_MAX_RETRIES = 10
-	RATE_LIMIT_HTTP_STATUS = 429
+	RATE_LIMIT_MAX_RETRIES   = 10
+	RATE_LIMIT_HTTP_STATUS   = 429
 )
 
 func getProgramScope(authorization string, id string, bbpOnly bool, categories []string) (pData scope.ProgramData) {
+	var err error
+	res := &whttp.WHTTPRes{}
+	lastStatus := -1
 
-	req, err := http.NewRequest("GET", "https://api.hackerone.com/v1/hackers/programs/"+id, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	req.Header.Set("User-Agent", USER_AGENT)
-	req.Header.Set("Authorization", "Basic "+authorization)
-
-	var resp *http.Response
-
-	var lastStatus int = -1
 	for i := 0; i < RATE_LIMIT_MAX_RETRIES; i++ {
-		client := &http.Client{}
-		resp2, err := client.Do(req)
+		res, err = whttp.SendHTTPRequest(
+			&whttp.WHTTPReq{
+				Method: "GET",
+				URL:    "https://api.hackerone.com/v1/hackers/programs/" + id,
+				Headers: []whttp.WHTTPHeader{
+					{Name: "Authorization", Value: "Basic " + authorization},
+				},
+			}, http.DefaultClient)
+
 		if err != nil {
-			panic(err)
+			log.Fatal("HTTP request failed: ", err)
 		}
-		resp = resp2
-		lastStatus = resp.StatusCode
-		defer resp.Body.Close()
+
+		lastStatus = res.StatusCode
 		// exit the loop if we succeeded
-		if resp.StatusCode != RATE_LIMIT_HTTP_STATUS {
+		if res.StatusCode != RATE_LIMIT_HTTP_STATUS {
 			break
 		} else {
-				// encountered rate limit
+			// encountered rate limit
 			time.Sleep(RATE_LIMIT_WAIT_TIME_SEC * time.Second)
 		}
 	}
@@ -55,14 +52,12 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 		log.Fatal("Could not retrieve data for id ", id, " with status ", lastStatus)
 	}
 
-	body, _ := ioutil.ReadAll(resp.Body)
-
 	pData.Url = "https://hackerone.com/" + id
 
-	l := int(gjson.Get(string(body), "relationships.structured_scopes.data.#").Int())
+	l := int(gjson.Get(res.BodyString, "relationships.structured_scopes.data.#").Int())
 	for i := 0; i < l; i++ {
 		catFound := false
-		assetCategory := gjson.Get(string(body), "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.asset_type").Str
+		assetCategory := gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.asset_type").Str
 
 		for _, cat := range categories {
 			if cat == assetCategory {
@@ -72,21 +67,22 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 		}
 		if catFound {
 			// If it's in the in-scope table (and not in the OOS one)
-			if gjson.Get(string(body), "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.eligible_for_submission").Bool() {
-				if !bbpOnly || (bbpOnly && gjson.Get(string(body), "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.eligible_for_bounty").Bool()) {
+			if gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.eligible_for_submission").Bool() {
+				if !bbpOnly || (bbpOnly && gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.eligible_for_bounty").Bool()) {
 					pData.InScope = append(pData.InScope, scope.ScopeElement{
-						Target:      gjson.Get(string(body), "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.asset_identifier").Str,
-						Description: strings.ReplaceAll(gjson.Get(string(body), "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.instruction").Str, "\n", "  "),
+						Target:      gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.asset_identifier").Str,
+						Description: strings.ReplaceAll(gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.instruction").Str, "\n", "  "),
 						Category:    "", // TODO
 					})
 				}
 			}
 		}
 	}
+
 	if l == 0 {
 		pData.InScope = append(pData.InScope, scope.ScopeElement{Target: "NO_IN_SCOPE_TABLE", Description: "", Category: ""})
-		// debugging fmt.Println("Missing Scope:", id, resp.StatusCode, string(body))
 	}
+
 	return pData
 }
 
@@ -114,39 +110,34 @@ func getCategories(input string) []string {
 func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, active bool) (handles []string) {
 	currentURL := "https://api.hackerone.com/v1/hackers/programs"
 	for {
-		req, err := http.NewRequest("GET", currentURL, nil)
+		res, err := whttp.SendHTTPRequest(
+			&whttp.WHTTPReq{
+				Method: "GET",
+				URL:    currentURL,
+				Headers: []whttp.WHTTPHeader{
+					{Name: "Authorization", Value: "Basic " + authorization},
+				},
+			}, http.DefaultClient)
+
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal("HTTP request failed: ", err)
 		}
 
-		req.Header.Set("User-Agent", USER_AGENT)
-		req.Header.Set("Authorization", "Basic "+authorization)
-
-		client := &http.Client{}
-
-		resp, err := client.Do(req)
-		if err != nil {
-			panic(err)
-		}
-		defer resp.Body.Close()
-
-		body, _ := ioutil.ReadAll(resp.Body)
-
-		if(resp.StatusCode != 200) {
-			log.Fatal("Status Code:", resp.StatusCode)
+		if res.StatusCode != 200 {
+			log.Fatal("Status Code:", res.StatusCode)
 		}
 
-		if strings.Contains(string(body), ":401}") {
+		if strings.Contains(res.BodyString, ":401}") {
 			log.Fatal("Invalid username or token")
 		}
 
-		for i := 0; i < int(gjson.Get(string(body), "data.#").Int()); i++ {
-			handle := gjson.Get(string(body), "data."+strconv.Itoa(i)+".attributes.handle")
+		for i := 0; i < int(gjson.Get(res.BodyString, "data.#").Int()); i++ {
+			handle := gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.handle")
 
 			if !publicOnly {
-				if !pvtOnly || (pvtOnly && gjson.Get(string(body), "data."+strconv.Itoa(i)+".attributes.state").Str == "soft_launched") {
+				if !pvtOnly || (pvtOnly && gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.state").Str == "soft_launched") {
 					if active {
-						if gjson.Get(string(body), "data."+strconv.Itoa(i)+".attributes.submission_state").Str == "open" {
+						if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.submission_state").Str == "open" {
 							handles = append(handles, handle.Str)
 						}
 					} else {
@@ -154,9 +145,9 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 					}
 				}
 			} else {
-				if gjson.Get(string(body), "data."+strconv.Itoa(i)+".attributes.state").Str == "public_mode" {
+				if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.state").Str == "public_mode" {
 					if active {
-						if gjson.Get(string(body), "data."+strconv.Itoa(i)+".attributes.submission_state").Str == "open" {
+						if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.submission_state").Str == "open" {
 							handles = append(handles, handle.Str)
 						}
 					} else {
@@ -166,7 +157,7 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 			}
 		}
 
-		currentURL = gjson.Get(string(body), "links.next").Str
+		currentURL = gjson.Get(res.BodyString, "links.next").Str
 
 		// We reached the end
 		if currentURL == "" {

@@ -38,7 +38,7 @@ func GetCategoryID(input string) []int {
 func GetProgramScope(token string, companyHandle string, programHandle string, categories string) (pData scope.ProgramData) {
 	pData.Url = strings.ReplaceAll("https://www.intigriti.com/researcher/programs/"+companyHandle+"/"+programHandle+"/detail", " ", "%20")
 
-	req, err := whttp.SendHTTPRequest(
+	res, err := whttp.SendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
 			URL:    INTIGRITI_PROGRAM_BASE_ENDPOINT + "/" + companyHandle + "/" + programHandle,
@@ -51,8 +51,8 @@ func GetProgramScope(token string, companyHandle string, programHandle string, c
 		log.Fatal("HTTP request failed: ", err)
 	}
 
-	latestVersionIndex := len(gjson.Get(req.BodyString, "domains.#.content").Array()) - 1
-	currentContent := gjson.Get(req.BodyString, "domains."+strconv.Itoa(latestVersionIndex)+".content")
+	latestVersionIndex := len(gjson.Get(res.BodyString, "domains.#.content").Array()) - 1
+	currentContent := gjson.Get(res.BodyString, "domains."+strconv.Itoa(latestVersionIndex)+".content")
 
 	chunkData := gjson.GetMany(currentContent.Raw, "#.endpoint", "#.type", "#.description")
 	for i := 0; i < len(chunkData[0].Array()); i++ {
@@ -82,7 +82,7 @@ func GetProgramScope(token string, companyHandle string, programHandle string, c
 }
 
 func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories string) (programs []scope.ProgramData) {
-	req, err := whttp.SendHTTPRequest(
+	res, err := whttp.SendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
 			URL:    INTIGRITI_PROGRAMS_ENDPOINT,
@@ -95,7 +95,7 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 		log.Fatal("HTTP request failed: ", err)
 	}
 
-	data := gjson.GetMany(req.BodyString, "#.companyHandle", "#.handle", "#.maxBounty.value", "#.confidentialityLevel")
+	data := gjson.GetMany(res.BodyString, "#.companyHandle", "#.handle", "#.maxBounty.value", "#.confidentialityLevel")
 
 	allCompanyHandles := data[0].Array()
 	allHandles := data[1].Array()
