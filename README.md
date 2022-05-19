@@ -1,5 +1,5 @@
 # bbscope
-The ultimate scope gathering tool for [HackerOne](https://hackerone.com/), [Bugcrowd](https://bugcrowd.com/), [Intigriti](https://intigriti.com) and [Immunefi](https://immunefi.com/) by sw33tLie.
+The ultimate scope gathering tool for [HackerOne](https://hackerone.com/), [Bugcrowd](https://bugcrowd.com/), [Intigriti](https://intigriti.com), [Immunefi](https://immunefi.com/) and [YesWeHack](https://yeswehack.com/) by sw33tLie.
 
 Need to grep all the large scope domains that you've got on your bug bounty platforms? This is the right tool for the job.  
 What about getting a list of android apps that you are allowed to test? We've got you covered as well.
@@ -21,6 +21,7 @@ How to get the session token:
 - HackerOne: login, then grab your API token [here](https://hackerone.com/settings/api_token/edit)
 - Bugcrowd: login, then grab the `_crowdcontrol_session` cookie
 - Intigriti: login, then intercept a request to api.intigriti.com and look for the `Authentication: Bearer XXX` header. XXX is your token
+- YesWeHack: login, then intercept a request to api.yeswehack.com and look for the `Authorization: Bearer  XXX` header. XXX is your token
 
 When using bbscope for HackerOne, the username flag (`-u`) is mandatory.
 
@@ -28,7 +29,7 @@ Remember that you can use the --help flag to get a description for all flags.
 
 ## Examples
 Below you'll find some example commands.
-Keep in mind that all of them work with Bugcrowd and Intigriti subcommands (`bc` and `it`) as well, not just with `h1`.
+Keep in mind that all of them work with Bugcrowd, Intigriti and YesWeHack subcommands (`bc`, `it` and `ywh`) as well, not just with `h1`.
 
 ### Print all in-scope targets from all your HackerOne programs that offer rewards
 ```

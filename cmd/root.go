@@ -15,8 +15,8 @@ var cfgFile string
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "bbscope",
-	Short: "Grab scope from HackerOne, Bugcrowd and Intigriti",
-	Long:  `The ultimate scope gathering tool for HackerOne, Bugcrowd and Intigriti by sw33tLie`,
+	Short: "Grab scope from HackerOne, Bugcrowd, Intigriti and YesWeHack",
+	Long:  `The ultimate scope gathering tool for HackerOne, Bugcrowd, Intigriti and YesWeHack by sw33tLie`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	// Run: func(cmd *cobra.Command, args []string) {},
