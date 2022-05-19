@@ -100,3 +100,4 @@ Human minds are weird and this tool does not attempt to parse nonsense, you'll h
 - [ByteOven](https://github.com/ByteOven)
 - [dee-see](https://gitlab.com/dee-see)
 - [jub0bs](https://jub0bs.com)
+- [0xbeefed](https://github.com/0xbeefed)
