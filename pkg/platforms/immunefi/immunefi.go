@@ -25,9 +25,9 @@ func PrintAllScope(categories, outputFlags, delimiter string, concurrency int) {
 
 func getCategories(input string) []string {
 	categories := map[string][]string{
-		"web":       {"Web"},
-		"contracts": {"Smart Contract"},
-		"all":       {"Web", "Smart Contract"},
+		"web":       {"websites_and_applications"},
+		"contracts": {"smart_contract"},
+		"all":       {"websites_and_applications", "smart_contract"},
 	}
 
 	selectedCategory, ok := categories[strings.ToLower(input)]
@@ -110,21 +110,21 @@ func GetAllProgramsScope(categories string, concurrency int) (programs []scope.P
 
 				doc.Find("#__NEXT_DATA__").Each(func(index int, s *goquery.Selection) {
 					json := s.Contents().Text()
-					jsonProgram := gjson.Get(json, "props.pageProps.bounty.legacy")
+					jsonProgram := gjson.Get(json, "props.pageProps.bounty")
 					var tempScope []scope.ScopeElement
 
-					for _, scopeElement := range gjson.Get(jsonProgram.Raw, "assets_in_scope").Array() {
-						elementTarget := gjson.Get(scopeElement.Raw, "target").Str
+					for _, scopeElement := range gjson.Get(jsonProgram.Raw, "assets").Array() {
+						elementTarget := gjson.Get(scopeElement.Raw, "url").Str
 						elementType := gjson.Get(scopeElement.Raw, "type").Str
 
 						for _, currentCat := range selectedCategories {
-							if currentCat == "Web" && strings.Contains(elementType, "Web") {
+							if currentCat == "websites_and_applications" && strings.Contains(elementType, "websites_and_applications") {
 								tempScope = append(tempScope, scope.ScopeElement{
 									Target:      elementTarget,
 									Description: "",
 									Category:    currentCat,
 								})
-							} else if currentCat == "Smart Contract" && strings.Contains(elementType, "Smart Contract") {
+							} else if currentCat == "smart_contract" && strings.Contains(elementType, "smart_contract") {
 								tempScope = append(tempScope, scope.ScopeElement{
 									Target:      elementTarget,
 									Description: "",
