@@ -169,14 +169,13 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 }
 
 // GetAllProgramsScope xxx
-func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, active bool) (programs []scope.ProgramData) {
+func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, active bool, concurrency int) (programs []scope.ProgramData) {
 	programHandles := getProgramHandles(authorization, pvtOnly, publicOnly, active)
-	threads := 50
-	ids := make(chan string, threads)
+	ids := make(chan string, concurrency)
 	processGroup := new(sync.WaitGroup)
-	processGroup.Add(threads)
+	processGroup.Add(concurrency)
 
-	for i := 0; i < threads; i++ {
+	for i := 0; i < concurrency; i++ {
 		go func() {
 			for {
 				id := <-ids
@@ -202,8 +201,8 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 }
 
 // PrintAllScope prints to stdout all scope elements of all targets
-func PrintAllScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, outputFlags string, delimiter string, active bool) {
-	programs := GetAllProgramsScope(authorization, bbpOnly, pvtOnly, publicOnly, categories, active)
+func PrintAllScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, outputFlags string, delimiter string, active bool, concurrency int) {
+	programs := GetAllProgramsScope(authorization, bbpOnly, pvtOnly, publicOnly, categories, active, concurrency)
 	for _, pData := range programs {
 		scope.PrintProgramScope(pData, outputFlags, delimiter)
 	}

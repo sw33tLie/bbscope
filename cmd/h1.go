@@ -28,6 +28,7 @@ var h1Cmd = &cobra.Command{
 		proxy, _ := rootCmd.PersistentFlags().GetString("proxy")
 		bbpOnly, _ := rootCmd.Flags().GetBool("bbpOnly")
 		pvtOnly, _ := rootCmd.Flags().GetBool("pvtOnly")
+		concurrency, _ := cmd.Flags().GetInt("concurrency")
 
 		if username == "" {
 			log.Fatal("Please provide your HackerOne username (-u flag)")
@@ -50,7 +51,7 @@ var h1Cmd = &cobra.Command{
 			http.DefaultTransport.(*http.Transport).Proxy = http.ProxyURL(proxyURL)
 		}
 
-		hackerone.PrintAllScope(b64.StdEncoding.EncodeToString([]byte(username+":"+token)), bbpOnly, pvtOnly, publicOnly, categories, outputFlags, delimiterCharacter, active)
+		hackerone.PrintAllScope(b64.StdEncoding.EncodeToString([]byte(username+":"+token)), bbpOnly, pvtOnly, publicOnly, categories, outputFlags, delimiterCharacter, active, concurrency)
 	},
 }
 
@@ -61,4 +62,6 @@ func init() {
 	h1Cmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, other, hardware, code, executable)")
 	h1Cmd.Flags().BoolP("public-only", "", false, "Only print scope for public programs")
 	h1Cmd.Flags().BoolP("active-only", "a", false, "Show only active programs")
+	h1Cmd.Flags().IntP("concurrency", "", 20, "Concurrency of HTTP requests sent for fetching data")
+
 }
