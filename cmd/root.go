@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
+	"time"
 
-	"github.com/go-rod/rod/lib/utils"
 	"github.com/spf13/cobra"
+	"github.com/sw33tLie/bbscope/internal/utils"
 
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/viper"
@@ -39,6 +41,8 @@ func init() {
 	rootCmd.PersistentFlags().StringP("delimiter", "d", " ", "Delimiter character used when printing multiple data using the output flag")
 	rootCmd.PersistentFlags().BoolP("bbpOnly", "b", false, "Only fetch programs offering monetary rewards")
 	rootCmd.PersistentFlags().BoolP("pvtOnly", "p", false, "Only fetch data from private programs")
+	rootCmd.PersistentFlags().StringP("loglevel", "l", "info", "Set log level. Available: debug, info, warn, error, fatal")
+
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -65,4 +69,11 @@ func initConfig() {
 	if err := viper.ReadInConfig(); err == nil {
 		utils.Log.Debug("Found config file")
 	}
+
+	// Init log library
+	levelString, _ := rootCmd.PersistentFlags().GetString("loglevel")
+	utils.SetLogLevel(levelString)
+
+	// Initialize rand for any subcommand
+	rand.Seed(time.Now().Unix())
 }

@@ -1,13 +1,13 @@
 package hackerone
 
 import (
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/sw33tLie/bbscope/internal/utils"
 	"github.com/sw33tLie/bbscope/pkg/scope"
 	"github.com/sw33tLie/bbscope/pkg/whttp"
 	"github.com/tidwall/gjson"
@@ -35,7 +35,7 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 			}, http.DefaultClient)
 
 		if err != nil {
-			log.Fatal("HTTP request failed: ", err)
+			utils.Log.Fatal("HTTP request failed: ", err)
 		}
 
 		lastStatus = res.StatusCode
@@ -49,7 +49,7 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 	}
 	if lastStatus > 200 {
 		// if we completed the requests with a final (non-429) status and we still failed
-		log.Fatal("Could not retrieve data for id ", id, " with status ", lastStatus)
+		utils.Log.Fatal("Could not retrieve data for id ", id, " with status ", lastStatus)
 	}
 
 	pData.Url = "https://hackerone.com/" + id
@@ -102,7 +102,7 @@ func getCategories(input string) []string {
 
 	selectedCategory, ok := categories[strings.ToLower(input)]
 	if !ok {
-		log.Fatal("Invalid category")
+		utils.Log.Fatal("Invalid category selected")
 	}
 	return selectedCategory
 }
@@ -120,15 +120,11 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 			}, http.DefaultClient)
 
 		if err != nil {
-			log.Fatal("HTTP request failed: ", err)
+			utils.Log.Fatal("HTTP request failed: ", err)
 		}
 
 		if res.StatusCode != 200 {
-			log.Fatal("Status Code:", res.StatusCode)
-		}
-
-		if strings.Contains(res.BodyString, ":401}") {
-			log.Fatal("Invalid username or token")
+			utils.Log.Fatal("Fetching failed. Got status Code: ", res.StatusCode)
 		}
 
 		for i := 0; i < int(gjson.Get(res.BodyString, "data.#").Int()); i++ {
@@ -170,7 +166,10 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 
 // GetAllProgramsScope xxx
 func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, active bool, concurrency int) (programs []scope.ProgramData) {
+	utils.Log.Debug("Fetching list of program handles")
 	programHandles := getProgramHandles(authorization, pvtOnly, publicOnly, active)
+
+	utils.Log.Debug("Fetching scope of each program. Concurrency: ", concurrency)
 	ids := make(chan string, concurrency)
 	processGroup := new(sync.WaitGroup)
 	processGroup.Add(concurrency)
