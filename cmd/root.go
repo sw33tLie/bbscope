@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/go-rod/rod/lib/utils"
 	"github.com/spf13/cobra"
 
 	homedir "github.com/mitchellh/go-homedir"
@@ -17,9 +18,6 @@ var rootCmd = &cobra.Command{
 	Use:   "bbscope",
 	Short: "Grab scope from HackerOne, Bugcrowd, Intigriti and YesWeHack",
 	Long:  `The ultimate scope gathering tool for HackerOne, Bugcrowd, Intigriti and YesWeHack by sw33tLie`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) {},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -65,6 +63,6 @@ func initConfig() {
 
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
-		//fmt.Println("Using config file:", viper.ConfigFileUsed())
+		utils.Log.Debug("Found config file")
 	}
 }
