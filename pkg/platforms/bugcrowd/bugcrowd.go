@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	USER_AGENT          = "Mozilla/5.0 (X11; Linux x86_64; rv:82.0) Gecko/20100101 Firefox/82.0"
-	BUGCROWD_LOGIN_PAGE = "https://bugcrowd.com/user/sign_in"
+	USER_AGENT               = "Mozilla/5.0 (X11; Linux x86_64; rv:82.0) Gecko/20100101 Firefox/82.0"
+	BUGCROWD_LOGIN_PAGE      = "https://bugcrowd.com/user/sign_in"
+	RATE_LIMIT_SLEEP_SECONDS = 5
 )
 
 func Login(email string, password string) string {
@@ -150,7 +151,7 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 				break
 			} else {
 				utils.Log.Warn("Hit rate limiting (429), retrying...")
-				time.Sleep(1 * time.Second)
+				time.Sleep(RATE_LIMIT_SLEEP_SECONDS * time.Second)
 			}
 		}
 
@@ -203,7 +204,7 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 			break
 		} else {
 			utils.Log.Warn("Hit rate limiting (429), retrying...")
-			time.Sleep(1 * time.Second)
+			time.Sleep(RATE_LIMIT_SLEEP_SECONDS * time.Second)
 		}
 	}
 
@@ -235,7 +236,7 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 				break
 			} else {
 				utils.Log.Warn("Hit rate limiting (429), retrying...")
-				time.Sleep(1 * time.Second)
+				time.Sleep(RATE_LIMIT_SLEEP_SECONDS * time.Second)
 			}
 		}
 
