@@ -3,7 +3,6 @@ package bugcrowd
 import (
 	"bytes"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -32,7 +31,7 @@ func Login(email string, password string) string {
 
 	req, err := http.NewRequest("GET", BUGCROWD_LOGIN_PAGE, nil)
 	if err != nil {
-		log.Fatal(err)
+		utils.Log.Fatal(err)
 	}
 
 	req.Header.Set("User-Agent", USER_AGENT)
@@ -58,7 +57,7 @@ func Login(email string, password string) string {
 	}
 
 	if crowdControlSession == "" {
-		log.Fatal("Failed to get cookie. Something might have changed")
+		utils.Log.Fatal("Failed to get cookie. Something might have changed")
 	}
 
 	// Now we need to get the csrf-token...HTML parsing here we go
@@ -67,7 +66,7 @@ func Login(email string, password string) string {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
 
 	if err != nil {
-		log.Fatal("Failed to parse login response")
+		utils.Log.Fatal("Failed to parse login response")
 	}
 
 	doc.Find("meta").Each(func(index int, s *goquery.Selection) {
@@ -79,13 +78,13 @@ func Login(email string, password string) string {
 	})
 
 	if csrfToken == "" {
-		log.Fatal("Failed to get the CSRF token. Something might have changed")
+		utils.Log.Fatal("Failed to get the CSRF token. Something might have changed")
 	}
 
 	// Now send the POST request
 	req2, err := http.NewRequest("POST", BUGCROWD_LOGIN_PAGE, bytes.NewBuffer([]byte("utf8=%E2%9C%93&authenticity_token="+url.QueryEscape(csrfToken)+"&user%5Bredirect_to%5D=&user%5Bemail%5D="+url.QueryEscape(email)+"&user%5Bpassword%5D="+url.QueryEscape(password)+"&commit=Log+in")))
 	if err != nil {
-		log.Fatal(err)
+		utils.Log.Fatal(err)
 	}
 
 	req2.Header.Set("User-Agent", USER_AGENT)
@@ -105,7 +104,7 @@ func Login(email string, password string) string {
 	}
 
 	if resp2.StatusCode != 302 {
-		log.Fatal("Login failed", resp2.StatusCode)
+		utils.Log.Fatal("Login failed", resp2.StatusCode)
 	}
 
 	return sessionToken
@@ -143,7 +142,7 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 				}, client)
 
 			if err != nil {
-				log.Fatal(err)
+				utils.Log.Fatal(err)
 			}
 
 			// Rate limiting retry
@@ -196,7 +195,7 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 			}, client)
 
 		if err != nil {
-			log.Fatal(err)
+			utils.Log.Fatal(err)
 		}
 
 		// Rate limiting retry
@@ -228,7 +227,7 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 				}, client)
 
 			if err != nil {
-				log.Fatal(err)
+				utils.Log.Fatal(err)
 			}
 
 			// Rate limiting retry
@@ -287,7 +286,7 @@ func GetCategories(input string) []string {
 
 	selectedCategory, ok := categories[strings.ToLower(input)]
 	if !ok {
-		log.Fatal("Invalid category")
+		utils.Log.Fatal("Invalid category")
 	}
 	return selectedCategory
 }

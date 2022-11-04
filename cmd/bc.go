@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/sw33tLie/bbscope/internal/utils"
 	"github.com/sw33tLie/bbscope/pkg/platforms/bugcrowd"
 )
 
@@ -44,6 +45,7 @@ var bcCmd = &cobra.Command{
 		}
 
 		bugcrowd.PrintAllScope(token, bbpOnly, pvtOnly, categories, outputFlags, delimiterCharacter, concurrency)
+		utils.Log.Info("bbscope run successfully")
 	},
 }
 
