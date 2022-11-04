@@ -9,9 +9,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/sw33tLie/bbscope/internal/utils"
 	"github.com/sw33tLie/bbscope/pkg/scope"
+	"github.com/sw33tLie/bbscope/pkg/whttp"
 	"github.com/tidwall/gjson"
 )
 
@@ -122,29 +125,40 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 	paths := []string{}
 
 	for {
-
-		req, err := http.NewRequest("GET", listEndpointURL+strconv.Itoa(pageIndex), nil)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		req.Header.Set("Cookie", "_crowdcontrol_session="+sessionToken)
-		req.Header.Set("User-Agent", USER_AGENT)
+		var res *whttp.WHTTPRes
+		var err error
 
 		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			panic(err)
-		}
-		defer resp.Body.Close()
 
-		body, _ := ioutil.ReadAll(resp.Body)
+		for {
+			res, err = whttp.SendHTTPRequest(
+				&whttp.WHTTPReq{
+					Method: "GET",
+					URL:    listEndpointURL + strconv.Itoa(pageIndex),
+					Headers: []whttp.WHTTPHeader{
+						{Name: "Cookie", Value: "_crowdcontrol_session=" + sessionToken},
+						{Name: "User-Agent", Value: USER_AGENT},
+					},
+				}, client)
+
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// Rate limiting retry
+			if res.StatusCode != 429 {
+				break
+			} else {
+				utils.Log.Warn("Hit rate limiting (429), retrying...")
+				time.Sleep(1 * time.Second)
+			}
+		}
 
 		if totalPages == 0 {
-			totalPages = int(gjson.Get(string(body), "meta.totalPages").Int())
+			totalPages = int(gjson.Get(string(res.BodyString), "meta.totalPages").Int())
 		}
 
-		chunkData := gjson.Get(string(body), "programs.#.program_url")
+		chunkData := gjson.Get(string(res.BodyString), "programs.#.program_url")
 		for i := 0; i < len(chunkData.Array()); i++ {
 			paths = append(paths, chunkData.Array()[i].Str)
 		}
@@ -163,47 +177,69 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 func GetProgramScope(handle string, categories string, token string) (pData scope.ProgramData) {
 	pData.Url = "https://bugcrowd.com" + handle
 
-	req, err := http.NewRequest("GET", pData.Url+"/target_groups", nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	req.Header.Set("Cookie", "_crowdcontrol_session="+token)
-	req.Header.Set("User-Agent", USER_AGENT)
-	req.Header.Set("Accept", "*/*")
+	var res, res2 *whttp.WHTTPRes
+	var err error
 
 	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		panic(err)
-	}
-	defer resp.Body.Close()
 
-	body, _ := ioutil.ReadAll(resp.Body)
+	for {
+		res, err = whttp.SendHTTPRequest(
+			&whttp.WHTTPReq{
+				Method: "GET",
+				URL:    pData.Url + "/target_groups",
+				Headers: []whttp.WHTTPHeader{
+					{Name: "Cookie", Value: "_crowdcontrol_session=" + token},
+					{Name: "User-Agent", Value: USER_AGENT},
+					{Name: "Accept", Value: "*/*"},
+				},
+			}, client)
 
-	// Times @arcwhite broke our code: #2 and counting :D
-
-	noScopeTable := true
-	for _, scopeTableURL := range gjson.Get(string(body), "groups.#(in_scope==true)#.targets_url").Array() {
-		// Send HTTP request for each table
-		req2, err := http.NewRequest("GET", "https://bugcrowd.com"+scopeTableURL.String(), nil)
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		req2.Header.Set("Cookie", "_crowdcontrol_session="+token)
-		req2.Header.Set("User-Agent", USER_AGENT)
-		req2.Header.Set("Accept", "*/*")
+		// Rate limiting retry
+		if res.StatusCode != 429 {
+			break
+		} else {
+			utils.Log.Warn("Hit rate limiting (429), retrying...")
+			time.Sleep(1 * time.Second)
+		}
+	}
 
-		resp2, err := client.Do(req2)
-		if err != nil {
-			panic(err)
+	// Times @arcwhite broke our code: #2 and counting :D
+
+	noScopeTable := true
+	for _, scopeTableURL := range gjson.Get(string(res.BodyString), "groups.#(in_scope==true)#.targets_url").Array() {
+
+		// Send HTTP request for each table
+
+		for {
+			res2, err = whttp.SendHTTPRequest(
+				&whttp.WHTTPReq{
+					Method: "GET",
+					URL:    "https://bugcrowd.com" + scopeTableURL.String(),
+					Headers: []whttp.WHTTPHeader{
+						{Name: "Cookie", Value: "_crowdcontrol_session=" + token},
+						{Name: "User-Agent", Value: USER_AGENT},
+						{Name: "Accept", Value: "*/*"},
+					},
+				}, client)
+
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// Rate limiting retry
+			if res2.StatusCode != 429 {
+				break
+			} else {
+				utils.Log.Warn("Hit rate limiting (429), retrying...")
+				time.Sleep(1 * time.Second)
+			}
 		}
 
-		defer resp2.Body.Close()
-		body2, _ := ioutil.ReadAll(resp2.Body)
-
-		chunkData := gjson.GetMany(string(body2), "targets.#.name", "targets.#.category", "targets.#.description")
+		chunkData := gjson.GetMany(string(res2.BodyString), "targets.#.name", "targets.#.category", "targets.#.description")
 		for i := 0; i < len(chunkData[0].Array()); i++ {
 			var currentTarget struct {
 				line     string
