@@ -35,7 +35,9 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 			}, http.DefaultClient)
 
 		if err != nil {
-			utils.Log.Fatal("HTTP request failed: ", err)
+			utils.Log.Warn("HTTP request failed: ", err, "Retrying...")
+			time.Sleep(2 * time.Second)
+			continue
 		}
 
 		lastStatus = res.StatusCode
@@ -120,7 +122,9 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 			}, http.DefaultClient)
 
 		if err != nil {
-			utils.Log.Fatal("HTTP request failed: ", err)
+			utils.Log.Warn("HTTP request failed: ", err, "Retrying...")
+			time.Sleep(2 * time.Second)
+			continue
 		}
 
 		if res.StatusCode != 200 {
