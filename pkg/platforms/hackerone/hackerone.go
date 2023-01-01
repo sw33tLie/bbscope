@@ -35,7 +35,7 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 			}, http.DefaultClient)
 
 		if err != nil {
-			utils.Log.Warn("HTTP request failed: ", err, "Retrying...")
+			utils.Log.Warn("HTTP request failed: ", err, " Retrying...")
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -122,7 +122,7 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 			}, http.DefaultClient)
 
 		if err != nil {
-			utils.Log.Warn("HTTP request failed: ", err, "Retrying...")
+			utils.Log.Warn("HTTP request failed: ", err, " Retrying...")
 			time.Sleep(2 * time.Second)
 			continue
 		}
