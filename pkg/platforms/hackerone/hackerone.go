@@ -57,17 +57,23 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 	pData.Url = "https://hackerone.com/" + id
 
 	l := int(gjson.Get(res.BodyString, "relationships.structured_scopes.data.#").Int())
-	for i := 0; i < l; i++ {
-		catFound := false
-		assetCategory := gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.asset_type").Str
 
-		for _, cat := range categories {
-			if cat == assetCategory {
-				catFound = true
-				break
+	isDumpAll := len(categories) == len(getCategories("all"))
+	for i := 0; i < l; i++ {
+
+		catFound := false
+		if !isDumpAll {
+			assetCategory := gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.asset_type").Str
+
+			for _, cat := range categories {
+				if cat == assetCategory {
+					catFound = true
+					break
+				}
 			}
 		}
-		if catFound {
+
+		if catFound || isDumpAll {
 			// If it's in the in-scope table (and not in the OOS one)
 			if gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.eligible_for_submission").Bool() {
 				if !bbpOnly || (bbpOnly && gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.eligible_for_bounty").Bool()) {
