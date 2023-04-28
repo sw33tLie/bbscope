@@ -12,8 +12,7 @@ import (
 )
 
 const (
-	INTIGRITI_PROGRAMS_ENDPOINT     = "https://api.intigriti.com/core/researcher/program"
-	INTIGRITI_PROGRAM_BASE_ENDPOINT = "https://api.intigriti.com/core/program"
+	INTIGRITI_PROGRAMS_ENDPOINT = "https://api.intigriti.com/core/researcher/programs"
 )
 
 func GetCategoryID(input string) []int {
@@ -41,7 +40,7 @@ func GetProgramScope(token string, companyHandle string, programHandle string, c
 	res, err := whttp.SendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
-			URL:    INTIGRITI_PROGRAM_BASE_ENDPOINT + "/" + companyHandle + "/" + programHandle,
+			URL:    INTIGRITI_PROGRAMS_ENDPOINT + "/" + companyHandle + "/" + programHandle,
 			Headers: []whttp.WHTTPHeader{
 				{Name: "Authorization", Value: "Bearer " + token},
 			},
