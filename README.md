@@ -76,6 +76,12 @@ https://hackerone.com/demo
 https://hackerone.com/something
 ```
 
+### Get all immunefi scope
+
+```
+bbscope immunefi
+```
+
 ## Beware of scope oddities
 In an ideal world, all programs use the in-scope table in the same way to clearly show what's in scope, and make parsing easy.
 Unfortunately, that's not always the case.
