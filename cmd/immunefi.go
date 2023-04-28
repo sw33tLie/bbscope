@@ -38,6 +38,6 @@ var immunefiCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(immunefiCmd)
 	immunefiCmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, web, contracts)")
-	immunefiCmd.Flags().IntP("concurrency", "", 40, "Concurrency threshold")
+	immunefiCmd.Flags().IntP("concurrency", "", 5, "Concurrency threshold")
 
 }
