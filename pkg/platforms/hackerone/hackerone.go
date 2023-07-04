@@ -15,7 +15,7 @@ import (
 
 const (
 	RATE_LIMIT_WAIT_TIME_SEC = 5
-	RATE_LIMIT_MAX_RETRIES   = 10
+	RATE_LIMIT_MAX_RETRIES   = 50
 	RATE_LIMIT_HTTP_STATUS   = 429
 )
 
@@ -49,7 +49,7 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 			time.Sleep(RATE_LIMIT_WAIT_TIME_SEC * time.Second)
 		}
 	}
-	if lastStatus > 200 {
+	if lastStatus != 200 {
 		// if we completed the requests with a final (non-429) status and we still failed
 		utils.Log.Fatal("Could not retrieve data for id ", id, " with status ", lastStatus)
 	}
