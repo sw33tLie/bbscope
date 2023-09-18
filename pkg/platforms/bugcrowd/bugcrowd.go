@@ -25,7 +25,7 @@ const (
 
 func Login(email string, password string) string {
 	// Send GET to https://bugcrowd.com/user/sign_in
-	// Get _crowdcontrol_session cookie
+	// Get _crowdcontrol_session_key cookie
 	// Get <meta name="csrf-token" content="Da...ktOQ==" />
 	// Still under development
 
@@ -50,7 +50,7 @@ func Login(email string, password string) string {
 	crowdControlSession := ""
 	csrfToken := ""
 	for _, cookie := range resp.Header["Set-Cookie"] {
-		if strings.HasPrefix(cookie, "_crowdcontrol_session") {
+		if strings.HasPrefix(cookie, "_crowdcontrol_session_key") {
 			crowdControlSession = strings.Split(strings.Split(cookie, ";")[0], "=")[1]
 			break
 		}
@@ -88,7 +88,7 @@ func Login(email string, password string) string {
 	}
 
 	req2.Header.Set("User-Agent", USER_AGENT)
-	req2.Header.Set("Cookie", "_crowdcontrol_session="+crowdControlSession)
+	req2.Header.Set("Cookie", "_crowdcontrol_session_key="+crowdControlSession)
 	resp2, err := client.Do(req2)
 	if err != nil {
 		panic(err)
@@ -97,8 +97,8 @@ func Login(email string, password string) string {
 
 	sessionToken := ""
 	for _, cookie := range resp2.Header["Set-Cookie"] {
-		if strings.HasPrefix(cookie, "_crowdcontrol_session") {
-			sessionToken = strings.TrimPrefix(cookie, "_crowdcontrol_session=")
+		if strings.HasPrefix(cookie, "_crowdcontrol_session_key") {
+			sessionToken = strings.TrimPrefix(cookie, "_crowdcontrol_session_key=")
 			break
 		}
 	}
@@ -136,7 +136,7 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 					Method: "GET",
 					URL:    listEndpointURL + strconv.Itoa(pageIndex),
 					Headers: []whttp.WHTTPHeader{
-						{Name: "Cookie", Value: "_crowdcontrol_session=" + sessionToken},
+						{Name: "Cookie", Value: "_crowdcontrol_session_key=" + sessionToken},
 						{Name: "User-Agent", Value: USER_AGENT},
 					},
 				}, client)
@@ -188,7 +188,7 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 				Method: "GET",
 				URL:    pData.Url + "/target_groups",
 				Headers: []whttp.WHTTPHeader{
-					{Name: "Cookie", Value: "_crowdcontrol_session=" + token},
+					{Name: "Cookie", Value: "_crowdcontrol_session_key=" + token},
 					{Name: "User-Agent", Value: USER_AGENT},
 					{Name: "Accept", Value: "*/*"},
 				},
@@ -207,7 +207,7 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 		}
 	}
 
-	// Times @arcwhite broke our code: #2 and counting :D
+	// Times @arcwhite broke our code: #3 and counting :D
 
 	noScopeTable := true
 	for _, scopeTableURL := range gjson.Get(string(res.BodyString), "groups.#(in_scope==true)#.targets_url").Array() {
@@ -220,7 +220,7 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 					Method: "GET",
 					URL:    "https://bugcrowd.com" + scopeTableURL.String(),
 					Headers: []whttp.WHTTPHeader{
-						{Name: "Cookie", Value: "_crowdcontrol_session=" + token},
+						{Name: "Cookie", Value: "_crowdcontrol_session_key=" + token},
 						{Name: "User-Agent", Value: USER_AGENT},
 						{Name: "Accept", Value: "*/*"},
 					},
