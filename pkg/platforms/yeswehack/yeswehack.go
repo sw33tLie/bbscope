@@ -50,7 +50,7 @@ func GetProgramScope(token string, companySlug string, categories string) (pData
 		log.Fatal("HTTP request failed: ", err)
 	}
 
-	chunkData := gjson.GetMany(res.BodyString, "scopes.#.scope", "scopes.#.scope_type", "scopes.#.security_requirement")
+	chunkData := gjson.GetMany(res.BodyString, "scopes.#.scope", "scopes.#.scope_type")
 
 	for i := 0; i < len(chunkData[0].Array()); i++ {
 		selectedCatIDs := GetCategoryID(categories)
@@ -66,7 +66,7 @@ func GetProgramScope(token string, companySlug string, categories string) (pData
 		if catMatches {
 			pData.InScope = append(pData.InScope, scope.ScopeElement{
 				Target:      chunkData[0].Array()[i].Str,
-				Description: strings.ReplaceAll(chunkData[2].Array()[i].Str, "\n", "  "),
+				Description: "",
 				Category:    "",
 			})
 		}
