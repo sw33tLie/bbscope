@@ -128,7 +128,7 @@ func getCategories(input string) []string {
 }
 
 func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, active bool) (handles []string) {
-	currentURL := "https://api.hackerone.com/v1/hackers/programs"
+	currentURL := "https://api.hackerone.com/v1/hackers/programs?page%5Bsize%5D=100"
 	for {
 		res, err := whttp.SendHTTPRequest(
 			&whttp.WHTTPReq{
@@ -186,7 +186,6 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 	return handles
 }
 
-// GetAllProgramsScope xxx
 func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, active bool, concurrency int) (programs []scope.ProgramData) {
 	utils.Log.Debug("Fetching list of program handles")
 	programHandles := getProgramHandles(authorization, pvtOnly, publicOnly, active)
@@ -196,16 +195,24 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 	processGroup := new(sync.WaitGroup)
 	processGroup.Add(concurrency)
 
+	// Define a mutex
+	var mu sync.Mutex
+
 	for i := 0; i < concurrency; i++ {
 		go func() {
 			for {
-				id := <-ids
-
-				if id == "" {
+				id, more := <-ids
+				if !more {
 					break
 				}
 
-				programs = append(programs, getProgramScope(authorization, id, bbpOnly, getCategories(categories)))
+				programData := getProgramScope(authorization, id, bbpOnly, getCategories(categories))
+
+				// Lock the mutex before appending to programs
+				mu.Lock()
+				programs = append(programs, programData)
+				// Unlock the mutex after appending to programs
+				mu.Unlock()
 			}
 			processGroup.Done()
 		}()
