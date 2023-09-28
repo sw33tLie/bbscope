@@ -28,7 +28,7 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 		res, err = whttp.SendHTTPRequest(
 			&whttp.WHTTPReq{
 				Method: "GET",
-				URL:    "https://api.hackerone.com/v1/hackers/programs/" + id,
+				URL:    "https://api.hackerone.com/v1/hackers/programs/" + id + "/structured_scopes",
 				Headers: []whttp.WHTTPHeader{
 					{Name: "Authorization", Value: "Basic " + authorization},
 				},
@@ -56,14 +56,14 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 
 	pData.Url = "https://hackerone.com/" + id
 
-	l := int(gjson.Get(res.BodyString, "relationships.structured_scopes.data.#").Int())
+	l := int(gjson.Get(res.BodyString, "data.#").Int())
 
 	isDumpAll := len(categories) == len(getCategories("all"))
 	for i := 0; i < l; i++ {
 
 		catFound := false
 		if !isDumpAll {
-			assetCategory := gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.asset_type").Str
+			assetCategory := gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_type").Str
 
 			for _, cat := range categories {
 				if cat == assetCategory {
@@ -75,11 +75,11 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 
 		if catFound || isDumpAll {
 			// If it's in the in-scope table (and not in the OOS one)
-			if gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.eligible_for_submission").Bool() {
-				if !bbpOnly || (bbpOnly && gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.eligible_for_bounty").Bool()) {
+			if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.eligible_for_submission").Bool() {
+				if !bbpOnly || (bbpOnly && gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.eligible_for_bounty").Bool()) {
 					pData.InScope = append(pData.InScope, scope.ScopeElement{
-						Target:      gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.asset_identifier").Str,
-						Description: strings.ReplaceAll(gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.instruction").Str, "\n", "  "),
+						Target:      gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_identifier").Str,
+						Description: strings.ReplaceAll(gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.instruction").Str, "\n", "  "),
 						Category:    "", // TODO
 					})
 				}
