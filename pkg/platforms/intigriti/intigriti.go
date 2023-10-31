@@ -94,7 +94,7 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 		log.Fatal("HTTP request failed: ", err)
 	}
 
-	data := gjson.GetMany(res.BodyString, "#.companyHandle", "#.handle", "#.maxBounty.value", "#.confidentialityLevel")
+	data := gjson.GetMany(res.BodyString, "#(type==1)#.companyHandle", "#(type==1)#.handle", "#(type==1)#.maxBounty.value", "#(type==1)#.confidentialityLevel")
 
 	allCompanyHandles := data[0].Array()
 	allHandles := data[1].Array()

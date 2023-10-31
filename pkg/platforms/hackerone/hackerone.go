@@ -15,7 +15,7 @@ import (
 
 const (
 	RATE_LIMIT_WAIT_TIME_SEC = 5
-	RATE_LIMIT_MAX_RETRIES   = 10
+	RATE_LIMIT_MAX_RETRIES   = 50
 	RATE_LIMIT_HTTP_STATUS   = 429
 )
 
@@ -24,71 +24,83 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 	res := &whttp.WHTTPRes{}
 	lastStatus := -1
 
-	for i := 0; i < RATE_LIMIT_MAX_RETRIES; i++ {
-		res, err = whttp.SendHTTPRequest(
-			&whttp.WHTTPReq{
-				Method: "GET",
-				URL:    "https://api.hackerone.com/v1/hackers/programs/" + id,
-				Headers: []whttp.WHTTPHeader{
-					{Name: "Authorization", Value: "Basic " + authorization},
-				},
-			}, http.DefaultClient)
-
-		if err != nil {
-			utils.Log.Warn("HTTP request failed: ", err, " Retrying...")
-			time.Sleep(2 * time.Second)
-			continue
-		}
-
-		lastStatus = res.StatusCode
-		// exit the loop if we succeeded
-		if res.StatusCode != RATE_LIMIT_HTTP_STATUS {
-			break
-		} else {
-			// encountered rate limit
-			time.Sleep(RATE_LIMIT_WAIT_TIME_SEC * time.Second)
-		}
-	}
-	if lastStatus > 200 {
-		// if we completed the requests with a final (non-429) status and we still failed
-		utils.Log.Fatal("Could not retrieve data for id ", id, " with status ", lastStatus)
-	}
-
 	pData.Url = "https://hackerone.com/" + id
 
-	l := int(gjson.Get(res.BodyString, "relationships.structured_scopes.data.#").Int())
+	currentPageURL := "https://api.hackerone.com/v1/hackers/programs/" + id + "/structured_scopes?page%5Bnumber%5D=1&page%5Bsize%5D=100"
 
-	isDumpAll := len(categories) == len(getCategories("all"))
-	for i := 0; i < l; i++ {
+	// loop through pages
+	for {
+		for i := 0; i < RATE_LIMIT_MAX_RETRIES; i++ {
+			res, err = whttp.SendHTTPRequest(
+				&whttp.WHTTPReq{
+					Method: "GET",
+					URL:    currentPageURL,
+					Headers: []whttp.WHTTPHeader{
+						{Name: "Authorization", Value: "Basic " + authorization},
+					},
+				}, http.DefaultClient)
 
-		catFound := false
-		if !isDumpAll {
-			assetCategory := gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.asset_type").Str
+			if err != nil {
+				utils.Log.Warn("HTTP request failed: ", err, " Retrying...")
+				time.Sleep(2 * time.Second)
+				continue
+			}
 
-			for _, cat := range categories {
-				if cat == assetCategory {
-					catFound = true
-					break
+			lastStatus = res.StatusCode
+			// exit the loop if we succeeded
+			if res.StatusCode != RATE_LIMIT_HTTP_STATUS {
+				break
+			} else {
+				// encountered rate limit
+				time.Sleep(RATE_LIMIT_WAIT_TIME_SEC * time.Second)
+			}
+		}
+		if lastStatus != 200 {
+			// if we completed the requests with a final (non-429) status and we still failed
+			utils.Log.Fatal("Could not retrieve data for id ", id, " with status ", lastStatus)
+		}
+
+		l := int(gjson.Get(res.BodyString, "data.#").Int())
+
+		isDumpAll := len(categories) == len(getCategories("all"))
+		for i := 0; i < l; i++ {
+
+			catFound := false
+			if !isDumpAll {
+				assetCategory := gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_type").Str
+
+				for _, cat := range categories {
+					if cat == assetCategory {
+						catFound = true
+						break
+					}
+				}
+			}
+
+			if catFound || isDumpAll {
+				// If it's in the in-scope table (and not in the OOS one)
+				if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.eligible_for_submission").Bool() {
+					if !bbpOnly || (bbpOnly && gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.eligible_for_bounty").Bool()) {
+						pData.InScope = append(pData.InScope, scope.ScopeElement{
+							Target:      gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_identifier").Str,
+							Description: strings.ReplaceAll(gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.instruction").Str, "\n", "  "),
+							Category:    "", // TODO
+						})
+					}
 				}
 			}
 		}
 
-		if catFound || isDumpAll {
-			// If it's in the in-scope table (and not in the OOS one)
-			if gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.eligible_for_submission").Bool() {
-				if !bbpOnly || (bbpOnly && gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.eligible_for_bounty").Bool()) {
-					pData.InScope = append(pData.InScope, scope.ScopeElement{
-						Target:      gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.asset_identifier").Str,
-						Description: strings.ReplaceAll(gjson.Get(res.BodyString, "relationships.structured_scopes.data."+strconv.Itoa(i)+".attributes.instruction").Str, "\n", "  "),
-						Category:    "", // TODO
-					})
-				}
-			}
+		if l == 0 {
+			pData.InScope = append(pData.InScope, scope.ScopeElement{Target: "NO_IN_SCOPE_TABLE", Description: "", Category: ""})
 		}
-	}
 
-	if l == 0 {
-		pData.InScope = append(pData.InScope, scope.ScopeElement{Target: "NO_IN_SCOPE_TABLE", Description: "", Category: ""})
+		nextPageURL := gjson.Get(res.BodyString, "links.next")
+		if nextPageURL.Exists() {
+			currentPageURL = nextPageURL.String()
+		} else {
+			break // no more pages
+		}
 	}
 
 	return pData
@@ -116,7 +128,7 @@ func getCategories(input string) []string {
 }
 
 func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, active bool) (handles []string) {
-	currentURL := "https://api.hackerone.com/v1/hackers/programs"
+	currentURL := "https://api.hackerone.com/v1/hackers/programs?page%5Bsize%5D=100"
 	for {
 		res, err := whttp.SendHTTPRequest(
 			&whttp.WHTTPReq{
@@ -174,7 +186,6 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 	return handles
 }
 
-// GetAllProgramsScope xxx
 func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, active bool, concurrency int) (programs []scope.ProgramData) {
 	utils.Log.Debug("Fetching list of program handles")
 	programHandles := getProgramHandles(authorization, pvtOnly, publicOnly, active)
@@ -184,16 +195,24 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 	processGroup := new(sync.WaitGroup)
 	processGroup.Add(concurrency)
 
+	// Define a mutex
+	var mu sync.Mutex
+
 	for i := 0; i < concurrency; i++ {
 		go func() {
 			for {
-				id := <-ids
-
-				if id == "" {
+				id, more := <-ids
+				if !more {
 					break
 				}
 
-				programs = append(programs, getProgramScope(authorization, id, bbpOnly, getCategories(categories)))
+				programData := getProgramScope(authorization, id, bbpOnly, getCategories(categories))
+
+				// Lock the mutex before appending to programs
+				mu.Lock()
+				programs = append(programs, programData)
+				// Unlock the mutex after appending to programs
+				mu.Unlock()
 			}
 			processGroup.Done()
 		}()

@@ -62,6 +62,6 @@ func init() {
 	h1Cmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, other, hardware, code, executable)")
 	h1Cmd.Flags().BoolP("public-only", "", false, "Only print scope for public programs")
 	h1Cmd.Flags().BoolP("active-only", "a", false, "Show only active programs")
-	h1Cmd.Flags().IntP("concurrency", "", 20, "Concurrency of HTTP requests sent for fetching data")
+	h1Cmd.Flags().IntP("concurrency", "", 3, "Concurrency of HTTP requests sent for fetching data")
 
 }
