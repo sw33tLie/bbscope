@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	INTIGRITI_PROGRAMS_ENDPOINT = "https://api.intigriti.com/core/researcher/programs"
+	INTIGRITI_PROGRAMS_ENDPOINT = "https://app.intigriti.com/api/core/researcher/programs"
 )
 
 func GetCategoryID(input string) []int {
@@ -42,7 +42,7 @@ func GetProgramScope(token string, companyHandle string, programHandle string, c
 			Method: "GET",
 			URL:    INTIGRITI_PROGRAMS_ENDPOINT + "/" + companyHandle + "/" + programHandle,
 			Headers: []whttp.WHTTPHeader{
-				{Name: "Authorization", Value: "Bearer " + token},
+				{Name: "Cookie", Value: "__Host-Intigriti.Web.Researcher=" + token},
 			},
 		}, http.DefaultClient)
 
@@ -86,7 +86,7 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 			Method: "GET",
 			URL:    INTIGRITI_PROGRAMS_ENDPOINT,
 			Headers: []whttp.WHTTPHeader{
-				{Name: "Authorization", Value: "Bearer " + token},
+				{Name: "Cookie", Value: "__Host-Intigriti.Web.Researcher=" + token},
 			},
 		}, http.DefaultClient)
 

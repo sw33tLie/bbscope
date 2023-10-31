@@ -41,6 +41,6 @@ var itCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(itCmd)
-	itCmd.Flags().StringP("token", "t", "", "Intigriti Authentication Bearer Token (From api.intigriti.com)")
+	itCmd.Flags().StringP("token", "t", "", "Intigriti __Host-Intigriti.Web.Researcher cookie (From app.intigriti.com)")
 	itCmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, device, other)")
 }
