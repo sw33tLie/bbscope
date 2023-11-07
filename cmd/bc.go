@@ -51,7 +51,7 @@ var bcCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(bcCmd)
-	bcCmd.Flags().StringP("token", "t", "", "Bugcrowd session token (_crowdcontrol_session cookie)")
+	bcCmd.Flags().StringP("token", "t", "", "Bugcrowd session token (_bugcrowd_session cookie)")
 	bcCmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, url, api, mobile, android, apple, other, hardware)")
 	bcCmd.Flags().IntP("concurrency", "", 2, "Concurrency threshold")
 

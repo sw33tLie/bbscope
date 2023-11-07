@@ -115,9 +115,7 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 	pageIndex := 1
 
 	listEndpointURL := "https://bugcrowd.com/programs.json?"
-	if pvtOnly {
-		listEndpointURL = listEndpointURL + "accepted_invite[]=true&"
-	}
+
 	if bbpOnly {
 		listEndpointURL = listEndpointURL + "vdp[]=false&"
 	}
@@ -136,7 +134,7 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 					Method: "GET",
 					URL:    listEndpointURL + strconv.Itoa(pageIndex),
 					Headers: []whttp.WHTTPHeader{
-						{Name: "Cookie", Value: "_crowdcontrol_session_key=" + sessionToken},
+						{Name: "Cookie", Value: "_bugcrowd_session=" + sessionToken},
 						{Name: "User-Agent", Value: USER_AGENT},
 					},
 				}, client)
@@ -159,8 +157,12 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 		}
 
 		chunkData := gjson.Get(string(res.BodyString), "programs.#.program_url")
+		participationType := gjson.Get(string(res.BodyString), "programs.#.participation")
+
 		for i := 0; i < len(chunkData.Array()); i++ {
-			paths = append(paths, chunkData.Array()[i].Str)
+			if !pvtOnly || (pvtOnly && participationType.Array()[i].Str != "public") {
+				paths = append(paths, chunkData.Array()[i].Str)
+			}
 		}
 
 		pageIndex++
@@ -188,7 +190,7 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 				Method: "GET",
 				URL:    pData.Url + "/target_groups",
 				Headers: []whttp.WHTTPHeader{
-					{Name: "Cookie", Value: "_crowdcontrol_session_key=" + token},
+					{Name: "Cookie", Value: "_bugcrowd_session=" + token},
 					{Name: "User-Agent", Value: USER_AGENT},
 					{Name: "Accept", Value: "*/*"},
 				},
@@ -220,7 +222,7 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 					Method: "GET",
 					URL:    "https://bugcrowd.com" + scopeTableURL.String(),
 					Headers: []whttp.WHTTPHeader{
-						{Name: "Cookie", Value: "_crowdcontrol_session_key=" + token},
+						{Name: "Cookie", Value: "_bugcrowd_session=" + token},
 						{Name: "User-Agent", Value: USER_AGENT},
 						{Name: "Accept", Value: "*/*"},
 					},

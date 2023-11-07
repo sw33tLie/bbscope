@@ -19,8 +19,8 @@ bbscope (h1|bc|it) -t <YOUR_TOKEN> <other-flags>
 ```
 How to get the session token:
 - HackerOne: login, then grab your API token [here](https://hackerone.com/settings/api_token/edit)
-- Bugcrowd: login, then grab the `_crowdcontrol_session` cookie
-- Intigriti: login, then intercept a request to app.intigriti.com and look for the `__Host-Intigriti.Web.Researcher=XXX` cookie. XXX is your token
+- Bugcrowd: login, then grab the `_bugcrowd_session` cookie. NOTE: This has changed, it's not the `_crowdcontrol_session` cookie anymore.
+- Intigriti: login, then intercept a request to api.intigriti.com and look for the `Authentication: Bearer XXX` header. XXX is your token
 - YesWeHack: login, then intercept a request to api.yeswehack.com and look for the `Authorization: Bearer  XXX` header. XXX is your token
 
 When using bbscope for HackerOne, the username flag (`-u`) is mandatory.
