@@ -19,7 +19,7 @@ import (
 
 const (
 	USER_AGENT               = "Mozilla/5.0 (X11; Linux x86_64; rv:82.0) Gecko/20100101 Firefox/82.0"
-	BUGCROWD_LOGIN_PAGE      = "https://bugcrowd.com/user/sign_in"
+	BUGCROWD_LOGIN_PAGE      = "https://identity.bugcrowd.com/login"
 	RATE_LIMIT_SLEEP_SECONDS = 5
 )
 
