@@ -15,13 +15,14 @@ GO111MODULE=on go install github.com/sw33tLie/bbscope@latest
 
 ## Usage
 ```
-bbscope (h1|bc|it) -t <YOUR_TOKEN> <other-flags>
+bbscope (h1|bc|it|ywh|immunefi) -t <YOUR_TOKEN> <other-flags>
 ```
 How to get the session token:
 - HackerOne: login, then grab your API token [here](https://hackerone.com/settings/api_token/edit)
 - Bugcrowd: login, then grab the `_bugcrowd_session` cookie. NOTE: This has changed, it's not the `_crowdcontrol_session` cookie anymore.
-- Intigriti: login, then intercept a request to app.intigriti.com and look for the `__Host-Intigriti.Web.Researcher=XXX` cookie. XXX is your token
+- Intigriti: Get your researcher API token [here](https://app.intigriti.com/researcher/personal-access-tokens)
 - YesWeHack: login, then intercept a request to api.yeswehack.com and look for the `Authorization: Bearer  XXX` header. XXX is your token
+- Immunefi: no token required
 
 When using bbscope for HackerOne, the username flag (`-u`) is mandatory.
 
@@ -46,6 +47,11 @@ www.something.com
 ### Print all in-scope targets from all your private Bugcrowd programs that offer rewards
 ```
 bbscope bc -t <YOUR_TOKEN> -b -p -o t
+```
+
+### Print all in-scope targets+program page URL from all Intigriti programs, including OOS elements
+```
+it -t <YOUR_TOKEN> -o tu --oos
 ```
 
 ### Print all in-scope Android APKs from all your HackerOne programs
