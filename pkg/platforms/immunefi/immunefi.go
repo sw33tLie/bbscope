@@ -19,7 +19,7 @@ const (
 func PrintAllScope(categories, outputFlags, delimiter string, concurrency int) {
 	programs := GetAllProgramsScope(categories, concurrency)
 	for _, pData := range programs {
-		scope.PrintProgramScope(pData, outputFlags, delimiter)
+		scope.PrintProgramScope(pData, outputFlags, delimiter, false)
 	}
 }
 

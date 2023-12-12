@@ -1,18 +1,16 @@
 package intigriti
 
 import (
+	"fmt"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
+	"time"
 
+	"github.com/sw33tLie/bbscope/internal/utils"
 	"github.com/sw33tLie/bbscope/pkg/scope"
 	"github.com/sw33tLie/bbscope/pkg/whttp"
 	"github.com/tidwall/gjson"
-)
-
-const (
-	INTIGRITI_PROGRAMS_ENDPOINT = "https://app.intigriti.com/api/core/researcher/programs"
 )
 
 func GetCategoryID(input string) []int {
@@ -34,15 +32,13 @@ func GetCategoryID(input string) []int {
 	return selectedCategory
 }
 
-func GetProgramScope(token string, companyHandle string, programHandle string, categories string) (pData scope.ProgramData) {
-	pData.Url = strings.ReplaceAll("https://www.intigriti.com/researcher/programs/"+companyHandle+"/"+programHandle+"/detail", " ", "%20")
-
+func GetProgramScope(token string, programID string, categories string, includeOOS bool) (pData scope.ProgramData) {
 	res, err := whttp.SendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
-			URL:    INTIGRITI_PROGRAMS_ENDPOINT + "/" + companyHandle + "/" + programHandle,
+			URL:    "https://api.intigriti.com/external/researcher/v1/programs/" + programID,
 			Headers: []whttp.WHTTPHeader{
-				{Name: "Cookie", Value: "__Host-Intigriti.Web.Researcher=" + token},
+				{Name: "Authorization", Value: "Bearer " + token},
 			},
 		}, http.DefaultClient)
 
@@ -50,73 +46,122 @@ func GetProgramScope(token string, companyHandle string, programHandle string, c
 		log.Fatal("HTTP request failed: ", err)
 	}
 
-	latestVersionIndex := len(gjson.Get(res.BodyString, "domains.#.content").Array()) - 1
-	currentContent := gjson.Get(res.BodyString, "domains."+strconv.Itoa(latestVersionIndex)+".content")
+	if res.StatusCode == 401 {
+		utils.Log.Fatal("Invalid auth token")
+	}
 
-	chunkData := gjson.GetMany(currentContent.Raw, "#.endpoint", "#.type", "#.description")
-	for i := 0; i < len(chunkData[0].Array()); i++ {
-		selectedCatIDs := GetCategoryID(categories)
+	if strings.Contains(res.BodyString, "Request blocked") {
+		utils.Log.Info("Rate limited. Retrying...")
+		time.Sleep(2 * time.Second)
+		return GetProgramScope(token, programID, categories, includeOOS)
+	}
 
-		catMatches := false
-		for _, cat := range selectedCatIDs {
-			if cat == int(chunkData[1].Array()[i].Int()) {
-				catMatches = true
-				break
+	// Use gjson to get the content array
+	contentArray := gjson.Get(res.BodyString, "domains.content")
+
+	// Iterate over each item in the array
+	contentArray.ForEach(func(key, value gjson.Result) bool {
+		endpoint := value.Get("endpoint").String()
+		categoryID := value.Get("type.id").Int()
+		categoryValue := value.Get("type.value").Str
+		tierID := value.Get("tier.id").Int()
+		description := value.Get("description").Str
+
+		// Check if the tier ID is not 5 (out of scope)
+		if tierID != 5 {
+			// Check if this element belongs to one of the categories the user chose
+			if isInArray(int(categoryID), GetCategoryID(categories)) {
+				pData.InScope = append(pData.InScope, scope.ScopeElement{
+					Target:      endpoint,
+					Description: strings.ReplaceAll(description, "\n", "  "),
+					Category:    categoryValue,
+				})
+			}
+		} else {
+			// TODO: This isn't being printed
+			if includeOOS {
+				pData.OutOfScope = append(pData.InScope, scope.ScopeElement{
+					Target:      endpoint,
+					Description: strings.ReplaceAll(description, "\n", "  "),
+					Category:    categoryValue,
+				})
 			}
 		}
-		if catMatches {
-			pData.InScope = append(pData.InScope, scope.ScopeElement{
-				Target:      chunkData[0].Array()[i].Str,
-				Description: strings.ReplaceAll(chunkData[2].Array()[i].Str, "\n", "  "),
-				Category:    "",
-			})
-		}
-	}
 
-	if len(pData.InScope) == 0 {
-		pData.InScope = append(pData.InScope, scope.ScopeElement{Target: "NO_IN_SCOPE_TABLE", Description: "", Category: ""})
-	}
+		return true // Keep iterating
+	})
 
 	return pData
 }
 
-func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories string) (programs []scope.ProgramData) {
-	res, err := whttp.SendHTTPRequest(
-		&whttp.WHTTPReq{
-			Method: "GET",
-			URL:    INTIGRITI_PROGRAMS_ENDPOINT,
-			Headers: []whttp.WHTTPHeader{
-				{Name: "Cookie", Value: "__Host-Intigriti.Web.Researcher=" + token},
-			},
-		}, http.DefaultClient)
+func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories, outputFlags, delimiterCharacter string, includeOOS, printRealTime bool) (programs []scope.ProgramData) {
+	offset := 0
+	limit := 500
+	total := 0
 
-	if err != nil {
-		log.Fatal("HTTP request failed: ", err)
-	}
+	for {
+		res, err := whttp.SendHTTPRequest(
+			&whttp.WHTTPReq{
+				Method: "GET",
+				URL:    fmt.Sprintf("https://api.intigriti.com/external/researcher/v1/programs?limit=%d&offset=%d", limit, offset),
+				Headers: []whttp.WHTTPHeader{
+					{Name: "Authorization", Value: "Bearer " + token},
+				},
+			}, http.DefaultClient)
 
-	data := gjson.GetMany(res.BodyString, "#(type==1)#.companyHandle", "#(type==1)#.handle", "#(type==1)#.maxBounty.value", "#(type==1)#.confidentialityLevel")
+		if err != nil {
+			utils.Log.Fatal("HTTP request failed: ", err)
+		}
 
-	allCompanyHandles := data[0].Array()
-	allHandles := data[1].Array()
-	allMaxBounties := data[2].Array()
+		if res.StatusCode == 401 {
+			utils.Log.Fatal("Invalid auth token")
+		}
 
-	confidentialityLevels := data[3].Array()
+		bodyString := string(res.BodyString)
 
-	for i := 0; i < len(allHandles); i++ {
-		if !pvtOnly || (pvtOnly && confidentialityLevels[i].Int() == 1) {
-			if !bbpOnly || (bbpOnly && allMaxBounties[i].Float() != 0) {
-				pData := GetProgramScope(token, allCompanyHandles[i].Str, allHandles[i].Str, categories)
-				programs = append(programs, pData)
+		if offset == 0 {
+			total = int(gjson.Get(bodyString, "maxCount").Int())
+			utils.Log.Info("Total Programs available: ", total)
+		}
+
+		records := gjson.Get(bodyString, "records").Array()
+		for _, record := range records {
+			id := record.Get("id").String()
+			handle := record.Get("handle").String()
+			maxBounty := record.Get("maxBounty.value").Float()
+			confidentialityLevel := record.Get("confidentialityLevel.id").Int()
+
+			// Types of confidentialityLevel: 1 InviteOnly, 2 Application, 3 Registered, 4 Public.
+			// We assume privates are 1, 2 and 3.
+
+			if (pvtOnly && confidentialityLevel != 4) || !pvtOnly {
+				if (bbpOnly || maxBounty != 0) || !bbpOnly {
+					pData := GetProgramScope(token, id, categories, includeOOS)
+					pData.Url = "https://app.intigriti.com/researcher/programs/INTIGRITI_PLS_FIX_THIS/" + handle + "/detail"
+					if printRealTime {
+						scope.PrintProgramScope(pData, outputFlags, delimiterCharacter, includeOOS)
+					}
+
+					programs = append(programs, pData)
+				}
 			}
+		}
+
+		offset += len(records)
+		if offset >= total {
+			break
 		}
 	}
 
 	return programs
 }
 
-func PrintAllScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, delimiter string) {
-	programs := GetAllProgramsScope(token, bbpOnly, pvtOnly, categories)
-	for _, pData := range programs {
-		scope.PrintProgramScope(pData, outputFlags, delimiter)
+// Function to check if an int is in a slice of ints
+func isInArray(val int, array []int) bool {
+	for _, item := range array {
+		if item == val {
+			return true
+		}
 	}
+	return false
 }

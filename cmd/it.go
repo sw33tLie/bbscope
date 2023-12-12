@@ -22,6 +22,8 @@ var itCmd = &cobra.Command{
 
 		outputFlags, _ := rootCmd.PersistentFlags().GetString("output")
 		delimiterCharacter, _ := rootCmd.PersistentFlags().GetString("delimiter")
+		includeOOS, _ := rootCmd.PersistentFlags().GetBool("oos")
+
 		proxy, _ := rootCmd.PersistentFlags().GetString("proxy")
 		bbpOnly, _ := rootCmd.Flags().GetBool("bbpOnly")
 		pvtOnly, _ := rootCmd.Flags().GetBool("pvtOnly")
@@ -35,12 +37,12 @@ var itCmd = &cobra.Command{
 			http.DefaultTransport.(*http.Transport).Proxy = http.ProxyURL(proxyURL)
 		}
 
-		intigriti.PrintAllScope(token, bbpOnly, pvtOnly, categories, outputFlags, delimiterCharacter)
+		intigriti.GetAllProgramsScope(token, bbpOnly, pvtOnly, categories, outputFlags, delimiterCharacter, includeOOS, true)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(itCmd)
-	itCmd.Flags().StringP("token", "t", "", "Intigriti __Host-Intigriti.Web.Researcher cookie (From app.intigriti.com)")
+	itCmd.Flags().StringP("token", "t", "", "Intigriti API token")
 	itCmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, device, other)")
 }

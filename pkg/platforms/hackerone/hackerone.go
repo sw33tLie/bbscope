@@ -232,6 +232,6 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 func PrintAllScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, outputFlags string, delimiter string, active bool, concurrency int) {
 	programs := GetAllProgramsScope(authorization, bbpOnly, pvtOnly, publicOnly, categories, active, concurrency)
 	for _, pData := range programs {
-		scope.PrintProgramScope(pData, outputFlags, delimiter)
+		scope.PrintProgramScope(pData, outputFlags, delimiter, false)
 	}
 }

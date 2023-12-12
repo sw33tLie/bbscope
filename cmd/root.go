@@ -42,6 +42,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolP("bbpOnly", "b", false, "Only fetch programs offering monetary rewards")
 	rootCmd.PersistentFlags().BoolP("pvtOnly", "p", false, "Only fetch data from private programs")
 	rootCmd.PersistentFlags().StringP("loglevel", "l", "info", "Set log level. Available: debug, info, warn, error, fatal")
+	rootCmd.PersistentFlags().BoolP("oos", "", false, "Also print out of scope items with [OOS] - Intigriti only for now")
 
 }
 

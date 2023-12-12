@@ -328,7 +328,7 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 func PrintAllScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, delimiter string, concurrency int) {
 	programs := GetAllProgramsScope(token, bbpOnly, pvtOnly, categories, concurrency)
 	for _, pData := range programs {
-		scope.PrintProgramScope(pData, outputFlags, delimiter)
+		scope.PrintProgramScope(pData, outputFlags, delimiter, false)
 	}
 }
 

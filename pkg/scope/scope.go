@@ -18,33 +18,37 @@ type ProgramData struct {
 	OutOfScope []ScopeElement
 }
 
-func PrintProgramScope(programScope ProgramData, outputFlags string, delimiter string) {
-	lines := ""
-	for _, scopeElement := range programScope.InScope {
-		var line string
-		for _, f := range outputFlags {
-			switch f {
-			case 't':
-				line += scopeElement.Target + delimiter
-			case 'd':
-				line += scopeElement.Description + delimiter
-			case 'c':
-				line += scopeElement.Category + delimiter
-			case 'u':
-				line += programScope.Url + delimiter
-			default:
-				log.Fatal("Invalid print flag")
+func PrintProgramScope(programScope ProgramData, outputFlags string, delimiter string, includeOOS bool) {
+	printScope := func(scope []ScopeElement, prefix string) {
+		for _, scopeElement := range scope {
+			line := createLine(scopeElement, programScope.Url, outputFlags, delimiter)
+			if len(line) > 0 {
+				fmt.Println(prefix + line)
 			}
 		}
-		line = strings.TrimSuffix(line, delimiter)
-		if len(line) > 0 {
-			lines += line + "\n"
+	}
+
+	printScope(programScope.InScope, "")
+	if includeOOS {
+		printScope(programScope.OutOfScope, "[OOS] ")
+	}
+}
+
+func createLine(scopeElement ScopeElement, url, outputFlags, delimiter string) string {
+	var line string
+	for _, f := range outputFlags {
+		switch f {
+		case 't':
+			line += scopeElement.Target + delimiter
+		case 'd':
+			line += scopeElement.Description + delimiter
+		case 'c':
+			line += scopeElement.Category + delimiter
+		case 'u':
+			line += url + delimiter
+		default:
+			log.Fatal("Invalid print flag")
 		}
 	}
-
-	lines = strings.TrimSuffix(lines, "\n")
-
-	if len(lines) > 0 {
-		fmt.Println(lines)
-	}
+	return strings.TrimSuffix(line, delimiter)
 }

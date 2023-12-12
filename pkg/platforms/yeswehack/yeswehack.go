@@ -120,6 +120,6 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 func PrintAllScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, delimiter string) {
 	programs := GetAllProgramsScope(token, bbpOnly, pvtOnly, categories)
 	for _, pData := range programs {
-		scope.PrintProgramScope(pData, outputFlags, delimiter)
+		scope.PrintProgramScope(pData, outputFlags, delimiter, false)
 	}
 }
