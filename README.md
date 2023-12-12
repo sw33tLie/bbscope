@@ -51,7 +51,7 @@ bbscope bc -t <YOUR_TOKEN> -b -p -o t
 
 ### Print all in-scope targets+program page URL from all Intigriti programs, including OOS elements
 ```
-it -t <YOUR_TOKEN> -o tu --oos
+bbscope it -t <YOUR_TOKEN> -o tu --oos
 ```
 
 ### Print all in-scope Android APKs from all your HackerOne programs
