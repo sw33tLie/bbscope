@@ -49,7 +49,7 @@ func SendHTTPRequest(wReq *WHTTPReq, client *http.Client) (wRes *WHTTPRes, err e
 	}
 
 	// Set common headers
-	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:83.0) Gecko/20100101 Firefox/83.0")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:83.0) Gecko/20100101 Firefox/83.0 bbscope")
 	req.Header.Set("Cache-Control", "no-transform")
 	req.Header.Set("Connection", "close")
 	req.Header.Set("Accept-Language", "en")
