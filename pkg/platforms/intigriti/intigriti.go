@@ -32,7 +32,7 @@ func GetCategoryID(input string) []int {
 	return selectedCategory
 }
 
-func GetProgramScope(token string, programID string, categories string, includeOOS bool) (pData scope.ProgramData) {
+func GetProgramScope(token string, programID string, categories string, bbpOnly bool, includeOOS bool) (pData scope.ProgramData) {
 	res, err := whttp.SendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
@@ -53,7 +53,7 @@ func GetProgramScope(token string, programID string, categories string, includeO
 	if strings.Contains(res.BodyString, "Request blocked") {
 		utils.Log.Info("Rate limited. Retrying...")
 		time.Sleep(2 * time.Second)
-		return GetProgramScope(token, programID, categories, includeOOS)
+		return GetProgramScope(token, programID, categories, bbpOnly, includeOOS)
 	}
 
 	// Use gjson to get the content array
@@ -69,13 +69,15 @@ func GetProgramScope(token string, programID string, categories string, includeO
 
 		// Check if the tier ID is not 5 (out of scope)
 		if tierID != 5 {
-			// Check if this element belongs to one of the categories the user chose
-			if isInArray(int(categoryID), GetCategoryID(categories)) {
-				pData.InScope = append(pData.InScope, scope.ScopeElement{
-					Target:      endpoint,
-					Description: strings.ReplaceAll(description, "\n", "  "),
-					Category:    categoryValue,
-				})
+			if !bbpOnly || (bbpOnly && tierID != 1) {
+				// Check if this element belongs to one of the categories the user chose
+				if isInArray(int(categoryID), GetCategoryID(categories)) {
+					pData.InScope = append(pData.InScope, scope.ScopeElement{
+						Target:      endpoint,
+						Description: strings.ReplaceAll(description, "\n", "  "),
+						Category:    categoryValue,
+					})
+				}
 			}
 		} else {
 			// TODO: This isn't being printed
@@ -136,7 +138,7 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories, o
 
 			if (pvtOnly && confidentialityLevel != 4) || !pvtOnly {
 				if (bbpOnly || maxBounty != 0) || !bbpOnly {
-					pData := GetProgramScope(token, id, categories, includeOOS)
+					pData := GetProgramScope(token, id, categories, bbpOnly, includeOOS)
 					pData.Url = "https://app.intigriti.com/researcher/programs/INTIGRITI_PLS_FIX_THIS/" + handle + "/detail"
 					if printRealTime {
 						scope.PrintProgramScope(pData, outputFlags, delimiterCharacter, includeOOS)
