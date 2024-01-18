@@ -18,6 +18,7 @@ type WHTTPHeader struct {
 type WHTTPReq struct {
 	URL        string
 	Method     string
+	Body       string
 	CustomHost string
 	Headers    []WHTTPHeader
 }
@@ -27,11 +28,19 @@ type WHTTPRes struct {
 	ResponseLength int
 	HTTPTitle      string
 	BodyString     string
+	Headers        http.Header
 }
 
 func SendHTTPRequest(wReq *WHTTPReq, client *http.Client) (wRes *WHTTPRes, err error) {
 	var req *http.Request
-	req, err = http.NewRequest(wReq.Method, wReq.URL, nil)
+	// Check if Body is not an empty string
+	if wReq.Body != "" {
+		// Create a new request with body data
+		req, err = http.NewRequest(wReq.Method, wReq.URL, strings.NewReader(wReq.Body))
+	} else {
+		// Create a new request without body data
+		req, err = http.NewRequest(wReq.Method, wReq.URL, nil)
+	}
 
 	if err != nil {
 		return nil, err
@@ -62,12 +71,15 @@ func SendHTTPRequest(wReq *WHTTPReq, client *http.Client) (wRes *WHTTPRes, err e
 	}
 
 	resp, err := client.Do(req)
-
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close() // Good practice to use defer for closing the response body
 
-	wRes = &WHTTPRes{}
+	wRes = &WHTTPRes{
+		StatusCode: resp.StatusCode,
+		Headers:    resp.Header, // Populate the Headers field
+	}
 
 	bodyBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
