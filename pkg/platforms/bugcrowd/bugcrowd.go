@@ -100,7 +100,7 @@ func Login(email string, password string) string {
 	}
 
 	if loginRes.StatusCode == 401 {
-		utils.Log.Fatal("Login failed. Check your email and password")
+		utils.Log.Fatal("Login failed. Check your email and password. Make sure 2FA is off.")
 	}
 
 	_, err = whttp.SendHTTPRequest(
