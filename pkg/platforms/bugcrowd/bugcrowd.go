@@ -92,7 +92,7 @@ func Login(email string, password string) string {
 				{Name: "Content-Type", Value: "application/x-www-form-urlencoded; charset=UTF-8"},
 				{Name: "Origin", Value: "https://identity.bugcrowd.com"},
 			},
-			Body: "username=" + url.QueryEscape(email) + "&password=" + password + "&login_challenge=" + loginChallenge + "&otp_code=&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
+			Body: "username=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(password) + "&login_challenge=" + loginChallenge + "&otp_code=&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
 		}, client)
 
 	if err != nil {
@@ -111,7 +111,6 @@ func Login(email string, password string) string {
 				{Name: "User-Agent", Value: USER_AGENT},
 				{Name: "Origin", Value: "https://identity.bugcrowd.com"},
 			},
-			Body: "username=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(password) + "&login_challenge=" + loginChallenge + "&otp_code=&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
 		}, client)
 
 	if err != nil {
