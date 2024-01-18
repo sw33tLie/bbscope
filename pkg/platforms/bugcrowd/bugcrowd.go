@@ -73,9 +73,9 @@ func Login(email string, password string) string {
 		allCookiesString += split[0] + "=" + split[1] + "; "
 	}
 
-	url, _ := url.Parse("https://identity.bugcrowd.com")
+	identityUrl, _ := url.Parse("https://identity.bugcrowd.com")
 	csrfToken := ""
-	for _, cookie := range client.Jar.Cookies(url) {
+	for _, cookie := range client.Jar.Cookies(identityUrl) {
 		if cookie.Name == "csrf-token" { // Replace with the actual CSRF token's name
 			csrfToken = cookie.Value
 			break
@@ -92,7 +92,7 @@ func Login(email string, password string) string {
 				{Name: "Content-Type", Value: "application/x-www-form-urlencoded; charset=UTF-8"},
 				{Name: "Origin", Value: "https://identity.bugcrowd.com"},
 			},
-			Body: "username=" + email + "&password=" + password + "&login_challenge=" + loginChallenge + "&otp_code=&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
+			Body: "username=" + url.QueryEscape(email) + "&password=" + password + "&login_challenge=" + loginChallenge + "&otp_code=&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
 		}, client)
 
 	if err != nil {
@@ -111,14 +111,14 @@ func Login(email string, password string) string {
 				{Name: "User-Agent", Value: USER_AGENT},
 				{Name: "Origin", Value: "https://identity.bugcrowd.com"},
 			},
-			Body: "username=" + email + "&password=" + password + "&login_challenge=" + loginChallenge + "&otp_code=&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
+			Body: "username=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(password) + "&login_challenge=" + loginChallenge + "&otp_code=&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
 		}, client)
 
 	if err != nil {
 		utils.Log.Fatal(err)
 	}
 
-	for _, cookie := range client.Jar.Cookies(url) {
+	for _, cookie := range client.Jar.Cookies(identityUrl) {
 		if cookie.Name == "_bugcrowd_session" { // Replace with the actual CSRF token's name
 			utils.Log.Info("Login OK. Fetching programs, please wait...")
 			utils.Log.Debug("SESSION: ", cookie.Value)
@@ -237,7 +237,6 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 	}
 
 	// Times @arcwhite broke our code: #3 and counting :D
-
 	noScopeTable := true
 	for _, scopeTableURL := range gjson.Get(string(res.BodyString), "groups.#(in_scope==true)#.targets_url").Array() {
 
