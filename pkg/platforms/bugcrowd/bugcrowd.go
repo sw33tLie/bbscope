@@ -18,7 +18,6 @@ import (
 
 const (
 	USER_AGENT               = "Mozilla/5.0 (X11; Linux x86_64; rv:82.0) Gecko/20100101 Firefox/82.0"
-	BUGCROWD_LOGIN_PAGE      = "https://identity.bugcrowd.com/login"
 	RATE_LIMIT_SLEEP_SECONDS = 5
 )
 
@@ -322,28 +321,26 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 	programHandles := GetProgramHandles(token, bbpOnly, pvtOnly)
 
 	utils.Log.Info("Fetching ", strconv.Itoa(len(programHandles)), " programs...")
+
+	var mutex sync.Mutex
 	handles := make(chan string, concurrency)
 	processGroup := new(sync.WaitGroup)
-	processGroup.Add(concurrency)
 
 	for i := 0; i < concurrency; i++ {
+		processGroup.Add(1)
 		go func() {
-			for {
-				handle := <-handles
-
-				if handle == "" {
-					break
-				}
-
+			defer processGroup.Done()
+			for handle := range handles {
 				pScope := GetProgramScope(handle, categories, token)
+
+				mutex.Lock()
 				programs = append(programs, pScope)
+				mutex.Unlock()
 
 				if printRealTime {
 					scope.PrintProgramScope(pScope, outputFlags, delimiterCharacter, includeOOS)
 				}
-
 			}
-			processGroup.Done()
 		}()
 	}
 
@@ -353,5 +350,6 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 
 	close(handles)
 	processGroup.Wait()
+	utils.Log.Info("bbscope run successfully")
 	return programs
 }
