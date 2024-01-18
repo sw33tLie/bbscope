@@ -169,6 +169,9 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 
 		if totalPages == 0 {
 			totalPages = int(gjson.Get(string(res.BodyString), "meta.totalPages").Int())
+			if totalPages == 0 {
+				utils.Log.Fatal("Unexpected response format: no totalPages found")
+			}
 		}
 
 		// Assuming res.BodyString is the JSON string response
@@ -350,6 +353,5 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 
 	close(handles)
 	processGroup.Wait()
-	utils.Log.Info("bbscope run successfully")
 	return programs
 }
