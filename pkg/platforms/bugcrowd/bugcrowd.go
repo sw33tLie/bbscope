@@ -241,7 +241,7 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 			}
 		}
 
-		chunkData := gjson.GetMany(string(res2.BodyString), "targets.#.name", "targets.#.category", "targets.#.description")
+		chunkData := gjson.GetMany(string(res2.BodyString), "targets.#.name", "targets.#.category", "targets.#.description", "targets.#.uri")
 		for i := 0; i < len(chunkData[0].Array()); i++ {
 			var currentTarget struct {
 				line     string
@@ -249,7 +249,13 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 			}
 			currentTarget.line = strings.TrimSpace(chunkData[0].Array()[i].String())
 			currentTarget.category = chunkData[1].Array()[i].String()
-
+			uri := strings.TrimSpace(chunkData[3].Array()[i].String())
+			var target string
+			if uri == "" {
+				target = currentTarget.line
+			} else {
+				target = uri
+			}
 			if categories != "all" {
 				catMatches := false
 				if currentTarget.category == GetCategories(categories)[0] {
@@ -257,11 +263,11 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 				}
 
 				if catMatches {
-					pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: chunkData[2].Array()[i].String(), Category: currentTarget.category})
+					pData.InScope = append(pData.InScope, scope.ScopeElement{Target: target, Description: chunkData[2].Array()[i].String(), Category: currentTarget.category})
 				}
 
 			} else {
-				pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: chunkData[2].Array()[i].String(), Category: currentTarget.category})
+				pData.InScope = append(pData.InScope, scope.ScopeElement{Target: target, Description: chunkData[2].Array()[i].String(), Category: currentTarget.category})
 			}
 
 		}
