@@ -75,7 +75,7 @@ func Login(email string, password string) string {
 	identityUrl, _ := url.Parse("https://identity.bugcrowd.com")
 	csrfToken := ""
 	for _, cookie := range client.Jar.Cookies(identityUrl) {
-		if cookie.Name == "csrf-token" { // Replace with the actual CSRF token's name
+		if cookie.Name == "csrf-token" {
 			csrfToken = cookie.Value
 			break
 		}
@@ -117,7 +117,7 @@ func Login(email string, password string) string {
 	}
 
 	for _, cookie := range client.Jar.Cookies(identityUrl) {
-		if cookie.Name == "_bugcrowd_session" { // Replace with the actual CSRF token's name
+		if cookie.Name == "_bugcrowd_session" {
 			utils.Log.Info("Login OK. Fetching programs, please wait...")
 			utils.Log.Debug("SESSION: ", cookie.Value)
 			return cookie.Value
