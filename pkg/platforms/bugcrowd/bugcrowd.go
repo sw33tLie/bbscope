@@ -1,113 +1,131 @@
 package bugcrowd
 
 import (
-	"bytes"
-	"io/ioutil"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/PuerkitoBio/goquery"
 	"github.com/sw33tLie/bbscope/internal/utils"
 	"github.com/sw33tLie/bbscope/pkg/scope"
 	"github.com/sw33tLie/bbscope/pkg/whttp"
 	"github.com/tidwall/gjson"
+	"golang.org/x/net/publicsuffix"
 )
 
 const (
 	USER_AGENT               = "Mozilla/5.0 (X11; Linux x86_64; rv:82.0) Gecko/20100101 Firefox/82.0"
-	BUGCROWD_LOGIN_PAGE      = "https://identity.bugcrowd.com/login"
 	RATE_LIMIT_SLEEP_SECONDS = 5
 )
 
+// Automated email + password login. 2FA needs to be disabled
 func Login(email string, password string) string {
-	// Send GET to https://bugcrowd.com/user/sign_in
-	// Get _crowdcontrol_session_key cookie
-	// Get <meta name="csrf-token" content="Da...ktOQ==" />
-	// Still under development
+	cookies := make(map[string]string)
 
-	req, err := http.NewRequest("GET", BUGCROWD_LOGIN_PAGE, nil)
+	// Create a cookie jar to store cookies
+	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	if err != nil {
-		utils.Log.Fatal(err)
+		utils.Log.Fatal("Error creating cookie jar:", err)
 	}
 
-	req.Header.Set("User-Agent", USER_AGENT)
+	var loginChallenge string
+	// Create an HTTP client with the cookie jar
 	client := &http.Client{
-		// We don't need to follow redirects
+		Jar: jar,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
+			// Here you can handle any logic you need to perform on redirect
+			// If you return an error, the redirect will not be followed
+			utils.Log.Debug("Redirecting to: ", req.URL)
+
+			if strings.Contains(req.URL.String(), "login_challenge") {
+				loginChallenge = strings.Split(req.URL.String(), "=")[1]
+			}
+
+			return nil // return nil to follow the redirect
 		},
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		panic(err)
-	}
-	defer resp.Body.Close()
 
-	crowdControlSession := ""
-	csrfToken := ""
-	for _, cookie := range resp.Header["Set-Cookie"] {
-		if strings.HasPrefix(cookie, "_crowdcontrol_session_key") {
-			crowdControlSession = strings.Split(strings.Split(cookie, ";")[0], "=")[1]
-			break
-		}
-	}
+	firstRes, err := whttp.SendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "GET",
+			URL:    "https://identity.bugcrowd.com/login?user_hint=researcher&returnTo=/dashboard",
+			Headers: []whttp.WHTTPHeader{
+				{Name: "User-Agent", Value: USER_AGENT},
+			},
+		}, client)
 
-	if crowdControlSession == "" {
-		utils.Log.Fatal("Failed to get cookie. Something might have changed")
-	}
-
-	// Now we need to get the csrf-token...HTML parsing here we go
-	body, _ := ioutil.ReadAll(resp.Body)
-
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
-
-	if err != nil {
-		utils.Log.Fatal("Failed to parse login response")
-	}
-
-	doc.Find("meta").Each(func(index int, s *goquery.Selection) {
-		name, _ := s.Attr("name")
-		if name == "csrf-token" {
-			csrfToken, _ = s.Attr("content")
-			//fmt.Println("TOKEN: ", url.QueryEscape(content))
-		}
-	})
-
-	if csrfToken == "" {
-		utils.Log.Fatal("Failed to get the CSRF token. Something might have changed")
-	}
-
-	// Now send the POST request
-	req2, err := http.NewRequest("POST", BUGCROWD_LOGIN_PAGE, bytes.NewBuffer([]byte("utf8=%E2%9C%93&authenticity_token="+url.QueryEscape(csrfToken)+"&user%5Bredirect_to%5D=&user%5Bemail%5D="+url.QueryEscape(email)+"&user%5Bpassword%5D="+url.QueryEscape(password)+"&commit=Log+in")))
 	if err != nil {
 		utils.Log.Fatal(err)
 	}
 
-	req2.Header.Set("User-Agent", USER_AGENT)
-	req2.Header.Set("Cookie", "_crowdcontrol_session_key="+crowdControlSession)
-	resp2, err := client.Do(req2)
-	if err != nil {
-		panic(err)
+	if firstRes.StatusCode == 403 {
+		utils.Log.Fatal("Got 403 on first request. You may be WAF banned. Change IP or wait")
 	}
-	defer resp2.Body.Close()
 
-	sessionToken := ""
-	for _, cookie := range resp2.Header["Set-Cookie"] {
-		if strings.HasPrefix(cookie, "_crowdcontrol_session_key") {
-			sessionToken = strings.TrimPrefix(cookie, "_crowdcontrol_session_key=")
+	var allCookiesString string
+	for _, cookie := range firstRes.Headers["Set-Cookie"] {
+		split := strings.Split(cookie, ";")
+		cookies[split[0]] = split[1]
+		allCookiesString += split[0] + "=" + split[1] + "; "
+	}
+
+	identityUrl, _ := url.Parse("https://identity.bugcrowd.com")
+	csrfToken := ""
+	for _, cookie := range client.Jar.Cookies(identityUrl) {
+		if cookie.Name == "csrf-token" {
+			csrfToken = cookie.Value
 			break
 		}
 	}
 
-	if resp2.StatusCode != 302 {
-		utils.Log.Fatal("Login failed", resp2.StatusCode)
+	loginRes, err := whttp.SendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "POST",
+			URL:    "https://identity.bugcrowd.com/login",
+			Headers: []whttp.WHTTPHeader{
+				{Name: "User-Agent", Value: USER_AGENT},
+				{Name: "X-Csrf-Token", Value: csrfToken},
+				{Name: "Content-Type", Value: "application/x-www-form-urlencoded; charset=UTF-8"},
+				{Name: "Origin", Value: "https://identity.bugcrowd.com"},
+			},
+			Body: "username=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(password) + "&login_challenge=" + loginChallenge + "&otp_code=&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
+		}, client)
+
+	if err != nil {
+		utils.Log.Fatal("Login request error: ", err)
 	}
 
-	return sessionToken
+	if loginRes.StatusCode == 401 {
+		utils.Log.Fatal("Login failed. Check your email and password. Make sure 2FA is off.")
+	}
+
+	_, err = whttp.SendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "GET",
+			URL:    gjson.Get(loginRes.BodyString, "redirect_to").String(),
+			Headers: []whttp.WHTTPHeader{
+				{Name: "User-Agent", Value: USER_AGENT},
+				{Name: "Origin", Value: "https://identity.bugcrowd.com"},
+			},
+		}, client)
+
+	if err != nil {
+		utils.Log.Fatal(err)
+	}
+
+	for _, cookie := range client.Jar.Cookies(identityUrl) {
+		if cookie.Name == "_bugcrowd_session" {
+			utils.Log.Info("Login OK. Fetching programs, please wait...")
+			utils.Log.Debug("SESSION: ", cookie.Value)
+			return cookie.Value
+		}
+	}
+
+	utils.Log.Fatal("Unknown Error")
+	return ""
 }
 
 func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string {
@@ -116,10 +134,7 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 
 	listEndpointURL := "https://bugcrowd.com/programs.json?"
 
-	if bbpOnly {
-		listEndpointURL = listEndpointURL + "vdp[]=false&"
-	}
-	listEndpointURL = listEndpointURL + "hidden[]=false&sort[]=invited-desc&sort[]=promoted-desc&page[]="
+	listEndpointURL = listEndpointURL + "hidden[]=false&page[]="
 	paths := []string{}
 
 	for {
@@ -154,16 +169,29 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 
 		if totalPages == 0 {
 			totalPages = int(gjson.Get(string(res.BodyString), "meta.totalPages").Int())
-		}
-
-		chunkData := gjson.Get(string(res.BodyString), "programs.#.program_url")
-		participationType := gjson.Get(string(res.BodyString), "programs.#.participation")
-
-		for i := 0; i < len(chunkData.Array()); i++ {
-			if !pvtOnly || (pvtOnly && participationType.Array()[i].Str != "public") {
-				paths = append(paths, chunkData.Array()[i].Str)
+			if totalPages == 0 {
+				utils.Log.Fatal("Unexpected response format: no totalPages found")
 			}
 		}
+
+		// Assuming res.BodyString is the JSON string response
+		result := gjson.Get(string(res.BodyString), "programs")
+
+		// Iterating over each element in the programs array
+		result.ForEach(func(key, value gjson.Result) bool {
+			programURL := value.Get("program_url").String()
+			participation := value.Get("participation").String()
+			maxRewards := value.Get("max_rewards").Int()
+
+			if !pvtOnly || (pvtOnly && participation != "public") {
+				if !bbpOnly || (bbpOnly && maxRewards > 0) {
+					paths = append(paths, programURL)
+				}
+			}
+
+			// Return true to continue iterating
+			return true
+		})
 
 		pageIndex++
 
@@ -210,7 +238,6 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 	}
 
 	// Times @arcwhite broke our code: #3 and counting :D
-
 	noScopeTable := true
 	for _, scopeTableURL := range gjson.Get(string(res.BodyString), "groups.#(in_scope==true)#.targets_url").Array() {
 
@@ -299,25 +326,30 @@ func GetCategories(input string) []string {
 	return selectedCategory
 }
 
-func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories string, concurrency int) (programs []scope.ProgramData) {
+func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, concurrency int, delimiterCharacter string, includeOOS, printRealTime bool) (programs []scope.ProgramData) {
 	programHandles := GetProgramHandles(token, bbpOnly, pvtOnly)
 
+	utils.Log.Info("Fetching ", strconv.Itoa(len(programHandles)), " programs...")
+
+	var mutex sync.Mutex
 	handles := make(chan string, concurrency)
 	processGroup := new(sync.WaitGroup)
-	processGroup.Add(concurrency)
 
 	for i := 0; i < concurrency; i++ {
+		processGroup.Add(1)
 		go func() {
-			for {
-				handle := <-handles
+			defer processGroup.Done()
+			for handle := range handles {
+				pScope := GetProgramScope(handle, categories, token)
 
-				if handle == "" {
-					break
+				mutex.Lock()
+				programs = append(programs, pScope)
+				mutex.Unlock()
+
+				if printRealTime {
+					scope.PrintProgramScope(pScope, outputFlags, delimiterCharacter, includeOOS)
 				}
-
-				programs = append(programs, GetProgramScope(handle, categories, token))
 			}
-			processGroup.Done()
 		}()
 	}
 
@@ -329,20 +361,3 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 	processGroup.Wait()
 	return programs
 }
-
-// PrintAllScope prints to stdout all scope elements of all targets
-func PrintAllScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, delimiter string, concurrency int) {
-	programs := GetAllProgramsScope(token, bbpOnly, pvtOnly, categories, concurrency)
-	for _, pData := range programs {
-		scope.PrintProgramScope(pData, outputFlags, delimiter, false)
-	}
-}
-
-/*
-// ListPrograms prints a list of available programs
-func ListPrograms(token string, bbpOnly bool, pvtOnly bool) {
-	programPaths := GetProgramPagePaths(token, bbpOnly, pvtOnly)
-	for _, path := range programPaths {
-		fmt.Println("https://bugcrowd.com" + path)
-	}
-}*/

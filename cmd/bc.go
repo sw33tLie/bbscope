@@ -24,6 +24,8 @@ var bcCmd = &cobra.Command{
 
 		outputFlags, _ := rootCmd.PersistentFlags().GetString("output")
 		delimiterCharacter, _ := rootCmd.PersistentFlags().GetString("delimiter")
+		includeOOS, _ := rootCmd.PersistentFlags().GetBool("oos")
+
 		proxy, _ := rootCmd.PersistentFlags().GetString("proxy")
 		bbpOnly, _ := rootCmd.Flags().GetBool("bbpOnly")
 		pvtOnly, _ := rootCmd.Flags().GetBool("pvtOnly")
@@ -44,7 +46,7 @@ var bcCmd = &cobra.Command{
 			token = bugcrowd.Login(email, password)
 		}
 
-		bugcrowd.PrintAllScope(token, bbpOnly, pvtOnly, categories, outputFlags, delimiterCharacter, concurrency)
+		bugcrowd.GetAllProgramsScope(token, bbpOnly, pvtOnly, categories, outputFlags, concurrency, delimiterCharacter, includeOOS, true)
 		utils.Log.Info("bbscope run successfully")
 	},
 }
