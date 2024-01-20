@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/sw33tLie/bbscope/internal/utils"
@@ -170,28 +169,18 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 		var res *whttp.WHTTPRes
 		var err error
 
-		for {
-			res, err = whttp.SendHTTPRequest(
-				&whttp.WHTTPReq{
-					Method: "GET",
-					URL:    listEndpointURL + strconv.Itoa(pageIndex),
-					Headers: []whttp.WHTTPHeader{
-						{Name: "Cookie", Value: "_bugcrowd_session=" + sessionToken},
-						{Name: "User-Agent", Value: USER_AGENT},
-					},
-				}, nil)
+		res, err = whttp.SendHTTPRequest(
+			&whttp.WHTTPReq{
+				Method: "GET",
+				URL:    listEndpointURL + strconv.Itoa(pageIndex),
+				Headers: []whttp.WHTTPHeader{
+					{Name: "Cookie", Value: "_bugcrowd_session=" + sessionToken},
+					{Name: "User-Agent", Value: USER_AGENT},
+				},
+			}, nil)
 
-			if err != nil {
-				utils.Log.Fatal(err)
-			}
-
-			// Rate limiting retry
-			if res.StatusCode != 429 {
-				break
-			} else {
-				utils.Log.Warn("Hit rate limiting (429), retrying...")
-				time.Sleep(RATE_LIMIT_SLEEP_SECONDS * time.Second)
-			}
+		if err != nil {
+			utils.Log.Fatal(err)
 		}
 
 		if totalPages == 0 {
@@ -237,11 +226,31 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 	var res, res2 *whttp.WHTTPRes
 	var err error
 
-	for {
-		res, err = whttp.SendHTTPRequest(
+	res, err = whttp.SendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "GET",
+			URL:    pData.Url + "/target_groups",
+			Headers: []whttp.WHTTPHeader{
+				{Name: "Cookie", Value: "_bugcrowd_session=" + token},
+				{Name: "User-Agent", Value: USER_AGENT},
+				{Name: "Accept", Value: "*/*"},
+			},
+		}, nil)
+
+	if err != nil {
+		utils.Log.Fatal(err)
+	}
+
+	// Times @arcwhite broke our code: #3 and counting :D
+	noScopeTable := true
+	for _, scopeTableURL := range gjson.Get(string(res.BodyString), "groups.#(in_scope==true)#.targets_url").Array() {
+
+		// Send HTTP request for each table
+
+		res2, err = whttp.SendHTTPRequest(
 			&whttp.WHTTPReq{
 				Method: "GET",
-				URL:    pData.Url + "/target_groups",
+				URL:    "https://bugcrowd.com" + scopeTableURL.String(),
 				Headers: []whttp.WHTTPHeader{
 					{Name: "Cookie", Value: "_bugcrowd_session=" + token},
 					{Name: "User-Agent", Value: USER_AGENT},
@@ -251,46 +260,6 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 
 		if err != nil {
 			utils.Log.Fatal(err)
-		}
-
-		// Rate limiting retry
-		if res.StatusCode != 429 {
-			break
-		} else {
-			utils.Log.Warn("Hit rate limiting (429), retrying...")
-			time.Sleep(RATE_LIMIT_SLEEP_SECONDS * time.Second)
-		}
-	}
-
-	// Times @arcwhite broke our code: #3 and counting :D
-	noScopeTable := true
-	for _, scopeTableURL := range gjson.Get(string(res.BodyString), "groups.#(in_scope==true)#.targets_url").Array() {
-
-		// Send HTTP request for each table
-
-		for {
-			res2, err = whttp.SendHTTPRequest(
-				&whttp.WHTTPReq{
-					Method: "GET",
-					URL:    "https://bugcrowd.com" + scopeTableURL.String(),
-					Headers: []whttp.WHTTPHeader{
-						{Name: "Cookie", Value: "_bugcrowd_session=" + token},
-						{Name: "User-Agent", Value: USER_AGENT},
-						{Name: "Accept", Value: "*/*"},
-					},
-				}, nil)
-
-			if err != nil {
-				utils.Log.Fatal(err)
-			}
-
-			// Rate limiting retry
-			if res2.StatusCode != 429 {
-				break
-			} else {
-				utils.Log.Warn("Hit rate limiting (429), retrying...")
-				time.Sleep(RATE_LIMIT_SLEEP_SECONDS * time.Second)
-			}
 		}
 
 		chunkData := gjson.GetMany(string(res2.BodyString), "targets.#.name", "targets.#.category", "targets.#.description")
