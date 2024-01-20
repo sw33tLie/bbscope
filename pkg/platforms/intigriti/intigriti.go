@@ -3,7 +3,6 @@ package intigriti
 import (
 	"fmt"
 	"log"
-	"net/http"
 	"strings"
 	"time"
 
@@ -40,7 +39,7 @@ func GetProgramScope(token string, programID string, categories string, bbpOnly 
 			Headers: []whttp.WHTTPHeader{
 				{Name: "Authorization", Value: "Bearer " + token},
 			},
-		}, http.DefaultClient)
+		}, nil)
 
 	if err != nil {
 		log.Fatal("HTTP request failed: ", err)
@@ -109,7 +108,7 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories, o
 				Headers: []whttp.WHTTPHeader{
 					{Name: "Authorization", Value: "Bearer " + token},
 				},
-			}, http.DefaultClient)
+			}, nil)
 
 		if err != nil {
 			utils.Log.Fatal("HTTP request failed: ", err)

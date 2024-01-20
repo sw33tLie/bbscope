@@ -2,7 +2,6 @@ package immunefi
 
 import (
 	"log"
-	"net/http"
 	"strings"
 	"sync"
 
@@ -46,7 +45,7 @@ func GetAllProgramsScope(categories string, concurrency int) (programs []scope.P
 			Headers: []whttp.WHTTPHeader{
 				{Name: "Accept", Value: "*/*"},
 			},
-		}, http.DefaultClient)
+		}, nil)
 
 	if err != nil {
 		log.Fatal("HTTP request failed: ", err)
@@ -96,7 +95,7 @@ func GetAllProgramsScope(categories string, concurrency int) (programs []scope.P
 						Headers: []whttp.WHTTPHeader{
 							{Name: "Accept", Value: "*/*"},
 						},
-					}, http.DefaultClient)
+					}, nil)
 
 				if err != nil {
 					log.Fatal("HTTP request failed: ", err)

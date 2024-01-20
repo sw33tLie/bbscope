@@ -2,11 +2,14 @@ package whttp
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/hashicorp/go-retryablehttp"
 	"golang.org/x/net/html"
 )
 
@@ -31,22 +34,37 @@ type WHTTPRes struct {
 	Headers        http.Header
 }
 
-func SendHTTPRequest(wReq *WHTTPReq, client *http.Client) (wRes *WHTTPRes, err error) {
-	var req *http.Request
-	// Check if Body is not an empty string
+var retryClient *retryablehttp.Client
+
+func init() {
+	retryClient = retryablehttp.NewClient()
+	retryClient.RetryMax = 5
+
+	// Don't print debug messages
+	retryClient.Logger = log.New(io.Discard, "", 0)
+}
+
+func GetDefaultClient() *retryablehttp.Client {
+	return retryClient
+}
+
+func SendHTTPRequest(wReq *WHTTPReq, customClient *retryablehttp.Client) (wRes *WHTTPRes, err error) {
+	client := customClient
+	if client == nil {
+		client = retryClient // Use the default client
+	}
+
+	var req *retryablehttp.Request
 	if wReq.Body != "" {
-		// Create a new request with body data
-		req, err = http.NewRequest(wReq.Method, wReq.URL, strings.NewReader(wReq.Body))
+		req, err = retryablehttp.NewRequest(wReq.Method, wReq.URL, strings.NewReader(wReq.Body))
 	} else {
-		// Create a new request without body data
-		req, err = http.NewRequest(wReq.Method, wReq.URL, nil)
+		req, err = retryablehttp.NewRequest(wReq.Method, wReq.URL, nil)
 	}
 
 	if err != nil {
 		return nil, err
 	}
 
-	// Set custom Host header
 	if wReq.CustomHost != "" {
 		req.Host = wReq.CustomHost
 	} else {
@@ -57,13 +75,11 @@ func SendHTTPRequest(wReq *WHTTPReq, client *http.Client) (wRes *WHTTPRes, err e
 		}
 	}
 
-	// Set common headers
 	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:83.0) Gecko/20100101 Firefox/83.0 bbscope")
 	req.Header.Set("Cache-Control", "no-transform")
 	req.Header.Set("Connection", "close")
 	req.Header.Set("Accept-Language", "en")
 
-	// Set custom headers
 	if len(wReq.Headers) > 0 {
 		for _, h := range wReq.Headers {
 			req.Header.Add(h.Name, h.Value)
@@ -74,11 +90,11 @@ func SendHTTPRequest(wReq *WHTTPReq, client *http.Client) (wRes *WHTTPRes, err e
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close() // Good practice to use defer for closing the response body
+	defer resp.Body.Close()
 
 	wRes = &WHTTPRes{
 		StatusCode: resp.StatusCode,
-		Headers:    resp.Header, // Populate the Headers field
+		Headers:    resp.Header,
 	}
 
 	bodyBytes, err := ioutil.ReadAll(resp.Body)

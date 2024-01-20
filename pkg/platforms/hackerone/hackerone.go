@@ -1,7 +1,6 @@
 package hackerone
 
 import (
-	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,7 +37,7 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 					Headers: []whttp.WHTTPHeader{
 						{Name: "Authorization", Value: "Basic " + authorization},
 					},
-				}, http.DefaultClient)
+				}, nil)
 
 			if err != nil {
 				utils.Log.Warn("HTTP request failed: ", err, " Retrying...")
@@ -137,7 +136,7 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 				Headers: []whttp.WHTTPHeader{
 					{Name: "Authorization", Value: "Basic " + authorization},
 				},
-			}, http.DefaultClient)
+			}, nil)
 
 		if err != nil {
 			utils.Log.Warn("HTTP request failed: ", err, " Retrying...")

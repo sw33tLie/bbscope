@@ -1,6 +1,9 @@
 package bugcrowd
 
 import (
+	"crypto/tls"
+	"io"
+	"log"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -9,11 +12,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/sw33tLie/bbscope/internal/utils"
 	"github.com/sw33tLie/bbscope/pkg/scope"
 	"github.com/sw33tLie/bbscope/pkg/whttp"
 	"github.com/tidwall/gjson"
-	"golang.org/x/net/publicsuffix"
 )
 
 const (
@@ -22,30 +25,56 @@ const (
 )
 
 // Automated email + password login. 2FA needs to be disabled
-func Login(email string, password string) string {
+func Login(email, password, proxy string) string {
 	cookies := make(map[string]string)
 
-	// Create a cookie jar to store cookies
-	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+	var loginChallenge string
+
+	// Create a cookie jar
+	jar, err := cookiejar.New(nil)
 	if err != nil {
-		utils.Log.Fatal("Error creating cookie jar:", err)
+		utils.Log.Fatal(err)
 	}
 
-	var loginChallenge string
-	// Create an HTTP client with the cookie jar
-	client := &http.Client{
-		Jar: jar,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Here you can handle any logic you need to perform on redirect
-			// If you return an error, the redirect will not be followed
-			utils.Log.Debug("Redirecting to: ", req.URL)
+	// Create a retryablehttp client
+	retryClient := retryablehttp.NewClient()
 
-			if strings.Contains(req.URL.String(), "login_challenge") {
-				loginChallenge = strings.Split(req.URL.String(), "=")[1]
-			}
+	retryClient.Logger = log.New(io.Discard, "", 0)
 
-			return nil // return nil to follow the redirect
-		},
+	retryClient.RetryMax = 5 // Set your retry policy
+
+	// Set the standard client's cookie jar
+	retryClient.HTTPClient.Jar = jar
+
+	// Set proxy for custom client
+
+	if proxy != "" {
+		proxyURL, err := url.Parse(proxy)
+		if err != nil {
+			log.Fatal("Invalid Proxy String")
+		}
+
+		retryClient.HTTPClient.Transport = &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+				CipherSuites: []uint16{
+					tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+					tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+				},
+				PreferServerCipherSuites: true,
+				MinVersion:               tls.VersionTLS11,
+				MaxVersion:               tls.VersionTLS11},
+		}
+	}
+
+	// Set the custom redirect policy on the underlying http.Client
+	retryClient.HTTPClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		utils.Log.Debug("Redirecting to: ", req.URL)
+		if strings.Contains(req.URL.String(), "login_challenge") {
+			loginChallenge = strings.Split(req.URL.String(), "=")[1]
+		}
+		return nil // return nil to follow the redirect
 	}
 
 	firstRes, err := whttp.SendHTTPRequest(
@@ -55,7 +84,7 @@ func Login(email string, password string) string {
 			Headers: []whttp.WHTTPHeader{
 				{Name: "User-Agent", Value: USER_AGENT},
 			},
-		}, client)
+		}, retryClient)
 
 	if err != nil {
 		utils.Log.Fatal(err)
@@ -74,7 +103,7 @@ func Login(email string, password string) string {
 
 	identityUrl, _ := url.Parse("https://identity.bugcrowd.com")
 	csrfToken := ""
-	for _, cookie := range client.Jar.Cookies(identityUrl) {
+	for _, cookie := range retryClient.HTTPClient.Jar.Cookies(identityUrl) {
 		if cookie.Name == "csrf-token" {
 			csrfToken = cookie.Value
 			break
@@ -92,7 +121,7 @@ func Login(email string, password string) string {
 				{Name: "Origin", Value: "https://identity.bugcrowd.com"},
 			},
 			Body: "username=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(password) + "&login_challenge=" + loginChallenge + "&otp_code=&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
-		}, client)
+		}, retryClient)
 
 	if err != nil {
 		utils.Log.Fatal("Login request error: ", err)
@@ -110,13 +139,13 @@ func Login(email string, password string) string {
 				{Name: "User-Agent", Value: USER_AGENT},
 				{Name: "Origin", Value: "https://identity.bugcrowd.com"},
 			},
-		}, client)
+		}, retryClient)
 
 	if err != nil {
 		utils.Log.Fatal(err)
 	}
 
-	for _, cookie := range client.Jar.Cookies(identityUrl) {
+	for _, cookie := range retryClient.HTTPClient.Jar.Cookies(identityUrl) {
 		if cookie.Name == "_bugcrowd_session" {
 			utils.Log.Info("Login OK. Fetching programs, please wait...")
 			utils.Log.Debug("SESSION: ", cookie.Value)
@@ -141,8 +170,6 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 		var res *whttp.WHTTPRes
 		var err error
 
-		client := &http.Client{}
-
 		for {
 			res, err = whttp.SendHTTPRequest(
 				&whttp.WHTTPReq{
@@ -152,7 +179,7 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 						{Name: "Cookie", Value: "_bugcrowd_session=" + sessionToken},
 						{Name: "User-Agent", Value: USER_AGENT},
 					},
-				}, client)
+				}, nil)
 
 			if err != nil {
 				utils.Log.Fatal(err)
@@ -210,8 +237,6 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 	var res, res2 *whttp.WHTTPRes
 	var err error
 
-	client := &http.Client{}
-
 	for {
 		res, err = whttp.SendHTTPRequest(
 			&whttp.WHTTPReq{
@@ -222,7 +247,7 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 					{Name: "User-Agent", Value: USER_AGENT},
 					{Name: "Accept", Value: "*/*"},
 				},
-			}, client)
+			}, nil)
 
 		if err != nil {
 			utils.Log.Fatal(err)
@@ -253,7 +278,7 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 						{Name: "User-Agent", Value: USER_AGENT},
 						{Name: "Accept", Value: "*/*"},
 					},
-				}, client)
+				}, nil)
 
 			if err != nil {
 				utils.Log.Fatal(err)

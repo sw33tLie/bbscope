@@ -2,7 +2,6 @@ package yeswehack
 
 import (
 	"log"
-	"net/http"
 	"strconv"
 	"strings"
 
@@ -44,7 +43,7 @@ func GetProgramScope(token string, companySlug string, categories string) (pData
 			Headers: []whttp.WHTTPHeader{
 				{Name: "Authorization", Value: "Bearer " + token},
 			},
-		}, http.DefaultClient)
+		}, nil)
 
 	if err != nil {
 		log.Fatal("HTTP request failed: ", err)
@@ -88,7 +87,7 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 				Headers: []whttp.WHTTPHeader{
 					{Name: "Authorization", Value: "Bearer " + token},
 				},
-			}, http.DefaultClient)
+			}, nil)
 
 		if err != nil {
 			log.Fatal("HTTP request failed: ", err)

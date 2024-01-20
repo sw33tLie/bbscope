@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/sw33tLie/bbscope/internal/utils"
 	"github.com/sw33tLie/bbscope/pkg/platforms/bugcrowd"
+	"github.com/sw33tLie/bbscope/pkg/whttp"
 )
 
 // bcCmd represents the bc command
@@ -38,12 +39,25 @@ var bcCmd = &cobra.Command{
 			if err != nil {
 				log.Fatal("Invalid Proxy String")
 			}
-			http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			http.DefaultTransport.(*http.Transport).Proxy = http.ProxyURL(proxyURL)
+
+			client := whttp.GetDefaultClient()
+			client.HTTPClient.Transport = &http.Transport{
+				Proxy: http.ProxyURL(proxyURL),
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+					CipherSuites: []uint16{
+						tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+						tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+					},
+					PreferServerCipherSuites: true,
+					MinVersion:               tls.VersionTLS11,
+					MaxVersion:               tls.VersionTLS11},
+			}
+
 		}
 
 		if email != "" && password != "" && token == "" {
-			token = bugcrowd.Login(email, password)
+			token = bugcrowd.Login(email, password, proxy)
 		}
 
 		bugcrowd.GetAllProgramsScope(token, bbpOnly, pvtOnly, categories, outputFlags, concurrency, delimiterCharacter, includeOOS, true)
