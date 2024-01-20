@@ -38,7 +38,7 @@ var retryClient *retryablehttp.Client
 
 func init() {
 	retryClient = retryablehttp.NewClient()
-	retryClient.RetryMax = 5
+	retryClient.RetryMax = 99999
 
 	// Don't print debug messages
 	retryClient.Logger = log.New(io.Discard, "", 0)

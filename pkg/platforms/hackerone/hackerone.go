@@ -31,7 +31,7 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 			}, nil)
 
 		if err != nil {
-			utils.Log.Warn("HTTP request failed: ", err, " Retrying...")
+			utils.Log.Warn("HTTP request failed: ", err)
 		}
 
 		if res.StatusCode != 200 {
@@ -119,7 +119,7 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 			}, nil)
 
 		if err != nil {
-			utils.Log.Warn("HTTP request failed: ", err, " Retrying...")
+			utils.Log.Warn("HTTP request failed: ", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -224,7 +224,7 @@ func HacktivityMonitor(pages int) {
 			}, nil)
 
 		if err != nil {
-			utils.Log.Warn("HTTP request failed: ", err, " Retrying...")
+			utils.Log.Warn("HTTP request failed: ", err)
 		}
 
 		if res.StatusCode != 200 {
