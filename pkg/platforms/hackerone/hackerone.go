@@ -211,8 +211,8 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 	return programs
 }
 
-func HacktivityMonitor() {
-	for pageID := 0; pageID < 100; pageID++ {
+func HacktivityMonitor(pages int) {
+	for pageID := 0; pageID < pages; pageID++ {
 		res, err := whttp.SendHTTPRequest(
 			&whttp.WHTTPReq{
 				Method: "POST",

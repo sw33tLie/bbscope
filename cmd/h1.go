@@ -80,6 +80,9 @@ func init() {
 	h1Cmd.Flags().BoolP("active-only", "a", false, "Show only active programs")
 	h1Cmd.Flags().IntP("concurrency", "", 3, "Concurrency of HTTP requests sent for fetching data")
 
+	h1Cmd.AddCommand(hacktivityCmd)
+	hacktivityCmd.Flags().IntP("pages", "p", 100, "Pages to fetch. From most recent to older pages")
+
 }
 
 var hacktivityCmd = &cobra.Command{
@@ -88,6 +91,7 @@ var hacktivityCmd = &cobra.Command{
 	Long:  "Displays activity data from HackerOne",
 	Run: func(cmd *cobra.Command, args []string) {
 		proxy, _ := rootCmd.PersistentFlags().GetString("proxy")
+		pages, _ := rootCmd.Flags().GetInt("pages")
 
 		if proxy != "" {
 			proxyURL, err := url.Parse(proxy)
@@ -110,6 +114,6 @@ var hacktivityCmd = &cobra.Command{
 			}
 		}
 
-		hackerone.HacktivityMonitor()
+		hackerone.HacktivityMonitor(pages)
 	},
 }
