@@ -157,7 +157,6 @@ func Login(email, password, proxy string) string {
 }
 
 func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string {
-	totalPages := 0
 	pageIndex := 1
 
 	listEndpointURL := "https://bugcrowd.com/programs.json?"
@@ -183,15 +182,13 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 			utils.Log.Fatal(err)
 		}
 
-		if totalPages == 0 {
-			totalPages = int(gjson.Get(string(res.BodyString), "meta.totalPages").Int())
-			if totalPages == 0 {
-				utils.Log.Fatal("Unexpected response format: no totalPages found")
-			}
-		}
-
 		// Assuming res.BodyString is the JSON string response
 		result := gjson.Get(string(res.BodyString), "programs")
+
+		// Bugcrowd's API sometimes tell us there are fewer pages than in reality, so we do it this way
+		if len(result.Array()) == 0 {
+			break
+		}
 
 		// Iterating over each element in the programs array
 		result.ForEach(func(key, value gjson.Result) bool {
@@ -210,10 +207,6 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 		})
 
 		pageIndex++
-
-		if pageIndex > totalPages {
-			break
-		}
 
 	}
 
