@@ -12,51 +12,28 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-const (
-	RATE_LIMIT_WAIT_TIME_SEC = 5
-	RATE_LIMIT_MAX_RETRIES   = 50
-	RATE_LIMIT_HTTP_STATUS   = 429
-)
-
 func getProgramScope(authorization string, id string, bbpOnly bool, categories []string) (pData scope.ProgramData) {
-	var err error
-	res := &whttp.WHTTPRes{}
-	lastStatus := -1
-
 	pData.Url = "https://hackerone.com/" + id
-
 	currentPageURL := "https://api.hackerone.com/v1/hackers/programs/" + id + "/structured_scopes?page%5Bnumber%5D=1&page%5Bsize%5D=100"
 
 	// loop through pages
 	for {
-		for i := 0; i < RATE_LIMIT_MAX_RETRIES; i++ {
-			res, err = whttp.SendHTTPRequest(
-				&whttp.WHTTPReq{
-					Method: "GET",
-					URL:    currentPageURL,
-					Headers: []whttp.WHTTPHeader{
-						{Name: "Authorization", Value: "Basic " + authorization},
-					},
-				}, nil)
+		res, err := whttp.SendHTTPRequest(
+			&whttp.WHTTPReq{
+				Method: "GET",
+				URL:    currentPageURL,
+				Headers: []whttp.WHTTPHeader{
+					{Name: "Authorization", Value: "Basic " + authorization},
+				},
+			}, nil)
 
-			if err != nil {
-				utils.Log.Warn("HTTP request failed: ", err, " Retrying...")
-				time.Sleep(2 * time.Second)
-				continue
-			}
-
-			lastStatus = res.StatusCode
-			// exit the loop if we succeeded
-			if res.StatusCode != RATE_LIMIT_HTTP_STATUS {
-				break
-			} else {
-				// encountered rate limit
-				time.Sleep(RATE_LIMIT_WAIT_TIME_SEC * time.Second)
-			}
+		if err != nil {
+			utils.Log.Warn("HTTP request failed: ", err, " Retrying...")
 		}
-		if lastStatus != 200 {
+
+		if res.StatusCode != 200 {
 			// if we completed the requests with a final (non-429) status and we still failed
-			utils.Log.Fatal("Could not retrieve data for id ", id, " with status ", lastStatus)
+			utils.Log.Fatal("Could not retrieve data for id ", id, " with status ", res.StatusCode)
 		}
 
 		l := int(gjson.Get(res.BodyString, "data.#").Int())
@@ -185,7 +162,7 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 	return handles
 }
 
-func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, active bool, concurrency int) (programs []scope.ProgramData) {
+func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, active bool, concurrency int, printRealTime bool, outputFlags string, delimiter string, includeOOS bool) (programs []scope.ProgramData) {
 	utils.Log.Debug("Fetching list of program handles")
 	programHandles := getProgramHandles(authorization, pvtOnly, publicOnly, active)
 
@@ -207,10 +184,14 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 
 				programData := getProgramScope(authorization, id, bbpOnly, getCategories(categories))
 
-				// Lock the mutex before appending to programs
 				mu.Lock()
 				programs = append(programs, programData)
-				// Unlock the mutex after appending to programs
+
+				// Check if printRealTime is true and print scope
+				if printRealTime {
+					scope.PrintProgramScope(programData, outputFlags, delimiter, includeOOS)
+				}
+
 				mu.Unlock()
 			}
 			processGroup.Done()
@@ -225,12 +206,4 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 	processGroup.Wait()
 
 	return programs
-}
-
-// PrintAllScope prints to stdout all scope elements of all targets
-func PrintAllScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, outputFlags string, delimiter string, active bool, concurrency int) {
-	programs := GetAllProgramsScope(authorization, bbpOnly, pvtOnly, publicOnly, categories, active, concurrency)
-	for _, pData := range programs {
-		scope.PrintProgramScope(pData, outputFlags, delimiter, false)
-	}
 }

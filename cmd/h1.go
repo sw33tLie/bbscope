@@ -24,6 +24,7 @@ var h1Cmd = &cobra.Command{
 		publicOnly, _ := cmd.Flags().GetBool("public-only")
 		active, _ := cmd.Flags().GetBool("active-only")
 
+		includeOOS, _ := rootCmd.PersistentFlags().GetBool("oos")
 		outputFlags, _ := rootCmd.PersistentFlags().GetString("output")
 		delimiterCharacter, _ := rootCmd.PersistentFlags().GetString("delimiter")
 		proxy, _ := rootCmd.PersistentFlags().GetString("proxy")
@@ -64,7 +65,7 @@ var h1Cmd = &cobra.Command{
 			}
 		}
 
-		hackerone.PrintAllScope(b64.StdEncoding.EncodeToString([]byte(username+":"+token)), bbpOnly, pvtOnly, publicOnly, categories, outputFlags, delimiterCharacter, active, concurrency)
+		hackerone.GetAllProgramsScope(b64.StdEncoding.EncodeToString([]byte(username+":"+token)), bbpOnly, pvtOnly, publicOnly, categories, active, concurrency, true, outputFlags, delimiterCharacter, includeOOS)
 	},
 }
 
