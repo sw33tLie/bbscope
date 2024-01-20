@@ -71,6 +71,8 @@ var h1Cmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(h1Cmd)
+	h1Cmd.AddCommand(hacktivityCmd)
+
 	h1Cmd.Flags().StringP("username", "u", "", "HackerOne username")
 	h1Cmd.Flags().StringP("token", "t", "", "HackerOne API token, get it here: https://hackerone.com/settings/api_token/edit")
 	h1Cmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, other, hardware, code, executable)")
@@ -78,4 +80,36 @@ func init() {
 	h1Cmd.Flags().BoolP("active-only", "a", false, "Show only active programs")
 	h1Cmd.Flags().IntP("concurrency", "", 3, "Concurrency of HTTP requests sent for fetching data")
 
+}
+
+var hacktivityCmd = &cobra.Command{
+	Use:   "hacktivity",
+	Short: "HackerOne Activity",
+	Long:  "Displays activity data from HackerOne",
+	Run: func(cmd *cobra.Command, args []string) {
+		proxy, _ := rootCmd.PersistentFlags().GetString("proxy")
+
+		if proxy != "" {
+			proxyURL, err := url.Parse(proxy)
+			if err != nil {
+				log.Fatal("Invalid Proxy String")
+			}
+
+			client := whttp.GetDefaultClient()
+			client.HTTPClient.Transport = &http.Transport{
+				Proxy: http.ProxyURL(proxyURL),
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+					CipherSuites: []uint16{
+						tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+						tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+					},
+					PreferServerCipherSuites: true,
+					MinVersion:               tls.VersionTLS11,
+					MaxVersion:               tls.VersionTLS11},
+			}
+		}
+
+		hackerone.HacktivityMonitor()
+	},
 }

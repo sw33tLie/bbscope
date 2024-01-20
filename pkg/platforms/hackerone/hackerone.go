@@ -1,6 +1,9 @@
 package hackerone
 
 import (
+	"encoding/base64"
+	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"sync"
@@ -206,4 +209,70 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 	processGroup.Wait()
 
 	return programs
+}
+
+func HacktivityMonitor() {
+	for pageID := 0; pageID < 100; pageID++ {
+		res, err := whttp.SendHTTPRequest(
+			&whttp.WHTTPReq{
+				Method: "POST",
+				URL:    "https://hackerone.com/graphql",
+				Headers: []whttp.WHTTPHeader{
+					{Name: "Content-Type", Value: "application/json"},
+				},
+				Body: `{"operationName":"CompleteHacktivitySearchQuery","variables":{"userPrompt":null,"queryString":"disclosed:false","size":100,"from":` + strconv.Itoa(pageID*100) + `,"sort":{"field":"latest_disclosable_activity_at","direction":"DESC"},"product_area":"hacktivity","product_feature":"overview"},"query":"query CompleteHacktivitySearchQuery($queryString: String!, $from: Int, $size: Int, $sort: SortInput!) {\n  me {\n    id\n    __typename\n  }\n  search(\n    index: CompleteHacktivityReportIndexService\n    query_string: $queryString\n    from: $from\n    size: $size\n    sort: $sort\n  ) {\n    __typename\n    total_count\n    nodes {\n      __typename\n      ... on CompleteHacktivityReportDocument {\n        id\n        _id\n        reporter {\n          id\n          name\n          username\n          ...UserLinkWithMiniProfile\n          __typename\n        }\n        cve_ids\n        cwe\n        severity_rating\n        upvoted: upvoted_by_current_user\n        public\n        report {\n          id\n          databaseId: _id\n          title\n          substate\n          url\n          disclosed_at\n          report_generated_content {\n            id\n            hacktivity_summary\n            __typename\n          }\n          __typename\n        }\n        votes\n        team {\n          handle\n          name\n          medium_profile_picture: profile_picture(size: medium)\n          url\n          id\n          currency\n          ...TeamLinkWithMiniProfile\n          __typename\n        }\n        total_awarded_amount\n        latest_disclosable_action\n        latest_disclosable_activity_at\n        submitted_at\n        disclosed\n        has_collaboration\n        __typename\n      }\n    }\n  }\n}\n\nfragment UserLinkWithMiniProfile on User {\n  id\n  username\n  __typename\n}\n\nfragment TeamLinkWithMiniProfile on Team {\n  id\n  handle\n  name\n  __typename\n}\n"}`,
+			}, nil)
+
+		if err != nil {
+			utils.Log.Warn("HTTP request failed: ", err, " Retrying...")
+		}
+
+		if res.StatusCode != 200 {
+			utils.Log.Fatal("Wrong status code. Got: ", res.StatusCode)
+		}
+
+		// Parse and iterate over each element in the nodes array
+		// Parse and iterate over each element in the nodes array
+		gjson.Get(res.BodyString, "data.search.nodes").ForEach(func(key, value gjson.Result) bool {
+			// Extract the fields you are interested in
+			rawReportID := value.Get("id").String()
+			programHandle := value.Get("team.handle").String()
+			reporterUsername := value.Get("reporter.username").String()
+			latestAction := value.Get("latest_disclosable_action").String()
+			latestActivityAt := value.Get("latest_disclosable_activity_at").String()
+			submittedAt := value.Get("submitted_at").String()
+
+			// Decode the report ID
+			decodedBytes, err := base64.StdEncoding.DecodeString(rawReportID)
+			if err != nil {
+				log.Fatalf("Failed to decode base64 string: %v", err)
+			}
+			decodedStr := string(decodedBytes)
+			parts := strings.Split(decodedStr, "/")
+			if len(parts) == 0 {
+				log.Fatal("No '/' found in decoded string")
+			}
+			reportID := parts[len(parts)-1]
+
+			// Convert date strings to human-friendly format
+			latestActivityAtFormatted := formatDate(latestActivityAt)
+			submittedAtFormatted := formatDate(submittedAt)
+
+			// Print the extracted data
+			fmt.Printf("ID: %s, program: %s, reporter: %s, latest_action: %s, latest_activity: %s, submitted: %s\n",
+				reportID, programHandle, reporterUsername, latestAction, latestActivityAtFormatted, submittedAtFormatted)
+
+			return true // Continue iterating
+		})
+	}
+}
+
+func formatDate(dateStr string) string {
+	layout := "2006-01-02T15:04:05.000Z" // ISO 8601 format
+	t, err := time.Parse(layout, dateStr)
+	if err != nil {
+		log.Printf("Error parsing date: %v", err)
+		return dateStr // Return original string if parsing fails
+	}
+	return t.Format("02/01/2006 15:04:05") // Format as dd/mm/yyyy h:m:s
 }
