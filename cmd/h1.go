@@ -8,6 +8,7 @@ import (
 	"net/url"
 
 	"github.com/spf13/cobra"
+	"github.com/sw33tLie/bbscope/internal/utils"
 	"github.com/sw33tLie/bbscope/pkg/platforms/hackerone"
 	"github.com/sw33tLie/bbscope/pkg/whttp"
 )
@@ -80,7 +81,7 @@ func init() {
 	h1Cmd.Flags().BoolP("active-only", "a", false, "Show only active programs")
 	h1Cmd.Flags().IntP("concurrency", "", 3, "Concurrency of HTTP requests sent for fetching data")
 
-	hacktivityCmd.Flags().IntP("pages", "", 100, "Pages to fetch. From most recent to older pages")
+	hacktivityCmd.Flags().IntP("pages", "", 100, "Pages to fetch. From most recent to older pages. Max is 100")
 
 }
 
@@ -113,6 +114,9 @@ var hacktivityCmd = &cobra.Command{
 			}
 		}
 
+		if pages > 100 {
+			utils.Log.Fatal("Max supported pages is 100")
+		}
 		hackerone.HacktivityMonitor(pages)
 	},
 }
