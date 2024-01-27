@@ -104,7 +104,7 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories, o
 		res, err := whttp.SendHTTPRequest(
 			&whttp.WHTTPReq{
 				Method: "GET",
-				URL:    fmt.Sprintf("https://api.intigriti.com/external/researcher/v1/programs?limit=%d&offset=%d", limit, offset),
+				URL:    fmt.Sprintf("https://api.intigriti.com/external/researcher/v1/programs?statusId=3&limit=%d&offset=%d", limit, offset),
 				Headers: []whttp.WHTTPHeader{
 					{Name: "Authorization", Value: "Bearer " + token},
 				},
