@@ -15,7 +15,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func getProgramScope(authorization string, id string, bbpOnly bool, categories []string) (pData scope.ProgramData) {
+func getProgramScope(authorization string, id string, bbpOnly bool, categories []string, includeOOS bool) (pData scope.ProgramData) {
 	pData.Url = "https://hackerone.com/" + id
 	currentPageURL := "https://api.hackerone.com/v1/hackers/programs/" + id + "/structured_scopes?page%5Bnumber%5D=1&page%5Bsize%5D=100"
 
@@ -41,7 +41,7 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 
 		l := int(gjson.Get(res.BodyString, "data.#").Int())
 
-		isDumpAll := len(categories) == len(getCategories("all"))
+		isDumpAll := categories == nil
 		for i := 0; i < l; i++ {
 
 			catFound := false
@@ -58,16 +58,33 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 
 			if catFound || isDumpAll {
 				// If it's in the in-scope table (and not in the OOS one)
-				if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.eligible_for_submission").Bool() {
-					if !bbpOnly || (bbpOnly && gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.eligible_for_bounty").Bool()) {
+
+				eligibleForBounty := gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.eligible_for_bounty").Bool()
+				eligibleForSubmission := gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.eligible_for_submission").Bool()
+
+				if eligibleForSubmission {
+					if !bbpOnly || (bbpOnly && eligibleForBounty) {
 						pData.InScope = append(pData.InScope, scope.ScopeElement{
 							Target:      gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_identifier").Str,
 							Description: strings.ReplaceAll(gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.instruction").Str, "\n", "  "),
-							Category:    "", // TODO
+							Category:    gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_type").Str,
+						})
+					}
+				} else {
+					if includeOOS {
+						pData.OutOfScope = append(pData.OutOfScope, scope.ScopeElement{
+							Target:      gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_identifier").Str,
+							Description: strings.ReplaceAll(gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.instruction").Str, "\n", "  "),
+							Category:    gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_type").Str,
 						})
 					}
 				}
 			}
+		}
+
+		// only print OOS with bbpOnly if at least one in-scope, paid, element was found
+		if bbpOnly && len(pData.InScope) == 0 {
+			pData.OutOfScope = []scope.ScopeElement{}
 		}
 
 		if l == 0 {
@@ -86,23 +103,30 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 }
 
 func getCategories(input string) []string {
+
+	if strings.ToLower(input) == "all" {
+		return nil // isDumpAll
+	}
+
 	categories := map[string][]string{
-		"url":        {"URL"},
+		"url":        {"URL", "WILDCARD", "IP_ADDRESS"},
 		"cidr":       {"CIDR"},
 		"mobile":     {"GOOGLE_PLAY_APP_ID", "OTHER_APK", "APPLE_STORE_APP_ID"},
 		"android":    {"GOOGLE_PLAY_APP_ID", "OTHER_APK"},
-		"apple":      {"APPLE_STORE_APP_ID"},
+		"apple":      {"APPLE_STORE_APP_ID", "TESTFLIGHT"},
+		"ai":         {"AI_MODEL"},
 		"other":      {"OTHER"},
 		"hardware":   {"HARDWARE"},
-		"code":       {"SOURCE_CODE"},
-		"executable": {"DOWNLOADABLE_EXECUTABLES"},
-		"all":        {"URL", "CIDR", "GOOGLE_PLAY_APP_ID", "OTHER_APK", "APPLE_STORE_APP_ID", "OTHER", "HARDWARE", "SOURCE_CODE", "DOWNLOADABLE_EXECUTABLES"},
+		"code":       {"SOURCE_CODE", "SMART_CONTRACT"},
+		"executable": {"DOWNLOADABLE_EXECUTABLES", "WINDOWS_APP_STORE_APP_ID"},
 	}
 
 	selectedCategory, ok := categories[strings.ToLower(input)]
+
 	if !ok {
-		utils.Log.Fatal("Invalid category selected")
+		utils.Log.Fatal("Invalid category selected: ", input)
 	}
+
 	return selectedCategory
 }
 
@@ -185,7 +209,7 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 					break
 				}
 
-				programData := getProgramScope(authorization, id, bbpOnly, getCategories(categories))
+				programData := getProgramScope(authorization, id, bbpOnly, getCategories(categories), includeOOS)
 
 				mu.Lock()
 				programs = append(programs, programData)

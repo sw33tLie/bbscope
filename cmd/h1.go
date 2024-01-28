@@ -76,7 +76,7 @@ func init() {
 
 	h1Cmd.Flags().StringP("username", "u", "", "HackerOne username")
 	h1Cmd.Flags().StringP("token", "t", "", "HackerOne API token, get it here: https://hackerone.com/settings/api_token/edit")
-	h1Cmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, other, hardware, code, executable)")
+	h1Cmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, ai, other, hardware, code, executable)")
 	h1Cmd.Flags().BoolP("public-only", "", false, "Only print scope for public programs")
 	h1Cmd.Flags().BoolP("active-only", "a", false, "Show only active programs")
 	h1Cmd.Flags().IntP("concurrency", "", 3, "Concurrency of HTTP requests sent for fetching data")
