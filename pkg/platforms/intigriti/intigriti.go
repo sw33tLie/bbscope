@@ -128,9 +128,9 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories, o
 		records := gjson.Get(bodyString, "records").Array()
 		for _, record := range records {
 			id := record.Get("id").String()
-			handle := record.Get("handle").String()
 			maxBounty := record.Get("maxBounty.value").Int()
 			confidentialityLevel := record.Get("confidentialityLevel.id").Int()
+			programPath := strings.Split(record.Get("webLinks.detail").String(), "=")[1]
 
 			// Types of confidentialityLevel: 1 InviteOnly, 2 Application, 3 Registered, 4 Public.
 			// We assume privates are 1, 2 and 3.
@@ -138,7 +138,7 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories, o
 			if (pvtOnly && confidentialityLevel != 4) || !pvtOnly {
 				if (bbpOnly && maxBounty != 0) || !bbpOnly {
 					pData := GetProgramScope(token, id, categories, bbpOnly, includeOOS)
-					pData.Url = "https://app.intigriti.com/researcher/programs/INTIGRITI_PLS_FIX_THIS/" + handle + "/detail"
+					pData.Url = "https://app.intigriti.com/researcher" + programPath
 					if printRealTime {
 						scope.PrintProgramScope(pData, outputFlags, delimiterCharacter, includeOOS)
 					}
