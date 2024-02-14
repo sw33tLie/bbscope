@@ -156,12 +156,10 @@ func Login(email, password, proxy string) string {
 	return ""
 }
 
-func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string {
+func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool) []string {
 	pageIndex := 1
 
-	listEndpointURL := "https://bugcrowd.com/programs.json?"
-
-	listEndpointURL = listEndpointURL + "hidden[]=false&page[]="
+	listEndpointURL := "https://bugcrowd.com/engagements.json?category=" + engagementType + "&sort_by=promoted&sort_direction=desc&page="
 	paths := []string{}
 
 	for {
@@ -183,7 +181,7 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 		}
 
 		// Assuming res.BodyString is the JSON string response
-		result := gjson.Get(string(res.BodyString), "programs")
+		result := gjson.Get(string(res.BodyString), "engagements")
 
 		// Bugcrowd's API sometimes tell us there are fewer pages than in reality, so we do it this way
 		if len(result.Array()) == 0 {
@@ -192,14 +190,11 @@ func GetProgramHandles(sessionToken string, bbpOnly bool, pvtOnly bool) []string
 
 		// Iterating over each element in the programs array
 		result.ForEach(func(key, value gjson.Result) bool {
-			programURL := value.Get("program_url").String()
-			participation := value.Get("participation").String()
-			maxRewards := value.Get("max_rewards").Int()
+			programURL := value.Get("briefUrl").String()
+			accessStatus := value.Get("accessStatus").String()
 
-			if !pvtOnly || (pvtOnly && participation != "public") {
-				if !bbpOnly || (bbpOnly && maxRewards > 0) {
-					paths = append(paths, programURL)
-				}
+			if !pvtOnly || (pvtOnly && accessStatus != "open") {
+				paths = append(paths, programURL)
 			}
 
 			// Return true to continue iterating
@@ -308,7 +303,11 @@ func GetCategories(input string) []string {
 }
 
 func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, concurrency int, delimiterCharacter string, includeOOS, printRealTime bool) (programs []scope.ProgramData) {
-	programHandles := GetProgramHandles(token, bbpOnly, pvtOnly)
+	programHandles := GetProgramHandles(token, "bug_bounty", pvtOnly)
+
+	if !bbpOnly {
+		programHandles = append(programHandles, GetProgramHandles(token, "vdp", pvtOnly)...)
+	}
 
 	utils.Log.Info("Fetching ", strconv.Itoa(len(programHandles)), " programs...")
 
