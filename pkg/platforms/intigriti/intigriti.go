@@ -14,14 +14,15 @@ import (
 
 func GetCategoryID(input string) []int {
 	categories := map[string][]int{
-		"url":     {1},
-		"cidr":    {4},
-		"mobile":  {2, 3},
-		"android": {2},
-		"apple":   {3},
-		"device":  {5},
-		"other":   {6},
-		"all":     {1, 2, 3, 4, 5, 6},
+		"url":      {1},
+		"cidr":     {4},
+		"mobile":   {2, 3},
+		"android":  {2},
+		"apple":    {3},
+		"device":   {5},
+		"other":    {6},
+		"wildcard": {7},
+		"all":      {1, 2, 3, 4, 5, 6, 7},
 	}
 
 	selectedCategory, ok := categories[strings.ToLower(input)]

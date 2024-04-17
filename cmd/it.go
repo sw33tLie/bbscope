@@ -57,5 +57,5 @@ var itCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(itCmd)
 	itCmd.Flags().StringP("token", "t", "", "Intigriti API token")
-	itCmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, device, other)")
+	itCmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, url, cidr, mobile, android, apple, device, other, wildcard)")
 }
