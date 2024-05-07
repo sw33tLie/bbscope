@@ -69,7 +69,7 @@ func init() {
 	rootCmd.AddCommand(bcCmd)
 	bcCmd.Flags().StringP("token", "t", "", "Bugcrowd session token (_bugcrowd_session cookie)")
 	bcCmd.Flags().StringP("categories", "c", "all", "Scope categories, comma separated (Available: all, url, api, mobile, android, apple, other, hardware)")
-	bcCmd.Flags().IntP("concurrency", "", 2, "Concurrency threshold")
+	bcCmd.Flags().IntP("concurrency", "", 1, "Concurrency threshold") // Bugcrowd returns 406 after a while if we go faster
 
 	bcCmd.Flags().StringP("email", "E", "", "Login email")
 	viper.BindPFlag("bugcrowd-email", bcCmd.Flags().Lookup("email"))

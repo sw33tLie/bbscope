@@ -2,6 +2,7 @@ package bugcrowd
 
 import (
 	"crypto/tls"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/sw33tLie/bbscope/internal/utils"
 	"github.com/sw33tLie/bbscope/pkg/scope"
@@ -209,15 +211,25 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 }
 
 func GetProgramScope(handle string, categories string, token string) (pData scope.ProgramData) {
+	isEngagement := strings.HasPrefix(handle, "/engagements/")
+
 	pData.Url = "https://bugcrowd.com" + handle
 
-	var res, res2 *whttp.WHTTPRes
-	var err error
+	if isEngagement {
+		getBriefVersionDocument := getEngagementBriefVersionDocument(handle, token)
+		extractScopeFromEngagement(getBriefVersionDocument, token, &pData)
+	} else {
+		extractScopeFromTargetGroups(pData.Url, categories, token, &pData)
+	}
 
-	res, err = whttp.SendHTTPRequest(
+	return pData
+}
+
+func getEngagementBriefVersionDocument(handle string, token string) string {
+	res, err := whttp.SendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
-			URL:    pData.Url + "/target_groups",
+			URL:    "https://bugcrowd.com" + handle,
 			Headers: []whttp.WHTTPHeader{
 				{Name: "Cookie", Value: "_bugcrowd_session=" + token},
 				{Name: "User-Agent", Value: USER_AGENT},
@@ -229,59 +241,146 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 		utils.Log.Fatal(err)
 	}
 
-	// Times @arcwhite broke our code: #3 and counting :D
-	noScopeTable := true
-	for _, scopeTableURL := range gjson.Get(string(res.BodyString), "groups.#(in_scope==true)#.targets_url").Array() {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(res.BodyString))
+	if err != nil {
+		log.Fatal(err)
+	}
 
-		// Send HTTP request for each table
+	div := doc.Find("div[data-react-class='ResearcherEngagementBrief']")
 
-		res2, err = whttp.SendHTTPRequest(
-			&whttp.WHTTPReq{
-				Method: "GET",
-				URL:    "https://bugcrowd.com" + scopeTableURL.String(),
-				Headers: []whttp.WHTTPHeader{
-					{Name: "Cookie", Value: "_bugcrowd_session=" + token},
-					{Name: "User-Agent", Value: USER_AGENT},
-					{Name: "Accept", Value: "*/*"},
-				},
-			}, nil)
+	// Get the value of the data-api-endpoints attribute
+	apiEndpointsJSON, exists := div.Attr("data-api-endpoints")
+	if !exists {
+		log.Fatal("data-api-endpoints attribute not found")
+	}
 
-		if err != nil {
-			utils.Log.Fatal(err)
-		}
+	return gjson.Get(apiEndpointsJSON, "engagementBriefApi.getBriefVersionDocument").String() + ".json"
+}
 
-		chunkData := gjson.GetMany(string(res2.BodyString), "targets.#.name", "targets.#.category", "targets.#.description")
-		for i := 0; i < len(chunkData[0].Array()); i++ {
-			var currentTarget struct {
-				line     string
-				category string
+func extractScopeFromEngagement(getBriefVersionDocument string, token string, pData *scope.ProgramData) {
+	res, err := whttp.SendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "GET",
+			URL:    "https://bugcrowd.com" + getBriefVersionDocument,
+			Headers: []whttp.WHTTPHeader{
+				{Name: "Cookie", Value: "_bugcrowd_session=" + token},
+				{Name: "User-Agent", Value: USER_AGENT},
+				{Name: "Accept", Value: "*/*"},
+			},
+		}, nil)
+
+	if err != nil {
+		utils.Log.Fatal(err)
+	}
+
+	// Extract the "scope" array from the JSON
+	scopeArray := gjson.Get(res.BodyString, "data.scope")
+
+	// Iterate over each element of the "scope" array
+	scopeArray.ForEach(func(key, value gjson.Result) bool {
+		// Check if the scope element is in-scope
+		inScope := value.Get("inScope").Bool()
+
+		// Extract the "targets" array for the current scope element
+		targetsArray := value.Get("targets")
+
+		// Iterate over each object in the "targets" array
+		targetsArray.ForEach(func(objectKey, objectValue gjson.Result) bool {
+			// Extract the "name", "uri", "category", and "description" fields for each object
+			name := objectValue.Get("name").String()
+			uri := objectValue.Get("uri").String()
+			category := objectValue.Get("category").String()
+			description := objectValue.Get("description").String()
+
+			if uri == "" {
+				uri = name
 			}
-			currentTarget.line = strings.TrimSpace(chunkData[0].Array()[i].String())
-			currentTarget.category = chunkData[1].Array()[i].String()
 
-			if categories != "all" {
-				catMatches := false
-				if currentTarget.category == GetCategories(categories)[0] {
-					catMatches = true
-				}
-
-				if catMatches {
-					pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: chunkData[2].Array()[i].String(), Category: currentTarget.category})
-				}
-
+			if inScope {
+				pData.InScope = append(pData.InScope, scope.ScopeElement{Target: uri, Description: description, Category: category})
 			} else {
-				pData.InScope = append(pData.InScope, scope.ScopeElement{Target: currentTarget.line, Description: chunkData[2].Array()[i].String(), Category: currentTarget.category})
+				pData.OutOfScope = append(pData.OutOfScope, scope.ScopeElement{Target: uri, Description: description, Category: category})
 			}
 
-		}
+			return true
+		})
+
+		return true
+	})
+}
+func extractScopeFromTargetGroups(url string, categories string, token string, pData *scope.ProgramData) {
+	res, err := whttp.SendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "GET",
+			URL:    url + "/target_groups",
+			Headers: []whttp.WHTTPHeader{
+				{Name: "Cookie", Value: "_bugcrowd_session=" + token},
+				{Name: "User-Agent", Value: USER_AGENT},
+				{Name: "Accept", Value: "*/*"},
+			},
+		}, nil)
+
+	if err != nil {
+		utils.Log.Fatal(err)
+	}
+
+	noScopeTable := true
+	for i, scopeTableURL := range gjson.Get(string(res.BodyString), "groups.#.targets_url").Array() {
+		inScope := gjson.Get(string(res.BodyString), fmt.Sprintf("groups.%d.in_scope", i)).Bool()
+		extractScopeFromTargetTable(scopeTableURL.String(), categories, token, pData, inScope)
 		noScopeTable = false
 	}
 
 	if noScopeTable {
 		pData.InScope = append(pData.InScope, scope.ScopeElement{Target: "NO_IN_SCOPE_TABLE", Description: "", Category: ""})
 	}
+}
+func extractScopeFromTargetTable(scopeTableURL string, categories string, token string, pData *scope.ProgramData, inScope bool) {
+	res, err := whttp.SendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "GET",
+			URL:    "https://bugcrowd.com" + scopeTableURL,
+			Headers: []whttp.WHTTPHeader{
+				{Name: "Cookie", Value: "_bugcrowd_session=" + token},
+				{Name: "User-Agent", Value: USER_AGENT},
+				{Name: "Accept", Value: "*/*"},
+			},
+		}, nil)
 
-	return pData
+	if err != nil {
+		utils.Log.Fatal(err)
+	}
+
+	json := string(res.BodyString)
+	targetsCount := gjson.Get(json, "targets.#").Int()
+
+	for i := 0; i < int(targetsCount); i++ {
+		targetPath := fmt.Sprintf("targets.%d", i)
+		name := strings.TrimSpace(gjson.Get(json, targetPath+".name").String())
+		uri := strings.TrimSpace(gjson.Get(json, targetPath+".uri").String())
+		category := gjson.Get(json, targetPath+".category").String()
+		description := gjson.Get(json, targetPath+".description").String()
+
+		if categories != "all" && category != GetCategories(categories)[0] {
+			continue
+		}
+
+		if uri == "" {
+			uri = name
+		}
+
+		scopeElement := scope.ScopeElement{
+			Target:      name,
+			Description: description,
+			Category:    category,
+		}
+
+		if inScope {
+			pData.InScope = append(pData.InScope, scopeElement)
+		} else {
+			pData.OutOfScope = append(pData.OutOfScope, scopeElement)
+		}
+	}
 }
 
 func GetCategories(input string) []string {
