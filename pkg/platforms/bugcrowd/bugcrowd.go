@@ -370,7 +370,7 @@ func extractScopeFromTargetTable(scopeTableURL string, categories string, token 
 		}
 
 		scopeElement := scope.ScopeElement{
-			Target:      name,
+			Target:      uri,
 			Description: description,
 			Category:    category,
 		}
