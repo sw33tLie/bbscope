@@ -15,31 +15,43 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func getProgramScope(authorization string, id string, bbpOnly bool, categories []string, includeOOS bool) (pData scope.ProgramData) {
+func getProgramScope(authorization string, id string, bbpOnly bool, categories []string, includeOOS bool) (pData scope.ProgramData, err error) {
 	pData.Url = "https://hackerone.com/" + id
 	currentPageURL := "https://api.hackerone.com/v1/hackers/programs/" + id + "/structured_scopes?page%5Bnumber%5D=1&page%5Bsize%5D=100"
 
 	// loop through pages
 	for {
-		res, err := whttp.SendHTTPRequest(
-			&whttp.WHTTPReq{
-				Method: "GET",
-				URL:    currentPageURL,
-				Headers: []whttp.WHTTPHeader{
-					{Name: "Authorization", Value: "Basic " + authorization},
-				},
-			}, nil)
+		var res *whttp.WHTTPRes
+		var err error
+		retries := 3
+		var statusCode int
 
-		if err != nil {
-			utils.Log.Warn("HTTP request failed: ", err)
+		var l int
+		for retries > 0 {
+			res, err = whttp.SendHTTPRequest(
+				&whttp.WHTTPReq{
+					Method: "GET",
+					URL:    currentPageURL,
+					Headers: []whttp.WHTTPHeader{
+						{Name: "Authorization", Value: "Basic " + authorization},
+					},
+				}, nil)
+
+			// retry if there was an http error or we didn't get the JSON we expected
+			if err != nil || !strings.Contains(res.BodyString, "\"data\":") {
+				retries--
+				time.Sleep(2 * time.Second) // wait before retrying
+				continue
+			}
+
+			break
 		}
 
-		if res.StatusCode != 200 {
-			// if we completed the requests with a final (non-429) status and we still failed
-			utils.Log.Fatal("Could not retrieve data for id ", id, " with status ", res.StatusCode)
+		if retries == 0 {
+			return scope.ProgramData{}, fmt.Errorf("failed to retrieve data for id %s after 3 attempts with status %d", id, statusCode)
 		}
 
-		l := int(gjson.Get(res.BodyString, "data.#").Int())
+		l = int(gjson.Get(res.BodyString, "data.#").Int())
 
 		isDumpAll := categories == nil
 		for i := 0; i < l; i++ {
@@ -99,7 +111,7 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 		}
 	}
 
-	return pData
+	return pData, nil
 }
 
 func getCategories(input string) []string {
@@ -189,12 +201,13 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 	return handles
 }
 
-func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, active bool, concurrency int, printRealTime bool, outputFlags string, delimiter string, includeOOS bool) (programs []scope.ProgramData) {
+func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, active bool, concurrency int, printRealTime bool, outputFlags string, delimiter string, includeOOS bool) (programs []scope.ProgramData, err error) {
 	utils.Log.Debug("Fetching list of program handles")
 	programHandles := getProgramHandles(authorization, pvtOnly, publicOnly, active)
 
 	utils.Log.Debug("Fetching scope of each program. Concurrency: ", concurrency)
 	ids := make(chan string, concurrency)
+	errors := make(chan error, concurrency) // Channel to collect errors
 	processGroup := new(sync.WaitGroup)
 	processGroup.Add(concurrency)
 
@@ -209,7 +222,13 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 					break
 				}
 
-				programData := getProgramScope(authorization, id, bbpOnly, getCategories(categories), includeOOS)
+				programData, err := getProgramScope(authorization, id, bbpOnly, getCategories(categories), includeOOS)
+
+				if err != nil {
+					utils.Log.Warn("Error fetching program scope: ", err)
+					errors <- err
+					continue
+				}
 
 				mu.Lock()
 				programs = append(programs, programData)
@@ -231,8 +250,16 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 
 	close(ids)
 	processGroup.Wait()
+	close(errors) // Close the errors channel after all goroutines are done
 
-	return programs
+	// Check if there were any errors
+	for err := range errors {
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return programs, nil
 }
 
 func HacktivityMonitor(pages int) {
