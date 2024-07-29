@@ -1,13 +1,14 @@
 package whttp
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
-	"crypto/tls"
+	"time"
 
 	"strings"
 	"unicode/utf8"
@@ -42,6 +43,9 @@ var retryClient *retryablehttp.Client
 func init() {
 	retryClient = retryablehttp.NewClient()
 	retryClient.RetryMax = 99999
+
+	// Default timeout to 10 seconds
+	retryClient.HTTPClient.Timeout = 10 * time.Second
 
 	// Don't print debug messages
 	retryClient.Logger = log.New(io.Discard, "", 0)
