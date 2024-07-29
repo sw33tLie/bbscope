@@ -46,24 +46,7 @@ var h1Cmd = &cobra.Command{
 		}
 
 		if proxy != "" {
-			proxyURL, err := url.Parse(proxy)
-			if err != nil {
-				log.Fatal("Invalid Proxy String")
-			}
-
-			client := whttp.GetDefaultClient()
-			client.HTTPClient.Transport = &http.Transport{
-				Proxy: http.ProxyURL(proxyURL),
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-					CipherSuites: []uint16{
-						tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
-						tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
-					},
-					PreferServerCipherSuites: true,
-					MinVersion:               tls.VersionTLS11,
-					MaxVersion:               tls.VersionTLS11},
-			}
+			whttp.SetupProxy(proxy)
 		}
 
 		hackerone.GetAllProgramsScope(b64.StdEncoding.EncodeToString([]byte(username+":"+token)), bbpOnly, pvtOnly, publicOnly, categories, active, concurrency, true, outputFlags, delimiterCharacter, includeOOS)

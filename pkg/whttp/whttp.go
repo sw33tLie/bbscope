@@ -6,6 +6,9 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
+	"crypto/tls"
+
 	"strings"
 	"unicode/utf8"
 
@@ -112,6 +115,34 @@ func SendHTTPRequest(wReq *WHTTPReq, customClient *retryablehttp.Client) (wRes *
 
 	wRes.ResponseLength = utf8.RuneCountInString(wRes.BodyString)
 	return wRes, nil
+}
+
+func SetupProxy(proxyURL string) error {
+	if proxyURL == "" {
+		return nil
+	}
+
+	parsedURL, err := url.Parse(proxyURL)
+	if err != nil {
+		return fmt.Errorf("invalid proxy URL: %v", err)
+	}
+
+	client := GetDefaultClient()
+	client.HTTPClient.Transport = &http.Transport{
+		Proxy: http.ProxyURL(parsedURL),
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+			CipherSuites: []uint16{
+				tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+				tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+			},
+			PreferServerCipherSuites: true,
+			MinVersion:               tls.VersionTLS11,
+			MaxVersion:               tls.VersionTLS11,
+		},
+	}
+
+	return nil
 }
 
 func isTitleElement(n *html.Node) bool {
