@@ -34,7 +34,7 @@ func Login(email, password, proxy string) string {
 	// Create a cookie jar
 	jar, err := cookiejar.New(nil)
 	if err != nil {
-		utils.Log.Fatal(err)
+		utils.Log.Fatal("[bc]", err)
 	}
 
 	// Create a retryablehttp client
@@ -71,7 +71,7 @@ func Login(email, password, proxy string) string {
 
 	// Set the custom redirect policy on the underlying http.Client
 	retryClient.HTTPClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		utils.Log.Debug("Redirecting to: ", req.URL)
+		utils.Log.Debug("[bc]", "Redirecting to: ", req.URL)
 		if strings.Contains(req.URL.String(), "login_challenge") {
 			loginChallenge = strings.Split(req.URL.String(), "=")[1]
 		}
@@ -88,11 +88,11 @@ func Login(email, password, proxy string) string {
 		}, retryClient)
 
 	if err != nil {
-		utils.Log.Fatal(err)
+		utils.Log.Fatal("[bc]", err)
 	}
 
 	if firstRes.StatusCode == 403 {
-		utils.Log.Fatal("Got 403 on first request. You may be WAF banned. Change IP or wait")
+		utils.Log.Fatal("[bc]", "Got 403 on first request. You may be WAF banned. Change IP or wait")
 	}
 
 	var allCookiesString string
@@ -125,11 +125,11 @@ func Login(email, password, proxy string) string {
 		}, retryClient)
 
 	if err != nil {
-		utils.Log.Fatal("Login request error: ", err)
+		utils.Log.Fatal("[bc]", "Login request error: ", err)
 	}
 
 	if loginRes.StatusCode == 401 {
-		utils.Log.Fatal("Login failed. Check your email and password. Make sure 2FA is off.")
+		utils.Log.Fatal("[bc]", "Login failed. Check your email and password. Make sure 2FA is off.")
 	}
 
 	_, err = whttp.SendHTTPRequest(
@@ -143,18 +143,18 @@ func Login(email, password, proxy string) string {
 		}, retryClient)
 
 	if err != nil {
-		utils.Log.Fatal(err)
+		utils.Log.Fatal("[bc]", err)
 	}
 
 	for _, cookie := range retryClient.HTTPClient.Jar.Cookies(identityUrl) {
 		if cookie.Name == "_bugcrowd_session" {
-			utils.Log.Info("Login OK. Fetching programs, please wait...")
-			utils.Log.Debug("SESSION: ", cookie.Value)
+			utils.Log.Info("[bc]", "Login OK. Fetching programs, please wait...")
+			utils.Log.Debug("[bc]", "SESSION: ", cookie.Value)
 			return cookie.Value
 		}
 	}
 
-	utils.Log.Fatal("Unknown Error")
+	utils.Log.Fatal("[bc]", "Unknown Error")
 	return ""
 }
 
@@ -179,7 +179,7 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 			}, nil)
 
 		if err != nil {
-			utils.Log.Fatal(err)
+			utils.Log.Fatal("[bc]", err)
 		}
 
 		// Assuming res.BodyString is the JSON string response
@@ -238,7 +238,7 @@ func getEngagementBriefVersionDocument(handle string, token string) string {
 		}, nil)
 
 	if err != nil {
-		utils.Log.Fatal(err)
+		utils.Log.Fatal("[bc]", err)
 	}
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(res.BodyString))
@@ -251,7 +251,12 @@ func getEngagementBriefVersionDocument(handle string, token string) string {
 	// Get the value of the data-api-endpoints attribute
 	apiEndpointsJSON, exists := div.Attr("data-api-endpoints")
 	if !exists {
-		log.Fatal("data-api-endpoints attribute not found")
+		// This will be triggered when using a non-2FA token and
+		if strings.Contains(res.BodyString, "ResearcherEngagementCompliance") {
+			utils.Log.Warn("[bc] Compliance required! Skipping: ", "https://bugcrowd.com"+handle)
+		} else {
+			utils.Log.Warn("[bc] data-api-endpoints attribute not found at https://bugcrowd.com"+handle, res.StatusCode)
+		}
 	}
 
 	return gjson.Get(apiEndpointsJSON, "engagementBriefApi.getBriefVersionDocument").String() + ".json"
@@ -270,7 +275,7 @@ func extractScopeFromEngagement(getBriefVersionDocument string, token string, pD
 		}, nil)
 
 	if err != nil {
-		utils.Log.Fatal(err)
+		utils.Log.Fatal("[bc]", err)
 	}
 
 	// Extract the "scope" array from the JSON
@@ -321,7 +326,7 @@ func extractScopeFromTargetGroups(url string, categories string, token string, p
 		}, nil)
 
 	if err != nil {
-		utils.Log.Fatal(err)
+		utils.Log.Fatal("[bc]", err)
 	}
 
 	noScopeTable := true
@@ -348,7 +353,7 @@ func extractScopeFromTargetTable(scopeTableURL string, categories string, token 
 		}, nil)
 
 	if err != nil {
-		utils.Log.Fatal(err)
+		utils.Log.Fatal("[bc]", err)
 	}
 
 	json := string(res.BodyString)
@@ -396,7 +401,7 @@ func GetCategories(input string) []string {
 
 	selectedCategory, ok := categories[strings.ToLower(input)]
 	if !ok {
-		utils.Log.Fatal("Invalid category")
+		utils.Log.Fatal("[bc]", "Invalid category")
 	}
 	return selectedCategory
 }
@@ -408,7 +413,7 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 		programHandles = append(programHandles, GetProgramHandles(token, "vdp", pvtOnly)...)
 	}
 
-	utils.Log.Info("Fetching ", strconv.Itoa(len(programHandles)), " programs...")
+	utils.Log.Info("[bc]", "Fetching ", strconv.Itoa(len(programHandles)), " programs...")
 
 	var mutex sync.Mutex
 	handles := make(chan string, concurrency)
