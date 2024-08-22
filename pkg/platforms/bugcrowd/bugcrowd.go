@@ -160,9 +160,13 @@ func Login(email, password, proxy string) string {
 
 func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool) []string {
 	pageIndex := 1
+	paths := []string{}
+	fetchedPrograms := make(map[string]bool)
+	allHandlersFoundCounter := 0
 
 	listEndpointURL := "https://bugcrowd.com/engagements.json?category=" + engagementType + "&sort_by=promoted&sort_direction=desc&page="
-	paths := []string{}
+
+	cycleConter := 0
 
 	for {
 		var res *whttp.WHTTPRes
@@ -187,7 +191,8 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 
 		// Bugcrowd's API sometimes tell us there are fewer pages than in reality, so we do it this way
 		if len(result.Array()) == 0 {
-			break
+			pageIndex = 0
+			cycleConter++
 		}
 
 		// Iterating over each element in the programs array
@@ -195,16 +200,29 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 			programURL := value.Get("briefUrl").String()
 			accessStatus := value.Get("accessStatus").String()
 
-			if !pvtOnly || (pvtOnly && accessStatus != "open") {
-				paths = append(paths, programURL)
+			// Maintain a counter of unique program URLs found
+			if !fetchedPrograms[programURL] {
+				allHandlersFoundCounter++
+				fetchedPrograms[programURL] = true
+
+				if !pvtOnly || (pvtOnly && accessStatus != "open") {
+					paths = append(paths, programURL)
+				}
 			}
 
 			// Return true to continue iterating
 			return true
 		})
 
+		// Print the number of programs fetched so far
+		// utils.Log.Info("[bc] ", "Total unique programs found: ", allHandlersFoundCounter)
+
 		pageIndex++
 
+		// We repeat the pages iteration 3 times because the endpoints.json is broken
+		if cycleConter > 3 {
+			break
+		}
 	}
 
 	return paths
