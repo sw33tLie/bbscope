@@ -166,8 +166,6 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 
 	listEndpointURL := "https://bugcrowd.com/engagements.json?category=" + engagementType + "&sort_by=promoted&sort_direction=desc&page="
 
-	cycleConter := 0
-
 	for {
 		var res *whttp.WHTTPRes
 		var err error
@@ -189,10 +187,8 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 		// Assuming res.BodyString is the JSON string response
 		result := gjson.Get(string(res.BodyString), "engagements")
 
-		// Bugcrowd's API sometimes tell us there are fewer pages than in reality, so we do it this way
 		if len(result.Array()) == 0 {
-			pageIndex = 0
-			cycleConter++
+			break
 		}
 
 		// Iterating over each element in the programs array
@@ -213,16 +209,8 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 			// Return true to continue iterating
 			return true
 		})
-
-		// Print the number of programs fetched so far
-		// utils.Log.Info("[bc] ", "Total unique programs found: ", allHandlersFoundCounter)
-
 		pageIndex++
 
-		// We repeat the pages iteration 3 times because the endpoints.json is broken
-		if cycleConter > 3 {
-			break
-		}
 	}
 
 	return paths
