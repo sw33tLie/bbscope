@@ -269,6 +269,10 @@ func getEngagementBriefVersionDocument(handle string, token string) string {
 }
 
 func extractScopeFromEngagement(getBriefVersionDocument string, token string, pData *scope.ProgramData) {
+	if getBriefVersionDocument == ".json" {
+		utils.Log.Warn("[bc] Compliance required! Empty Extraction URL (Skipping)...")
+		return
+	}
 	res, err := whttp.SendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
