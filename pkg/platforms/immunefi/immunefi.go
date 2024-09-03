@@ -41,7 +41,7 @@ func GetAllProgramsScope(categories string, concurrency int) (programs []scope.P
 	res, err := whttp.SendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
-			URL:    PLATFORM_URL + "/explore/",
+			URL:    PLATFORM_URL + "/bug-bounty/",
 			Headers: []whttp.WHTTPHeader{
 				{Name: "Accept", Value: "*/*"},
 			},
@@ -69,7 +69,7 @@ func GetAllProgramsScope(categories string, concurrency int) (programs []scope.P
 			isExternal := gjson.Get(program.Raw, "is_external").Bool()
 
 			if !isExternal {
-				programURLs = append(programURLs, PLATFORM_URL+"/bounty/"+programID.Str+"/")
+				programURLs = append(programURLs, PLATFORM_URL+"/bug-bounty/"+programID.Str+"/information/")
 			}
 		}
 	})
