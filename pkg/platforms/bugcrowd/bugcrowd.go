@@ -160,6 +160,7 @@ func Login(email, password, proxy string) string {
 
 func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool) []string {
 	pageIndex := 1
+	var totalCount int
 	paths := []string{}
 	fetchedPrograms := make(map[string]bool)
 	allHandlersFoundCounter := 0
@@ -186,9 +187,13 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 
 		// Assuming res.BodyString is the JSON string response
 		result := gjson.Get(string(res.BodyString), "engagements")
+		if totalCount == 0 {
+			totalCount = int(gjson.Get(string(res.BodyString), "paginationMeta.totalCount").Int())
+		}
 
+		// Bugcrowd's API sometimes tell us there are fewer pages than in reality, so we do it this way
 		if len(result.Array()) == 0 {
-			break
+			pageIndex = 0
 		}
 
 		// Iterating over each element in the programs array
@@ -209,8 +214,16 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 			// Return true to continue iterating
 			return true
 		})
+
+		// Print the number of programs fetched so far
+		utils.Log.Info("[bc] ", "Fetched programs: ", len(paths), " | Total unique programs found: ", allHandlersFoundCounter)
+
 		pageIndex++
 
+		// Check if we have fetched all programs using allHandlersFoundCounter
+		if allHandlersFoundCounter >= totalCount {
+			break
+		}
 	}
 
 	return paths
@@ -219,11 +232,13 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 func GetProgramScope(handle string, categories string, token string) (pData scope.ProgramData) {
 	isEngagement := strings.HasPrefix(handle, "/engagements/")
 
-	pData.Url = "https://bugcrowd.com" + handle
+	pData.Url = "https://bugcrowd.com/" + strings.TrimPrefix(handle, "/")
 
 	if isEngagement {
 		getBriefVersionDocument := getEngagementBriefVersionDocument(handle, token)
-		extractScopeFromEngagement(getBriefVersionDocument, token, &pData)
+		if getBriefVersionDocument != "" {
+			extractScopeFromEngagement(getBriefVersionDocument, token, &pData)
+		}
 	} else {
 		extractScopeFromTargetGroups(pData.Url, categories, token, &pData)
 	}
@@ -245,6 +260,11 @@ func getEngagementBriefVersionDocument(handle string, token string) string {
 
 	if err != nil {
 		utils.Log.Fatal("[bc] ", err)
+	}
+
+	// Likely from a knownHandle we passed that's actually gone now
+	if res.StatusCode == 404 {
+		return ""
 	}
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(res.BodyString))
@@ -339,6 +359,11 @@ func extractScopeFromTargetGroups(url string, categories string, token string, p
 		utils.Log.Fatal("[bc] ", err)
 	}
 
+	// Likely from a knownHandle we passed that's actually gone now
+	if res.StatusCode == 404 {
+		return
+	}
+
 	noScopeTable := true
 	for i, scopeTableURL := range gjson.Get(string(res.BodyString), "groups.#.targets_url").Array() {
 		inScope := gjson.Get(string(res.BodyString), fmt.Sprintf("groups.%d.in_scope", i)).Bool()
@@ -416,11 +441,27 @@ func GetCategories(input string) []string {
 	return selectedCategory
 }
 
-func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, concurrency int, delimiterCharacter string, includeOOS, printRealTime bool) (programs []scope.ProgramData) {
+func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, concurrency int, delimiterCharacter string, includeOOS, printRealTime bool, knownHandles []string) (programs []scope.ProgramData) {
 	programHandles := GetProgramHandles(token, "bug_bounty", pvtOnly)
 
 	if !bbpOnly {
 		programHandles = append(programHandles, GetProgramHandles(token, "vdp", pvtOnly)...)
+	}
+
+	// Create a map to track existing handles
+	existingHandles := make(map[string]bool)
+	for _, handle := range programHandles {
+		existingHandles[handle] = true
+	}
+
+	// Append unique handles from knownHandles to programHandles
+	// known handles can be passed to overcome bugcrowd's buggy programs list
+
+	for _, handle := range knownHandles {
+		if !existingHandles[handle] {
+			programHandles = append(programHandles, handle)
+			existingHandles[handle] = true
+		}
 	}
 
 	utils.Log.Info("[bc] ", "Fetching ", strconv.Itoa(len(programHandles)), " programs...")
@@ -435,6 +476,10 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 			defer processGroup.Done()
 			for handle := range handles {
 				pScope := GetProgramScope(handle, categories, token)
+
+				if pScope.InScope == nil || len(pScope.InScope) == 0 {
+					continue
+				}
 
 				mutex.Lock()
 				programs = append(programs, pScope)

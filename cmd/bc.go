@@ -37,7 +37,7 @@ var bcCmd = &cobra.Command{
 			token = bugcrowd.Login(email, password, proxy)
 		}
 
-		bugcrowd.GetAllProgramsScope(token, bbpOnly, pvtOnly, categories, outputFlags, concurrency, delimiterCharacter, includeOOS, true)
+		bugcrowd.GetAllProgramsScope(token, bbpOnly, pvtOnly, categories, outputFlags, concurrency, delimiterCharacter, includeOOS, true, nil)
 		utils.Log.Info("bbscope run successfully")
 	},
 }
