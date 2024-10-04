@@ -2,6 +2,7 @@ package bugcrowd
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -26,7 +27,7 @@ const (
 )
 
 // Automated email + password login. 2FA needs to be disabled
-func Login(email, password, proxy string) string {
+func Login(email, password, proxy string) (string, error) {
 	cookies := make(map[string]string)
 
 	var loginChallenge string
@@ -35,6 +36,7 @@ func Login(email, password, proxy string) string {
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		utils.Log.Fatal("[bc] ", err)
+		return "", err
 	}
 
 	// Create a retryablehttp client
@@ -53,6 +55,7 @@ func Login(email, password, proxy string) string {
 		proxyURL, err := url.Parse(proxy)
 		if err != nil {
 			log.Fatal("Invalid Proxy String")
+			return "", err
 		}
 
 		retryClient.HTTPClient.Transport = &http.Transport{
@@ -91,8 +94,9 @@ func Login(email, password, proxy string) string {
 		utils.Log.Fatal("[bc] ", err)
 	}
 
-	if firstRes.StatusCode == 403 {
-		utils.Log.Fatal("[bc] ", "Got 403 on first request. You may be WAF banned. Change IP or wait")
+	if firstRes.StatusCode == 403 || firstRes.StatusCode == 406 {
+		utils.Log.Fatal("[bc] You are temporarily WAF banned. Change IP or wait a few hours.")
+		return "", errors.New("IP Banned")
 	}
 
 	var allCookiesString string
@@ -126,13 +130,20 @@ func Login(email, password, proxy string) string {
 
 	if err != nil {
 		utils.Log.Fatal("[bc] ", "Login request error: ", err)
+		return "", err
 	}
 
 	if loginRes.StatusCode == 401 {
 		utils.Log.Fatal("[bc] ", "Login failed. Check your email and password. Make sure 2FA is off.")
+		return "", errors.New("Login failed")
 	}
 
-	_, err = whttp.SendHTTPRequest(
+	if loginRes.StatusCode == 403 || loginRes.StatusCode == 406 {
+		utils.Log.Fatal("[bc] You are temporarily WAF banned. Change IP or wait a few hours.")
+		return "", errors.New("IP Banned")
+	}
+
+	redirectRes, err := whttp.SendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
 			URL:    gjson.Get(loginRes.BodyString, "redirect_to").String(),
@@ -146,19 +157,24 @@ func Login(email, password, proxy string) string {
 		utils.Log.Fatal("[bc] ", err)
 	}
 
+	if redirectRes.StatusCode == 403 || redirectRes.StatusCode == 406 {
+		utils.Log.Fatal("[bc] You are temporarily WAF banned. Change IP or wait a few hours.")
+		return "", errors.New("IP Banned")
+	}
+
 	for _, cookie := range retryClient.HTTPClient.Jar.Cookies(identityUrl) {
 		if cookie.Name == "_bugcrowd_session" {
 			utils.Log.Info("[bc] ", "Login OK. Fetching programs, please wait...")
 			utils.Log.Debug("[bc] ", "SESSION: ", cookie.Value)
-			return cookie.Value
+			return cookie.Value, nil
 		}
 	}
 
 	utils.Log.Fatal("[bc] ", "Unknown Error")
-	return ""
+	return "", errors.New("Unknown Error")
 }
 
-func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool) []string {
+func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool) ([]string, error) {
 	pageIndex := 1
 	var totalCount int
 	paths := []string{}
@@ -183,6 +199,12 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 
 		if err != nil {
 			utils.Log.Fatal("[bc] ", err)
+			return nil, err
+		}
+
+		if res.StatusCode == 403 || res.StatusCode == 406 {
+			utils.Log.Fatal("[bc] You are temporarily WAF banned. Change IP or wait a few hours.")
+			return nil, errors.New("IP Banned")
 		}
 
 		// Assuming res.BodyString is the JSON string response
@@ -216,7 +238,7 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 		})
 
 		// Print the number of programs fetched so far
-		utils.Log.Info("[bc] ", "Fetched programs: ", len(paths), " | Total unique programs found: ", allHandlersFoundCounter)
+		// utils.Log.Info("[bc] ", "Fetched programs: ", len(paths), " | Total unique programs found: ", allHandlersFoundCounter)
 
 		pageIndex++
 
@@ -226,27 +248,37 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 		}
 	}
 
-	return paths
+	return paths, nil
 }
 
-func GetProgramScope(handle string, categories string, token string) (pData scope.ProgramData) {
+func GetProgramScope(handle string, categories string, token string) (pData scope.ProgramData, err error) {
 	isEngagement := strings.HasPrefix(handle, "/engagements/")
 
 	pData.Url = "https://bugcrowd.com/" + strings.TrimPrefix(handle, "/")
 
 	if isEngagement {
-		getBriefVersionDocument := getEngagementBriefVersionDocument(handle, token)
+		getBriefVersionDocument, err := getEngagementBriefVersionDocument(handle, token)
+		if err != nil {
+			return pData, err
+		}
+
 		if getBriefVersionDocument != "" {
-			extractScopeFromEngagement(getBriefVersionDocument, token, &pData)
+			err = extractScopeFromEngagement(getBriefVersionDocument, token, &pData)
+			if err != nil {
+				return pData, err
+			}
 		}
 	} else {
-		extractScopeFromTargetGroups(pData.Url, categories, token, &pData)
+		err = extractScopeFromTargetGroups(pData.Url, categories, token, &pData)
+		if err != nil {
+			return pData, err
+		}
 	}
 
-	return pData
+	return pData, nil
 }
 
-func getEngagementBriefVersionDocument(handle string, token string) string {
+func getEngagementBriefVersionDocument(handle string, token string) (string, error) {
 	res, err := whttp.SendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
@@ -260,16 +292,23 @@ func getEngagementBriefVersionDocument(handle string, token string) string {
 
 	if err != nil {
 		utils.Log.Fatal("[bc] ", err)
+		return "", err
+	}
+
+	if res.StatusCode == 403 || res.StatusCode == 406 {
+		utils.Log.Fatal("[bc] You are temporarily WAF banned. Change IP or wait a few hours.")
+		return "", errors.New("IP Banned")
 	}
 
 	// Likely from a knownHandle we passed that's actually gone now
 	if res.StatusCode == 404 {
-		return ""
+		return "", nil // it's not an error for which we wanna exit the program
 	}
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(res.BodyString))
 	if err != nil {
 		log.Fatal(err)
+		return "", err
 	}
 
 	div := doc.Find("div[data-react-class='ResearcherEngagementBrief']")
@@ -285,13 +324,13 @@ func getEngagementBriefVersionDocument(handle string, token string) string {
 		}
 	}
 
-	return gjson.Get(apiEndpointsJSON, "engagementBriefApi.getBriefVersionDocument").String() + ".json"
+	return gjson.Get(apiEndpointsJSON, "engagementBriefApi.getBriefVersionDocument").String() + ".json", nil
 }
 
-func extractScopeFromEngagement(getBriefVersionDocument string, token string, pData *scope.ProgramData) {
+func extractScopeFromEngagement(getBriefVersionDocument string, token string, pData *scope.ProgramData) (err error) {
 	if getBriefVersionDocument == ".json" {
 		utils.Log.Warn("[bc] Compliance required! Empty Extraction URL (Skipping)...")
-		return
+		// we don't want to return an error here, because this is okay
 	}
 	res, err := whttp.SendHTTPRequest(
 		&whttp.WHTTPReq{
@@ -306,6 +345,12 @@ func extractScopeFromEngagement(getBriefVersionDocument string, token string, pD
 
 	if err != nil {
 		utils.Log.Fatal("[bc] ", err)
+		return err
+	}
+
+	if res.StatusCode == 403 || res.StatusCode == 406 {
+		utils.Log.Fatal("[bc] You are temporarily WAF banned. Change IP or wait a few hours.")
+		return errors.New("IP Banned")
 	}
 
 	// Extract the "scope" array from the JSON
@@ -342,8 +387,11 @@ func extractScopeFromEngagement(getBriefVersionDocument string, token string, pD
 
 		return true
 	})
+
+	return nil
 }
-func extractScopeFromTargetGroups(url string, categories string, token string, pData *scope.ProgramData) {
+
+func extractScopeFromTargetGroups(url string, categories string, token string, pData *scope.ProgramData) error {
 	res, err := whttp.SendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
@@ -357,25 +405,37 @@ func extractScopeFromTargetGroups(url string, categories string, token string, p
 
 	if err != nil {
 		utils.Log.Fatal("[bc] ", err)
+		return err
+	}
+
+	if res.StatusCode == 403 || res.StatusCode == 406 {
+		utils.Log.Fatal("[bc] You are temporarily WAF banned. Change IP or wait a few hours.")
+		return errors.New("IP Banned")
 	}
 
 	// Likely from a knownHandle we passed that's actually gone now
 	if res.StatusCode == 404 {
-		return
+		return nil // it's not an error for which we wanna exit the program
 	}
 
 	noScopeTable := true
 	for i, scopeTableURL := range gjson.Get(string(res.BodyString), "groups.#.targets_url").Array() {
 		inScope := gjson.Get(string(res.BodyString), fmt.Sprintf("groups.%d.in_scope", i)).Bool()
-		extractScopeFromTargetTable(scopeTableURL.String(), categories, token, pData, inScope)
+		err = extractScopeFromTargetTable(scopeTableURL.String(), categories, token, pData, inScope)
+		if err != nil {
+			return err
+		}
 		noScopeTable = false
 	}
 
 	if noScopeTable {
 		pData.InScope = append(pData.InScope, scope.ScopeElement{Target: "NO_IN_SCOPE_TABLE", Description: "", Category: ""})
 	}
+
+	return nil
 }
-func extractScopeFromTargetTable(scopeTableURL string, categories string, token string, pData *scope.ProgramData, inScope bool) {
+
+func extractScopeFromTargetTable(scopeTableURL string, categories string, token string, pData *scope.ProgramData, inScope bool) error {
 	res, err := whttp.SendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
@@ -389,6 +449,12 @@ func extractScopeFromTargetTable(scopeTableURL string, categories string, token 
 
 	if err != nil {
 		utils.Log.Fatal("[bc] ", err)
+		return err
+	}
+
+	if res.StatusCode == 403 || res.StatusCode == 406 {
+		utils.Log.Fatal("[bc] You are temporarily WAF banned. Change IP or wait a few hours.")
+		return errors.New("IP Banned")
 	}
 
 	json := string(res.BodyString)
@@ -421,6 +487,8 @@ func extractScopeFromTargetTable(scopeTableURL string, categories string, token 
 			pData.OutOfScope = append(pData.OutOfScope, scopeElement)
 		}
 	}
+
+	return nil
 }
 
 func GetCategories(input string) []string {
@@ -441,11 +509,19 @@ func GetCategories(input string) []string {
 	return selectedCategory
 }
 
-func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, concurrency int, delimiterCharacter string, includeOOS, printRealTime bool, knownHandles []string) (programs []scope.ProgramData) {
-	programHandles := GetProgramHandles(token, "bug_bounty", pvtOnly)
+func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, concurrency int, delimiterCharacter string, includeOOS, printRealTime bool, knownHandles []string) (programs []scope.ProgramData, err error) {
+	programHandles, err := GetProgramHandles(token, "bug_bounty", pvtOnly)
+
+	if err != nil {
+		return nil, err
+	}
 
 	if !bbpOnly {
-		programHandles = append(programHandles, GetProgramHandles(token, "vdp", pvtOnly)...)
+		vdpHandles, err := GetProgramHandles(token, "vdp", pvtOnly)
+		if err != nil {
+			return nil, err
+		}
+		programHandles = append(programHandles, vdpHandles...)
 	}
 
 	// Create a map to track existing handles
@@ -455,8 +531,6 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 	}
 
 	// Append unique handles from knownHandles to programHandles
-	// known handles can be passed to overcome bugcrowd's buggy programs list
-
 	for _, handle := range knownHandles {
 		if !existingHandles[handle] {
 			programHandles = append(programHandles, handle)
@@ -468,6 +542,7 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 
 	var mutex sync.Mutex
 	handles := make(chan string, concurrency)
+	errChan := make(chan error, 1)
 	processGroup := new(sync.WaitGroup)
 
 	for i := 0; i < concurrency; i++ {
@@ -475,7 +550,15 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 		go func() {
 			defer processGroup.Done()
 			for handle := range handles {
-				pScope := GetProgramScope(handle, categories, token)
+				pScope, err := GetProgramScope(handle, categories, token)
+
+				if err != nil {
+					select {
+					case errChan <- fmt.Errorf("[bc] error processing handle %s: %v", handle, err):
+					default:
+					}
+					return
+				}
 
 				if pScope.InScope == nil || len(pScope.InScope) == 0 {
 					continue
@@ -492,11 +575,21 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 		}()
 	}
 
-	for _, handle := range programHandles {
-		handles <- handle
+	go func() {
+		for _, handle := range programHandles {
+			handles <- handle
+		}
+		close(handles)
+	}()
+
+	go func() {
+		processGroup.Wait()
+		close(errChan)
+	}()
+
+	if err := <-errChan; err != nil {
+		return programs, err // Return partial results and the error
 	}
 
-	close(handles)
-	processGroup.Wait()
-	return programs
+	return programs, nil
 }

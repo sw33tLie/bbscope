@@ -14,6 +14,7 @@ var bcCmd = &cobra.Command{
 	Short: "Bugcrowd",
 	Long:  "Gathers data from Bugcrowd (https://bugcrowd.com/)",
 	Run: func(cmd *cobra.Command, args []string) {
+		var err error
 		token, _ := cmd.Flags().GetString("token")
 		categories, _ := cmd.Flags().GetString("categories")
 		concurrency, _ := cmd.Flags().GetInt("concurrency")
@@ -34,10 +35,18 @@ var bcCmd = &cobra.Command{
 		}
 
 		if email != "" && password != "" && token == "" {
-			token = bugcrowd.Login(email, password, proxy)
+			token, err = bugcrowd.Login(email, password, proxy)
+			if err != nil {
+				utils.Log.Fatal("[bc] ", err)
+			}
 		}
 
-		bugcrowd.GetAllProgramsScope(token, bbpOnly, pvtOnly, categories, outputFlags, concurrency, delimiterCharacter, includeOOS, true, nil)
+		_, err = bugcrowd.GetAllProgramsScope(token, bbpOnly, pvtOnly, categories, outputFlags, concurrency, delimiterCharacter, includeOOS, true, nil)
+
+		if err != nil {
+			utils.Log.Fatal("[bc] ", err)
+		}
+
 		utils.Log.Info("bbscope run successfully")
 	},
 }
