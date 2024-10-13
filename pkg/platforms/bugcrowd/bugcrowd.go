@@ -24,6 +24,8 @@ import (
 const (
 	USER_AGENT               = "Mozilla/5.0 (X11; Linux x86_64; rv:82.0) Gecko/20100101 Firefox/82.0"
 	RATE_LIMIT_SLEEP_SECONDS = 5
+
+	WAF_BANNED_ERROR = "you are temporarily WAF banned, change IP or wait a few hours"
 )
 
 // Automated email + password login. 2FA needs to be disabled
@@ -35,7 +37,6 @@ func Login(email, password, proxy string) (string, error) {
 	// Create a cookie jar
 	jar, err := cookiejar.New(nil)
 	if err != nil {
-		utils.Log.Fatal("[bc] ", err)
 		return "", err
 	}
 
@@ -74,7 +75,7 @@ func Login(email, password, proxy string) (string, error) {
 
 	// Set the custom redirect policy on the underlying http.Client
 	retryClient.HTTPClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		utils.Log.Debug("[bc] ", "Redirecting to: ", req.URL)
+		utils.Log.Debug("Redirecting to: ", req.URL)
 		if strings.Contains(req.URL.String(), "login_challenge") {
 			loginChallenge = strings.Split(req.URL.String(), "=")[1]
 		}
@@ -91,12 +92,11 @@ func Login(email, password, proxy string) (string, error) {
 		}, retryClient)
 
 	if err != nil {
-		utils.Log.Fatal("[bc] ", err)
+		return "", err
 	}
 
 	if firstRes.StatusCode == 403 || firstRes.StatusCode == 406 {
-		utils.Log.Fatal("[bc] You are temporarily WAF banned. Change IP or wait a few hours.")
-		return "", errors.New("IP Banned")
+		return "", errors.New(WAF_BANNED_ERROR)
 	}
 
 	var allCookiesString string
@@ -129,18 +129,15 @@ func Login(email, password, proxy string) (string, error) {
 		}, retryClient)
 
 	if err != nil {
-		utils.Log.Fatal("[bc] ", "Login request error: ", err)
 		return "", err
 	}
 
 	if loginRes.StatusCode == 401 {
-		utils.Log.Fatal("[bc] ", "Login failed. Check your email and password. Make sure 2FA is off.")
 		return "", errors.New("Login failed")
 	}
 
 	if loginRes.StatusCode == 403 || loginRes.StatusCode == 406 {
-		utils.Log.Fatal("[bc] You are temporarily WAF banned. Change IP or wait a few hours.")
-		return "", errors.New("IP Banned")
+		return "", errors.New(WAF_BANNED_ERROR)
 	}
 
 	redirectRes, err := whttp.SendHTTPRequest(
@@ -154,24 +151,22 @@ func Login(email, password, proxy string) (string, error) {
 		}, retryClient)
 
 	if err != nil {
-		utils.Log.Fatal("[bc] ", err)
+		return "", err
 	}
 
 	if redirectRes.StatusCode == 403 || redirectRes.StatusCode == 406 {
-		utils.Log.Fatal("[bc] You are temporarily WAF banned. Change IP or wait a few hours.")
-		return "", errors.New("IP Banned")
+		return "", errors.New(WAF_BANNED_ERROR)
 	}
 
 	for _, cookie := range retryClient.HTTPClient.Jar.Cookies(identityUrl) {
 		if cookie.Name == "_bugcrowd_session" {
-			utils.Log.Info("[bc] ", "Login OK. Fetching programs, please wait...")
-			utils.Log.Debug("[bc] ", "SESSION: ", cookie.Value)
+			utils.Log.Info("Login OK. Fetching programs, please wait...")
+			utils.Log.Debug("SESSION: ", cookie.Value)
 			return cookie.Value, nil
 		}
 	}
 
-	utils.Log.Fatal("[bc] ", "Unknown Error")
-	return "", errors.New("Unknown Error")
+	return "", errors.New("unknown login error")
 }
 
 func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool) ([]string, error) {
@@ -198,13 +193,11 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 			}, nil)
 
 		if err != nil {
-			utils.Log.Fatal("[bc] ", err)
 			return nil, err
 		}
 
 		if res.StatusCode == 403 || res.StatusCode == 406 {
-			utils.Log.Fatal("[bc] You are temporarily WAF banned. Change IP or wait a few hours.")
-			return nil, errors.New("IP Banned")
+			return nil, errors.New("you are temporarily WAF banned, change IP or wait a few hours")
 		}
 
 		// Assuming res.BodyString is the JSON string response
@@ -238,7 +231,7 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 		})
 
 		// Print the number of programs fetched so far
-		// utils.Log.Info("[bc] ", "Fetched programs: ", len(paths), " | Total unique programs found: ", allHandlersFoundCounter)
+		// utils.Log.Info("Fetched programs: ", len(paths), " | Total unique programs found: ", allHandlersFoundCounter)
 
 		pageIndex++
 
@@ -291,13 +284,11 @@ func getEngagementBriefVersionDocument(handle string, token string) (string, err
 		}, nil)
 
 	if err != nil {
-		utils.Log.Fatal("[bc] ", err)
 		return "", err
 	}
 
 	if res.StatusCode == 403 || res.StatusCode == 406 {
-		utils.Log.Fatal("[bc] You are temporarily WAF banned. Change IP or wait a few hours.")
-		return "", errors.New("IP Banned")
+		return "", errors.New(WAF_BANNED_ERROR)
 	}
 
 	// Likely from a knownHandle we passed that's actually gone now
@@ -318,9 +309,9 @@ func getEngagementBriefVersionDocument(handle string, token string) (string, err
 	if !exists {
 		// This will be triggered when using a non-2FA token and
 		if strings.Contains(res.BodyString, "ResearcherEngagementCompliance") {
-			utils.Log.Warn("[bc] Compliance required! Skipping: ", "https://bugcrowd.com"+handle)
+			utils.Log.Warn("Compliance required! Skipping: ", "https://bugcrowd.com"+handle)
 		} else {
-			utils.Log.Warn("[bc] data-api-endpoints attribute not found at https://bugcrowd.com"+handle, res.StatusCode)
+			utils.Log.Warn("data-api-endpoints attribute not found at https://bugcrowd.com"+handle, res.StatusCode)
 		}
 	}
 
@@ -329,7 +320,7 @@ func getEngagementBriefVersionDocument(handle string, token string) (string, err
 
 func extractScopeFromEngagement(getBriefVersionDocument string, token string, pData *scope.ProgramData) (err error) {
 	if getBriefVersionDocument == ".json" {
-		utils.Log.Warn("[bc] Compliance required! Empty Extraction URL (Skipping)...")
+		utils.Log.Warn("Compliance required! Empty Extraction URL (Skipping)...")
 		// we don't want to return an error here, because this is okay
 	}
 	res, err := whttp.SendHTTPRequest(
@@ -344,13 +335,11 @@ func extractScopeFromEngagement(getBriefVersionDocument string, token string, pD
 		}, nil)
 
 	if err != nil {
-		utils.Log.Fatal("[bc] ", err)
 		return err
 	}
 
 	if res.StatusCode == 403 || res.StatusCode == 406 {
-		utils.Log.Fatal("[bc] You are temporarily WAF banned. Change IP or wait a few hours.")
-		return errors.New("IP Banned")
+		return errors.New(WAF_BANNED_ERROR)
 	}
 
 	// Extract the "scope" array from the JSON
@@ -404,13 +393,11 @@ func extractScopeFromTargetGroups(url string, categories string, token string, p
 		}, nil)
 
 	if err != nil {
-		utils.Log.Fatal("[bc] ", err)
 		return err
 	}
 
 	if res.StatusCode == 403 || res.StatusCode == 406 {
-		utils.Log.Fatal("[bc] You are temporarily WAF banned. Change IP or wait a few hours.")
-		return errors.New("IP Banned")
+		return errors.New(WAF_BANNED_ERROR)
 	}
 
 	// Likely from a knownHandle we passed that's actually gone now
@@ -448,13 +435,11 @@ func extractScopeFromTargetTable(scopeTableURL string, categories string, token 
 		}, nil)
 
 	if err != nil {
-		utils.Log.Fatal("[bc] ", err)
 		return err
 	}
 
 	if res.StatusCode == 403 || res.StatusCode == 406 {
-		utils.Log.Fatal("[bc] You are temporarily WAF banned. Change IP or wait a few hours.")
-		return errors.New("IP Banned")
+		return errors.New(WAF_BANNED_ERROR)
 	}
 
 	json := string(res.BodyString)
@@ -467,7 +452,13 @@ func extractScopeFromTargetTable(scopeTableURL string, categories string, token 
 		category := gjson.Get(json, targetPath+".category").String()
 		description := gjson.Get(json, targetPath+".description").String()
 
-		if categories != "all" && category != GetCategories(categories)[0] {
+		fetchedCategories, err := GetCategories(categories)
+
+		if err != nil {
+			return err
+		}
+
+		if categories != "all" && category != fetchedCategories[0] {
 			continue
 		}
 
@@ -491,7 +482,7 @@ func extractScopeFromTargetTable(scopeTableURL string, categories string, token 
 	return nil
 }
 
-func GetCategories(input string) []string {
+func GetCategories(input string) ([]string, error) {
 	categories := map[string][]string{
 		"url":      {"website"},
 		"api":      {"api"},
@@ -504,9 +495,9 @@ func GetCategories(input string) []string {
 
 	selectedCategory, ok := categories[strings.ToLower(input)]
 	if !ok {
-		utils.Log.Fatal("[bc] ", "Invalid category")
+		return nil, errors.New("invalid category")
 	}
-	return selectedCategory
+	return selectedCategory, nil
 }
 
 func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, concurrency int, delimiterCharacter string, includeOOS, printRealTime bool, knownHandles []string) (programs []scope.ProgramData, err error) {
@@ -538,7 +529,7 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 		}
 	}
 
-	utils.Log.Info("[bc] ", "Fetching ", strconv.Itoa(len(programHandles)), " programs...")
+	utils.Log.Info("Fetching ", strconv.Itoa(len(programHandles)), " programs...")
 
 	var mutex sync.Mutex
 	handles := make(chan string, concurrency)
@@ -554,7 +545,7 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 
 				if err != nil {
 					select {
-					case errChan <- fmt.Errorf("[bc] error processing handle %s: %v", handle, err):
+					case errChan <- fmt.Errorf("error processing handle %s: %v", handle, err):
 					default:
 					}
 					return
