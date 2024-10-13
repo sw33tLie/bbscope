@@ -44,8 +44,8 @@ func init() {
 	retryClient = retryablehttp.NewClient()
 	retryClient.RetryMax = 99999
 
-	// Default timeout to 10 seconds
-	retryClient.HTTPClient.Timeout = 10 * time.Second
+	// Default timeout to 30 seconds
+	retryClient.HTTPClient.Timeout = 30 * time.Second
 
 	// Don't print debug messages
 	retryClient.Logger = log.New(io.Discard, "", 0)
