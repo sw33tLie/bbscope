@@ -82,7 +82,7 @@ func GetProgramScope(token string, programID string, categories string, bbpOnly 
 		} else {
 			// TODO: This isn't being printed
 			if includeOOS {
-				pData.OutOfScope = append(pData.InScope, scope.ScopeElement{
+				pData.OutOfScope = append(pData.OutOfScope, scope.ScopeElement{
 					Target:      endpoint,
 					Description: strings.ReplaceAll(description, "\n", "  "),
 					Category:    categoryValue,
