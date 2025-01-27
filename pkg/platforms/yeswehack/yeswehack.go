@@ -26,7 +26,6 @@ func GetCategoryID(input string) []string {
 		"apple":      {"mobile-application-ios"},
 		"other":      {"other"},
 		"executable": {"application"},
-		"all":        {"web-application", "api", "ip-address", "mobile-application", "mobile-application-android", "mobile-application-ios", "other", "application"},
 	}
 
 	selectedCategory, ok := categories[strings.ToLower(input)]
@@ -55,8 +54,17 @@ func GetProgramScope(token string, companySlug string, categories string) (pData
 	chunkData := gjson.GetMany(res.BodyString, "scopes.#.scope", "scopes.#.scope_type")
 
 	for i := 0; i < len(chunkData[0].Array()); i++ {
-		selectedCatIDs := GetCategoryID(categories)
+		// Skip category filtering if "all" is specified
+		if strings.ToLower(categories) == "all" {
+			pData.InScope = append(pData.InScope, scope.ScopeElement{
+				Target:      chunkData[0].Array()[i].Str,
+				Description: "",
+				Category:    chunkData[1].Array()[i].Str,
+			})
+			continue
+		}
 
+		selectedCatIDs := GetCategoryID(categories)
 		catMatches := false
 		for _, cat := range selectedCatIDs {
 			if cat == chunkData[1].Array()[i].Str {
