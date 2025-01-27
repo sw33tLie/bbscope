@@ -129,7 +129,12 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 	return programs
 }
 
-func Login(email string, password, otpFetchCommand string) (string, error) {
+func Login(email string, password, otpFetchCommand, proxy string) (string, error) {
+
+	if proxy != "" {
+		whttp.SetupProxy(proxy)
+	}
+
 	// Step 1: Send POST request to /login with email and password
 	loginURL := "https://api.yeswehack.com/login"
 	loginPayload := fmt.Sprintf(`{"email":"%s","password":"%s"}`, email, password)
