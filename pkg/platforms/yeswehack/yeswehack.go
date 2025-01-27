@@ -1,9 +1,12 @@
 package yeswehack
 
 import (
+	"fmt"
 	"log"
+	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sw33tLie/bbscope/pkg/scope"
 	"github.com/sw33tLie/bbscope/pkg/whttp"
@@ -114,6 +117,103 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 	}
 
 	return programs
+}
+
+func Login(email string, password, otpFetchCommand string) (string, error) {
+	// Step 1: Send POST request to /login with email and password
+	loginURL := "https://api.yeswehack.com/login"
+	loginPayload := fmt.Sprintf(`{"email":"%s","password":"%s"}`, email, password)
+
+	loginRes, err := whttp.SendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "POST",
+			URL:    loginURL,
+			Headers: []whttp.WHTTPHeader{
+				{Name: "Content-Type", Value: "application/json"},
+			},
+			Body: loginPayload,
+		}, nil)
+
+	if err != nil {
+		return "", fmt.Errorf("failed to send login request: %v", err)
+	}
+
+	if loginRes.StatusCode != 200 {
+		return "", fmt.Errorf("login failed with status code: %d", loginRes.StatusCode)
+	}
+
+	// Check if we got a direct token (no 2FA required)
+	if directToken := gjson.Get(loginRes.BodyString, "token").String(); directToken != "" {
+		return directToken, nil
+	}
+
+	// If no direct token, check for totp_token (2FA required)
+	totpToken := gjson.Get(loginRes.BodyString, "totp_token").String()
+	if totpToken == "" {
+		return "", fmt.Errorf("invalid login response: neither token nor totp_token found")
+	}
+
+	// 2FA flow continues...
+	if otpFetchCommand == "" {
+		return "", fmt.Errorf("2FA is enabled but no OTP fetch command provided")
+	}
+
+	// Try OTP verification
+	OTP_ATTEMPTS := 5
+	for attempts := 1; attempts <= OTP_ATTEMPTS; attempts++ {
+		// Obtain the 2FA code by running the system command using shell
+		cmd := exec.Command("sh", "-c", otpFetchCommand)
+		output, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("failed to execute 2FA command: %v", err)
+		}
+
+		code := strings.TrimSpace(string(output))
+		if code == "" {
+			return "", fmt.Errorf("2FA code is empty")
+		}
+
+		// Send POST request to /account/totp with totp_token and code
+		totpURL := "https://api.yeswehack.com/account/totp"
+		totpPayload := fmt.Sprintf(`{"token":"%s","code":"%s"}`, totpToken, code)
+
+		totpRes, err := whttp.SendHTTPRequest(
+			&whttp.WHTTPReq{
+				Method: "POST",
+				URL:    totpURL,
+				Headers: []whttp.WHTTPHeader{
+					{Name: "Content-Type", Value: "application/json"},
+				},
+				Body: totpPayload,
+			}, nil)
+
+		if err != nil {
+			return "", fmt.Errorf("failed to send TOTP request: %v", err)
+		}
+
+		// If status code is not 400, break the retry loop
+		if totpRes.StatusCode != 400 {
+			if totpRes.StatusCode != 200 {
+				return "", fmt.Errorf("TOTP verification failed with status code: %d", totpRes.StatusCode)
+			}
+
+			// Parse the response to get the final token
+			finalToken := gjson.Get(totpRes.BodyString, "token").String()
+			if finalToken == "" {
+				return "", fmt.Errorf("final token not found in TOTP response")
+			}
+
+			return finalToken, nil
+		}
+
+		time.Sleep(5 * time.Second)
+		// If this was the last attempt, return error
+		if attempts == OTP_ATTEMPTS {
+			return "", fmt.Errorf("TOTP verification failed after %d attempts", OTP_ATTEMPTS)
+		}
+	}
+
+	return "", fmt.Errorf("unexpected error in TOTP verification")
 }
 
 func PrintAllScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, delimiter string) {
