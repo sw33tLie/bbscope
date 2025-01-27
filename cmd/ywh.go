@@ -35,7 +35,7 @@ var ywhCmd = &cobra.Command{
 			}
 
 			var err error
-			token, err = yeswehack.Login(email, password, otpFetchCommand)
+			token, err = yeswehack.Login(email, password, otpFetchCommand, proxy)
 			if err != nil {
 				log.Fatal(err)
 			}
