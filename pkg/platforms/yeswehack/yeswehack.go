@@ -85,8 +85,7 @@ func GetProgramScope(token string, companySlug string, categories string) (pData
 	return pData
 }
 
-func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories string) (programs []scope.ProgramData) {
-
+func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, delimiter string, printRealTime bool) (programs []scope.ProgramData) {
 	var page = 1
 	var nb_pages = 2
 
@@ -108,7 +107,6 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 
 		allCompanySlugs := data[0].Array()
 		allRewarding := data[1].Array()
-
 		allPublic := data[2].Array()
 
 		for i := 0; i < len(allCompanySlugs); i++ {
@@ -116,6 +114,10 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 				if !bbpOnly || (bbpOnly && allRewarding[i].Bool()) {
 					pData := GetProgramScope(token, allCompanySlugs[i].Str, categories)
 					programs = append(programs, pData)
+
+					if printRealTime {
+						scope.PrintProgramScope(pData, outputFlags, delimiter, false)
+					}
 				}
 			}
 		}
@@ -222,11 +224,4 @@ func Login(email string, password, otpFetchCommand string) (string, error) {
 	}
 
 	return "", fmt.Errorf("unexpected error in TOTP verification")
-}
-
-func PrintAllScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, delimiter string) {
-	programs := GetAllProgramsScope(token, bbpOnly, pvtOnly, categories)
-	for _, pData := range programs {
-		scope.PrintProgramScope(pData, outputFlags, delimiter, false)
-	}
 }

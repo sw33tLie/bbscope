@@ -49,7 +49,7 @@ var ywhCmd = &cobra.Command{
 		bbpOnly, _ := rootCmd.Flags().GetBool("bbpOnly")
 		pvtOnly, _ := rootCmd.Flags().GetBool("pvtOnly")
 
-		yeswehack.PrintAllScope(token, bbpOnly, pvtOnly, categories, outputFlags, delimiterCharacter)
+		yeswehack.GetAllProgramsScope(token, bbpOnly, pvtOnly, categories, outputFlags, delimiterCharacter, true)
 	},
 }
 
