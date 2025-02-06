@@ -46,7 +46,7 @@ www.something.com
 
 ### Print all in-scope targets from all your private Bugcrowd programs that offer rewards
 ```
-bbscope bc -t <YOUR_TOKEN> -b -p -o t
+bbscope bc -t <_bugcrowd_session> -b -p -o t
 ```
 
 ### Print all in-scope targets+program page URL from all Intigriti programs, including OOS elements
