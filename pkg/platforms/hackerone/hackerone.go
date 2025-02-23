@@ -142,7 +142,7 @@ func getCategories(input string) []string {
 	return selectedCategory
 }
 
-func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, active bool) (handles []string) {
+func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, active bool, bbpOnly bool) (handles []string) {
 	currentURL := "https://api.hackerone.com/v1/hackers/programs?page%5Bsize%5D=100"
 	for {
 		res, err := whttp.SendHTTPRequest(
@@ -171,7 +171,13 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 				if !pvtOnly || (pvtOnly && gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.state").Str == "soft_launched") {
 					if active {
 						if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.submission_state").Str == "open" {
-							handles = append(handles, handle.Str)
+							if bbpOnly {
+								if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.offers_bounties").Bool() == true {
+									handles = append(handles, handle.Str)
+								}
+							} else {
+								handles = append(handles, handle.Str)
+							}
 						}
 					} else {
 						handles = append(handles, handle.Str)
@@ -181,7 +187,13 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 				if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.state").Str == "public_mode" {
 					if active {
 						if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.submission_state").Str == "open" {
-							handles = append(handles, handle.Str)
+							if bbpOnly {
+								if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.offers_bounties").Bool() == true {
+									handles = append(handles, handle.Str)
+								}
+							} else {
+								handles = append(handles, handle.Str)
+							}
 						}
 					} else {
 						handles = append(handles, handle.Str)
@@ -203,7 +215,7 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 
 func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, active bool, concurrency int, printRealTime bool, outputFlags string, delimiter string, includeOOS bool) (programs []scope.ProgramData, err error) {
 	utils.Log.Debug("Fetching list of program handles")
-	programHandles := getProgramHandles(authorization, pvtOnly, publicOnly, active)
+	programHandles := getProgramHandles(authorization, pvtOnly, publicOnly, active, bbpOnly)
 
 	utils.Log.Debug("Fetching scope of each program. Concurrency: ", concurrency)
 	ids := make(chan string, concurrency)
