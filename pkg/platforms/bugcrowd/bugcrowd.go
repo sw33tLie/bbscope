@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/hashicorp/go-retryablehttp"
@@ -26,6 +27,48 @@ const (
 
 	WAF_BANNED_ERROR = "you are temporarily WAF banned, change IP or wait a few hours"
 )
+
+// Rate-limiting types and global channel
+type rateLimitedResult struct {
+	res *whttp.WHTTPRes
+	err error
+}
+
+type rateLimitedRequest struct {
+	req        *whttp.WHTTPReq
+	client     *retryablehttp.Client // Can be nil
+	resultChan chan rateLimitedResult
+}
+
+var rateLimitRequestChan chan rateLimitedRequest
+
+func init() {
+	// Initialize the rate-limited request channel and start the worker
+	rateLimitRequestChan = make(chan rateLimitedRequest)
+	go rateLimitedRequestWorker()
+}
+
+func rateLimitedRequestWorker() {
+	ticker := time.NewTicker(1 * time.Second) // one request per second (otherwise bugcrowd WAF bans us)
+	defer ticker.Stop()
+	for r := range rateLimitRequestChan {
+		<-ticker.C // Wait for ticker; limits to one request per second
+		res, err := whttp.SendHTTPRequest(r.req, r.client)
+		r.resultChan <- rateLimitedResult{res: res, err: err}
+	}
+}
+
+// rateLimitedSendHTTPRequest is a wrapper for whttp.SendHTTPRequest that enforces the 1-req/sec rate limit.
+func rateLimitedSendHTTPRequest(req *whttp.WHTTPReq, client *retryablehttp.Client) (*whttp.WHTTPRes, error) {
+	resultChan := make(chan rateLimitedResult, 1)
+	rateLimitRequestChan <- rateLimitedRequest{
+		req:        req,
+		client:     client,
+		resultChan: resultChan,
+	}
+	result := <-resultChan
+	return result.res, result.err
+}
 
 // Automated email + password login. 2FA needs to be disabled
 func Login(email, password, proxy string) (string, error) {
@@ -64,7 +107,7 @@ func Login(email, password, proxy string) (string, error) {
 		return nil // return nil to follow the redirect
 	}
 
-	firstRes, err := whttp.SendHTTPRequest(
+	firstRes, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
 			URL:    "https://identity.bugcrowd.com/login?user_hint=researcher&returnTo=/dashboard",
@@ -97,7 +140,7 @@ func Login(email, password, proxy string) (string, error) {
 		}
 	}
 
-	loginRes, err := whttp.SendHTTPRequest(
+	loginRes, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "POST",
 			URL:    "https://identity.bugcrowd.com/login",
@@ -122,7 +165,7 @@ func Login(email, password, proxy string) (string, error) {
 		return "", errors.New(WAF_BANNED_ERROR)
 	}
 
-	redirectRes, err := whttp.SendHTTPRequest(
+	redirectRes, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
 			URL:    gjson.Get(loginRes.BodyString, "redirect_to").String(),
@@ -164,7 +207,7 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 		var res *whttp.WHTTPRes
 		var err error
 
-		res, err = whttp.SendHTTPRequest(
+		res, err = rateLimitedSendHTTPRequest(
 			&whttp.WHTTPReq{
 				Method: "GET",
 				URL:    listEndpointURL + strconv.Itoa(pageIndex),
@@ -254,7 +297,7 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 }
 
 func getEngagementBriefVersionDocument(handle string, token string) (string, error) {
-	res, err := whttp.SendHTTPRequest(
+	res, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
 			URL:    "https://bugcrowd.com" + handle,
@@ -309,7 +352,7 @@ func extractScopeFromEngagement(getBriefVersionDocument string, token string, pD
 		})
 		return nil
 	}
-	res, err := whttp.SendHTTPRequest(
+	res, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
 			URL:    "https://bugcrowd.com" + getBriefVersionDocument,
@@ -367,7 +410,7 @@ func extractScopeFromEngagement(getBriefVersionDocument string, token string, pD
 }
 
 func extractScopeFromTargetGroups(url string, categories string, token string, pData *scope.ProgramData) error {
-	res, err := whttp.SendHTTPRequest(
+	res, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
 			URL:    url + "/target_groups",
@@ -409,7 +452,7 @@ func extractScopeFromTargetGroups(url string, categories string, token string, p
 }
 
 func extractScopeFromTargetTable(scopeTableURL string, categories string, token string, pData *scope.ProgramData, inScope bool) error {
-	res, err := whttp.SendHTTPRequest(
+	res, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
 			URL:    "https://bugcrowd.com" + scopeTableURL,
