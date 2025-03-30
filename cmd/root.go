@@ -71,6 +71,29 @@ func initConfig() {
 		utils.Log.Debug("Found config file")
 	}
 
+	// Load global flags from the config file
+	if viper.IsSet("proxy") {
+		rootCmd.PersistentFlags().Set("proxy", viper.GetString("proxy"))
+	}
+	if viper.IsSet("output") {
+		rootCmd.PersistentFlags().Set("output", viper.GetString("output"))
+	}
+	if viper.IsSet("delimiter") {
+		rootCmd.PersistentFlags().Set("delimiter", viper.GetString("delimiter"))
+	}
+	if viper.IsSet("bbpOnly") {
+		rootCmd.PersistentFlags().Set("bbpOnly", viper.GetString("bbpOnly"))
+	}
+	if viper.IsSet("pvtOnly") {
+		rootCmd.PersistentFlags().Set("pvtOnly", viper.GetString("pvtOnly"))
+	}
+	if viper.IsSet("loglevel") {
+		rootCmd.PersistentFlags().Set("loglevel", viper.GetString("loglevel"))
+	}
+	if viper.IsSet("oos") {
+		rootCmd.PersistentFlags().Set("oos", viper.GetString("oos"))
+	}
+
 	// Init log library
 	levelString, _ := rootCmd.PersistentFlags().GetString("loglevel")
 	utils.SetLogLevel(levelString)

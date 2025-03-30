@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"log"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -15,6 +16,43 @@ var ywhCmd = &cobra.Command{
 	Short: "YesWeHack",
 	Long:  "Gathers data from YesWeHack (https://yeswehack.com/)",
 	Run: func(cmd *cobra.Command, args []string) {
+		config, _ := cmd.Flags().GetString("config")
+
+		// Check if the config file exists and is a valid YAML file
+		if config != "" {
+			if _, err := os.Stat(config); err == nil {
+				viper.SetConfigFile(config)
+				if err := viper.ReadInConfig(); err != nil {
+					log.Fatalf("Error reading config file: %v", err)
+				}
+				log.Println("Config file loaded successfully")
+
+				// Check if the config file contains a "yeswehack" section
+				if viper.IsSet("yeswehack") {
+					yeswehackConfig := viper.Sub("yeswehack")
+					if yeswehackConfig.IsSet("token") {
+						cmd.Flags().Set("token", yeswehackConfig.GetString("token"))
+					}
+					if yeswehackConfig.IsSet("categories") {
+						cmd.Flags().Set("categories", yeswehackConfig.GetString("categories"))
+					}
+					if yeswehackConfig.IsSet("email") {
+						cmd.Flags().Set("email", yeswehackConfig.GetString("email"))
+					}
+					if yeswehackConfig.IsSet("password") {
+						cmd.Flags().Set("password", yeswehackConfig.GetString("password"))
+					}
+					if yeswehackConfig.IsSet("otpcommand") {
+						cmd.Flags().Set("otpcommand", yeswehackConfig.GetString("otpcommand"))
+					}
+				} else {
+					log.Fatalf("Config file does not contain a 'yeswehack' section")
+				}
+			} else {
+				log.Fatalf("Config file not found: %v", err)
+			}
+		}
+
 		proxy, _ := rootCmd.PersistentFlags().GetString("proxy")
 
 		if proxy != "" {
@@ -27,7 +65,6 @@ var ywhCmd = &cobra.Command{
 			// Use email+password+OTP login
 			email := viper.GetViper().GetString("yeswehack-email")
 			password := viper.GetViper().GetString("yeswehack-password")
-			// not mandatory, 2FA can be off but some programs require it
 			otpFetchCommand := viper.GetViper().GetString("yeswehack-otpcommand")
 
 			if email == "" || password == "" {
@@ -39,7 +76,6 @@ var ywhCmd = &cobra.Command{
 			if err != nil {
 				log.Fatal(err)
 			}
-
 		}
 
 		categories, _ := cmd.Flags().GetString("categories")

@@ -1,0 +1,7 @@
+bbpOnly: true
+hackerone:
+  category: url
+  username: H1_USERNAME
+  token: H1_TOKEN_HERE
+bugcrowd:
+  category: url

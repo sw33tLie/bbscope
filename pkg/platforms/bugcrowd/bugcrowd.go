@@ -231,9 +231,9 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 			totalCount = int(gjson.Get(string(res.BodyString), "paginationMeta.totalCount").Int())
 		}
 
-		// Bugcrowd's API sometimes tell us there are fewer pages than in reality, so we do it this way
+		// Bugcrowd's API sometimes tells us there are fewer pages than in reality, so we do it this way
 		if len(result.Array()) == 0 {
-			pageIndex = 0
+			break
 		}
 
 		// Iterating over each element in the programs array
@@ -254,10 +254,6 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 			// Return true to continue iterating
 			return true
 		})
-
-		// Print the number of programs fetched so far
-		// utils.Log.Info("Fetched programs: ", len(paths), " | Total unique programs found: ", allHandlersFoundCounter)
-
 		pageIndex++
 
 		// Check if we have fetched all programs using allHandlersFoundCounter
@@ -530,18 +526,18 @@ func GetCategories(input string) ([]string, error) {
 }
 
 func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, concurrency int, delimiterCharacter string, includeOOS, printRealTime bool, knownHandles []string) (programs []scope.ProgramData, err error) {
-	programHandles, err := GetProgramHandles(token, "bug_bounty", pvtOnly)
-
-	if err != nil {
-		return nil, err
-	}
+	var programHandles []string
 
 	if !bbpOnly {
-		vdpHandles, err := GetProgramHandles(token, "vdp", pvtOnly)
+		programHandles, err = GetProgramHandles(token, "vdp", pvtOnly)
 		if err != nil {
 			return nil, err
 		}
-		programHandles = append(programHandles, vdpHandles...)
+	} else {
+		programHandles, err = GetProgramHandles(token, "bug_bounty", pvtOnly)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Create a map to track existing handles
