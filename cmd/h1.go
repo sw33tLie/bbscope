@@ -6,8 +6,10 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"github.com/sw33tLie/bbscope/internal/utils"
 	"github.com/sw33tLie/bbscope/pkg/platforms/hackerone"
 	"github.com/sw33tLie/bbscope/pkg/whttp"
@@ -19,6 +21,46 @@ var h1Cmd = &cobra.Command{
 	Short: "HackerOne",
 	Long:  "Gathers data from HackerOne (https://hackerone.com/)",
 	Run: func(cmd *cobra.Command, args []string) {
+		config, _ := cmd.Flags().GetString("config")
+
+		// Check if the config file exists and is a valid YAML file
+		if config != "" {
+			if _, err := os.Stat(config); err == nil {
+				viper.SetConfigFile(config)
+				if err := viper.ReadInConfig(); err != nil {
+					utils.Log.Fatalf("Error reading config file: %v", err)
+				}
+				utils.Log.Info("Config file loaded successfully")
+
+				// Check if the config file contains a "hackerone" section
+				if viper.IsSet("hackerone") {
+					hackeroneConfig := viper.Sub("hackerone")
+					if hackeroneConfig.IsSet("username") {
+						cmd.Flags().Set("username", hackeroneConfig.GetString("username"))
+					}
+					if hackeroneConfig.IsSet("token") {
+						cmd.Flags().Set("token", hackeroneConfig.GetString("token"))
+					}
+					if hackeroneConfig.IsSet("categories") {
+						cmd.Flags().Set("categories", hackeroneConfig.GetString("categories"))
+					}
+					if hackeroneConfig.IsSet("public-only") {
+						cmd.Flags().Set("public-only", hackeroneConfig.GetString("public-only"))
+					}
+					if hackeroneConfig.IsSet("active-only") {
+						cmd.Flags().Set("active-only", hackeroneConfig.GetString("active-only"))
+					}
+					if hackeroneConfig.IsSet("concurrency") {
+						cmd.Flags().Set("concurrency", hackeroneConfig.GetString("concurrency"))
+					}
+				} else {
+					utils.Log.Fatalf("Config file does not contain a 'hackerone' section")
+				}
+			} else {
+				utils.Log.Fatalf("Config file not found: %v", err)
+			}
+		}
+
 		token, _ := cmd.Flags().GetString("token")
 		username, _ := cmd.Flags().GetString("username")
 		categories, _ := cmd.Flags().GetString("categories")
@@ -63,6 +105,7 @@ func init() {
 	h1Cmd.Flags().BoolP("public-only", "", false, "Only print scope for public programs")
 	h1Cmd.Flags().BoolP("active-only", "a", false, "Show only active programs")
 	h1Cmd.Flags().IntP("concurrency", "", 3, "Concurrency of HTTP requests sent for fetching data")
+	h1Cmd.Flags().StringP("limit", "L", "", "Limit the number of programs fetched")
 
 	hacktivityCmd.Flags().IntP("pages", "", 100, "Pages to fetch. From most recent to older pages. Max is 100")
 

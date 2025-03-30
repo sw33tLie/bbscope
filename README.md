@@ -28,6 +28,14 @@ When using bbscope for HackerOne, the username flag (`-u`) is mandatory.
 
 Remember that you can use the --help flag to get a description for all flags.
 
+### Load switches from a configuration file
+You can now load switches directly from a `config.yaml` file. For example, to load Bugcrowd settings:
+```
+bbscope bc --config config.yaml
+```
+
+This allows you to define your tokens, flags, and other settings in a centralized configuration file, simplifying repeated usage.
+
 ## Examples
 Below you'll find some example commands.
 Keep in mind that all of them work with Bugcrowd, Intigriti and YesWeHack subcommands (`bc`, `it` and `ywh`) as well, not just with `h1`.
