@@ -27,7 +27,10 @@ Each supported platform requires specific authentication:
 
 - **HackerOne:** Use your API token, available from [H1 API Token Settings](https://hackerone.com/settings/api_token/edit).  
   **Note:** The `-u <username>` flag is mandatory.
-- **Bugcrowd:** Use the `_bugcrowd_session` cookie. *(Requires 2FA, see below)*
+- **Bugcrowd:** You have two options:
+  - **Option 1:** Supply your email, password, and OTP generation command. This allows bbscope to log in programmatically and obtain a valid token.
+  - **Option 2:** Manually log in through your browser and then provide the `_bugcrowd_session` cookie value via the `-t <YOUR_TOKEN>` flag.
+  *(Both methods require 2FA; see below for additional details.)*
 - **Intigriti:** Generate a personal access token from [Intigriti Personal Access Tokens](https://app.intigriti.com/researcher/personal-access-tokens).
 - **YesWeHack:** Use a bearer token collected from API requests. *(Requires 2FA, see below)*
 - **Immunefi:** No token is required.
@@ -50,10 +53,10 @@ Once installed, configure it for Bugcrowd (adjust similarly for YesWeHack):
 Then, supply the OTP automatically using the `--otpcommand` flag in your **bbscope** command:
 
 ```bash
-bbscope bc -t <YOUR_TOKEN> --otpcommand "2fa bugcrowd"
+--otpcommand "2fa bugcrowd"
 ```
 
-Replace `"2fa bugcrowd"` with `"2fa yeswehack"` as needed.
+Replace `"2fa bugcrowd"` with `"2fa yeswehack"` as needed, or whatever name you gave to the 2FA code.
 
 Please note that the `--otpcommand` flag simply runs a shell command to fetch the OTP, and it expects the OTP to be printed to stdout. You can use any other way to fetch the OTP, as long as it prints the OTP to stdout.
 
@@ -107,11 +110,19 @@ bbscope h1 -t <YOUR_TOKEN> -u <YOUR_H1_USERNAME> -o u -p | sort -u
 
 ### Bugcrowd
 
-List targets from private Bugcrowd programs that offer rewards:
+List targets from private Bugcrowd programs that offer rewards, with automatic login:
 
 ```bash
-bbscope bc -t <YOUR_TOKEN> -b -p -o t --otpcommand "2fa bugcrowd"
+bbscope bc -E <YOUR_EMAIL> -P "<YOUR_PASSWORD>" -b -p -o t --otpcommand "2fa bugcrowd"
 ```
+
+Similarly, you can use the `-t <YOUR_TOKEN>` flag to manually log in and supply the `_bugcrowd_session` cookie value:
+
+```bash
+bbscope bc -t <YOUR_TOKEN> -b -p -o t
+```
+
+Note that the cookie value will expire after some minutes, so the first method is recommended.
 
 ### Intigriti
 
