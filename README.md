@@ -7,7 +7,7 @@
 - [Immunefi](https://immunefi.com/)
 - [YesWeHack](https://yeswehack.com/)
 
-Developed by [sw33tLie](https://github.com/sw33tLie), bbscope helps you efficiently collect and manage program scopes from the platforms where you're active. Whether you're hunting for domains, Android APKs, or binaries to reverse engineer, **bbscope** makes the process quick and simple.
+Developed by [sw33tLie](https://x.com/sw33tLie), bbscope helps you efficiently collect and manage program scopes from the platforms where you're active. Whether you're hunting for domains, Android APKs, or binaries to reverse engineer, **bbscope** makes the process quick and simple.
 
 ---
 
@@ -72,6 +72,8 @@ For a complete list of options, run:
 ```bash
 bbscope --help
 ```
+
+Note that subcommands have different options, so be sure to check the help for each subcommand for more information.
 
 ---
 
