@@ -29,13 +29,14 @@ var bcCmd = &cobra.Command{
 
 		email := viper.GetViper().GetString("bugcrowd-email")
 		password := viper.GetViper().GetString("bugcrowd-password")
+		otpFetchCommand := viper.GetViper().GetString("bugcrowd-otpcommand")
 
 		if proxy != "" {
 			whttp.SetupProxy(proxy)
 		}
 
 		if email != "" && password != "" && token == "" {
-			token, err = bugcrowd.Login(email, password, proxy)
+			token, err = bugcrowd.Login(email, password, otpFetchCommand, proxy)
 			if err != nil {
 				utils.Log.Fatal("[bc] ", err)
 			}
@@ -65,4 +66,8 @@ func init() {
 	bcCmd.Flags().StringP("password", "P", "", "Login password")
 	viper.BindPFlag("bugcrowd-password", bcCmd.Flags().Lookup("password"))
 
+	bcCmd.Flags().StringP("otpcommand", "O", "", "Bash command to fetch OTP. stdout should be the otp")
+	viper.BindPFlag("bugcrowd-otpcommand", bcCmd.Flags().Lookup("otpcommand"))
+
+	bcCmd.MarkFlagRequired("otpcommand")
 }

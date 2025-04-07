@@ -1,6 +1,7 @@
 package bugcrowd
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -71,11 +73,7 @@ func rateLimitedSendHTTPRequest(req *whttp.WHTTPReq, client *retryablehttp.Clien
 }
 
 // Automated email + password login. 2FA needs to be disabled
-func Login(email, password, proxy string) (string, error) {
-	cookies := make(map[string]string)
-
-	var loginChallenge string
-
+func Login(email, password, otpFetchCommand, proxy string) (string, error) {
 	// Create a cookie jar
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -84,27 +82,35 @@ func Login(email, password, proxy string) (string, error) {
 
 	// Create a retryablehttp client
 	retryClient := retryablehttp.NewClient()
-
 	retryClient.Logger = log.New(io.Discard, "", 0)
-
 	retryClient.RetryMax = 5 // Set your retry policy
-
-	// Set the standard client's cookie jar
 	retryClient.HTTPClient.Jar = jar
 
 	// Set proxy for custom client
-
 	if proxy != "" {
-		whttp.SetupProxy(proxy)
-	}
-
-	// Set the custom redirect policy on the underlying http.Client
-	retryClient.HTTPClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		utils.Log.Debug("Redirecting to: ", req.URL)
-		if strings.Contains(req.URL.String(), "login_challenge") {
-			loginChallenge = strings.Split(req.URL.String(), "=")[1]
+		// Parse the proxy URL
+		proxyURL, err := url.Parse(proxy)
+		if err != nil {
+			return "", fmt.Errorf("invalid proxy URL: %v", err)
 		}
-		return nil // return nil to follow the redirect
+
+		// Apply proxy settings directly to this client
+		retryClient.HTTPClient.Transport = &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+				CipherSuites: []uint16{
+					tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+					tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+				},
+				PreferServerCipherSuites: true,
+				MinVersion:               tls.VersionTLS11,
+				MaxVersion:               tls.VersionTLS11,
+			},
+		}
+
+		// Also update the global client for other requests
+		whttp.SetupProxy(proxy)
 	}
 
 	firstRes, err := rateLimitedSendHTTPRequest(
@@ -124,13 +130,6 @@ func Login(email, password, proxy string) (string, error) {
 		return "", errors.New(WAF_BANNED_ERROR)
 	}
 
-	var allCookiesString string
-	for _, cookie := range firstRes.Headers["Set-Cookie"] {
-		split := strings.Split(cookie, ";")
-		cookies[split[0]] = split[1]
-		allCookiesString += split[0] + "=" + split[1] + "; "
-	}
-
 	identityUrl, _ := url.Parse("https://identity.bugcrowd.com")
 	csrfToken := ""
 	for _, cookie := range retryClient.HTTPClient.Jar.Cookies(identityUrl) {
@@ -140,7 +139,8 @@ func Login(email, password, proxy string) (string, error) {
 		}
 	}
 
-	loginRes, err := rateLimitedSendHTTPRequest(
+	// Step 1: Initial login with username/password (without OTP)
+	firstLoginRes, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "POST",
 			URL:    "https://identity.bugcrowd.com/login",
@@ -150,25 +150,72 @@ func Login(email, password, proxy string) (string, error) {
 				{Name: "Content-Type", Value: "application/x-www-form-urlencoded; charset=UTF-8"},
 				{Name: "Origin", Value: "https://identity.bugcrowd.com"},
 			},
-			Body: "username=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(password) + "&login_challenge=" + loginChallenge + "&otp_code=&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
+			Body: "username=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(password) + "&otp_code=&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
 		}, retryClient)
 
 	if err != nil {
 		return "", err
 	}
 
-	if loginRes.StatusCode == 401 {
-		return "", errors.New("Login failed")
+	if firstLoginRes.StatusCode == 403 || firstLoginRes.StatusCode == 406 {
+		return "", errors.New(WAF_BANNED_ERROR)
 	}
 
-	if loginRes.StatusCode == 403 || loginRes.StatusCode == 406 {
+	needsMfa := gjson.Get(firstLoginRes.BodyString, "needsMfa").Bool()
+	if !needsMfa {
+		return "", errors.New("unexpected response: MFA should be required")
+	}
+
+	// Run OTP generation command for second step
+	cmd := exec.Command("sh", "-c", otpFetchCommand)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to execute 2FA command: %v", err)
+	}
+
+	otpCode := strings.TrimSpace(string(output))
+	if otpCode == "" {
+		return "", fmt.Errorf("2FA code is empty")
+	}
+
+	// Step 2: Submit OTP
+	otpRes, err := rateLimitedSendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "POST",
+			URL:    "https://identity.bugcrowd.com/auth/otp-challenge",
+			Headers: []whttp.WHTTPHeader{
+				{Name: "User-Agent", Value: USER_AGENT},
+				{Name: "X-Csrf-Token", Value: csrfToken},
+				{Name: "Content-Type", Value: "application/x-www-form-urlencoded; charset=UTF-8"},
+				{Name: "Origin", Value: "https://identity.bugcrowd.com"},
+			},
+			Body: "username=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(password) + "&otp_code=" + otpCode + "&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
+		}, retryClient)
+
+	if err != nil {
+		return "", err
+	}
+
+	if otpRes.StatusCode == 403 || otpRes.StatusCode == 406 {
 		return "", errors.New(WAF_BANNED_ERROR)
+	}
+
+	// Check if OTP failed
+	needsMfa = gjson.Get(otpRes.BodyString, "needsMfa").Bool()
+	message := gjson.Get(otpRes.BodyString, "message").String()
+	if needsMfa {
+		return "", fmt.Errorf("2FA verification failed: %s", message)
+	}
+
+	redirectUrl := gjson.Get(otpRes.BodyString, "redirect_to").String()
+	if redirectUrl == "" {
+		return "", errors.New("no redirect URL found in response")
 	}
 
 	redirectRes, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
-			URL:    gjson.Get(loginRes.BodyString, "redirect_to").String(),
+			URL:    redirectUrl,
 			Headers: []whttp.WHTTPHeader{
 				{Name: "User-Agent", Value: USER_AGENT},
 				{Name: "Origin", Value: "https://identity.bugcrowd.com"},
@@ -191,7 +238,7 @@ func Login(email, password, proxy string) (string, error) {
 		}
 	}
 
-	return "", errors.New("unknown login error")
+	return "", errors.New("unable to obtain session cookie")
 }
 
 func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool) ([]string, error) {
