@@ -16,7 +16,7 @@ Developed by [sw33tLie](https://github.com/sw33tLie), bbscope helps you efficien
 Ensure you have a recent version of Go installed, then run:
 
 ```bash
-GO111MODULE=on go install github.com/sw33tLie/bbscope@latest
+go install github.com/sw33tLie/bbscope@latest
 ```
 
 ---
