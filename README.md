@@ -1,104 +1,148 @@
 # bbscope
-The ultimate scope gathering tool for [HackerOne](https://hackerone.com/), [Bugcrowd](https://bugcrowd.com/), [Intigriti](https://intigriti.com), [Immunefi](https://immunefi.com/) and [YesWeHack](https://yeswehack.com/) by sw33tLie.
 
-Need to grep all the large scope domains that you've got on your bug bounty platforms? This is the right tool for the job.  
-What about getting a list of android apps that you are allowed to test? We've got you covered as well.
+**bbscope** is a powerful scope aggregation tool for all major bug bounty platforms:
+- [HackerOne](https://hackerone.com/)
+- [Bugcrowd](https://bugcrowd.com/)
+- [Intigriti](https://intigriti.com/)
+- [Immunefi](https://immunefi.com/)
+- [YesWeHack](https://yeswehack.com/)
 
-Reverse engineering god? No worries, you can get a list of binaries to analyze too :)
+Developed by [sw33tLie](https://github.com/sw33tLie), bbscope helps you efficiently collect and manage program scopes from the platforms where you're active. Whether you're hunting for domains, Android APKs, or binaries to reverse engineer, **bbscope** makes the process quick and simple.
 
-## Installation
-Make sure you've a recent version of the Go compiler installed on your system.
-Then just run:
-```
+---
+
+## 📦 Installation
+
+Ensure you have a recent version of Go installed, then run:
+
+```bash
 GO111MODULE=on go install github.com/sw33tLie/bbscope@latest
 ```
 
-## Usage
+---
+
+## 🔐 Authentication
+
+Each supported platform requires specific authentication:
+
+- **HackerOne:** Use your API token, available from [H1 API Token Settings](https://hackerone.com/settings/api_token/edit).  
+  **Note:** The `-u <username>` flag is mandatory.
+- **Bugcrowd:** Use the `_bugcrowd_session` cookie. *(Requires 2FA, see below)*
+- **Intigriti:** Generate a personal access token from [Intigriti Personal Access Tokens](https://app.intigriti.com/researcher/personal-access-tokens).
+- **YesWeHack:** Use a bearer token collected from API requests. *(Requires 2FA, see below)*
+- **Immunefi:** No token is required.
+
+### Two-Factor Authentication (2FA) for Bugcrowd & YesWeHack
+
+Bugcrowd and YesWeHack require two-factor authentication to access authenticated endpoints. We recommend installing the following [2FA CLI tool](https://github.com/rsc/2fa):
+
+```bash
+go install rsc.io/2fa@latest
 ```
-bbscope (h1|bc|it|ywh|immunefi) -t <YOUR_TOKEN> <other-flags>
+
+Once installed, configure it for Bugcrowd (adjust similarly for YesWeHack):
+
+```bash
+2fa -add bc
+2fa key for bugcrowd: your_2fa_key_here
 ```
-How to get the session token:
-- HackerOne: login, then grab your API token [here](https://hackerone.com/settings/api_token/edit)
-- Bugcrowd: login, then grab the `_bugcrowd_session` cookie. NOTE: This has changed, it's not the `_crowdcontrol_session` cookie anymore.
-- Intigriti: Get your researcher API token [here](https://app.intigriti.com/researcher/personal-access-tokens)
-- YesWeHack: login, then intercept a request to api.yeswehack.com and look for the `Authorization: Bearer  XXX` header. XXX is your token
-- Immunefi: no token required
 
-When using bbscope for HackerOne, the username flag (`-u`) is mandatory.
+Then, supply the OTP automatically using the `--otpcommand` flag in your **bbscope** command:
 
-Remember that you can use the --help flag to get a description for all flags.
-
-## Examples
-Below you'll find some example commands.
-Keep in mind that all of them work with Bugcrowd, Intigriti and YesWeHack subcommands (`bc`, `it` and `ywh`) as well, not just with `h1`.
-
-### Print all in-scope targets from all your HackerOne programs that offer rewards
+```bash
+bbscope bc -t <YOUR_TOKEN> --otpcommand "2fa bugcrowd"
 ```
+
+Replace `"2fa bugcrowd"` with `"2fa yeswehack"` as needed.
+
+Please note that the `--otpcommand` flag simply runs a shell command to fetch the OTP, and it expects the OTP to be printed to stdout. You can use any other way to fetch the OTP, as long as it prints the OTP to stdout.
+
+---
+
+## 🛠️ Usage
+
+Invoke **bbscope** with the appropriate subcommand and flags:
+
+```bash
+bbscope (h1|bc|it|ywh|immunefi) -t <YOUR_TOKEN> [options]
+```
+
+For a complete list of options, run:
+
+```bash
+bbscope --help
+```
+
+---
+
+## 📖 Examples
+
+### HackerOne
+
+Get in-scope targets from bounty-based HackerOne programs:
+
+```bash
 bbscope h1 -t <YOUR_TOKEN> -u <YOUR_H1_USERNAME> -b -o t
 ```
-The output will look like this:
-```
-app.example.com
-*.user.example.com
-*.demo.com
-www.something.com
-```
 
-### Print all in-scope targets from all your private Bugcrowd programs that offer rewards
-```
-bbscope bc -t <YOUR_TOKEN> -b -p -o t
-```
+List Android APKs from your HackerOne programs:
 
-### Print all in-scope targets+program page URL from all Intigriti programs, including OOS elements
-```
-bbscope it -t <YOUR_TOKEN> -o tu --oos
-```
-
-### Print all in-scope Android APKs from all your HackerOne programs
-```
+```bash
 bbscope h1 -t <YOUR_TOKEN> -u <YOUR_H1_USERNAME> -o t -c android
 ```
 
-### Print all in-scope targets from all your HackerOne programs with extra data
+Include descriptions and program URLs with your targets:
 
-```
+```bash
 bbscope h1 -t <YOUR_TOKEN> -u <YOUR_H1_USERNAME> -o tdu -d ", "
 ```
 
-This will print a list of in-scope targets from all your HackerOne programs (including public ones and VDPs) but, on the same line, it will also print the target description (when available) and the program's URL.
-It might look like this:
-```
-something.com, Something's main website, https://hackerone.com/something
-*.demo.com, All assets owned by Demo are in scope, https://hackerone.com/demo
-```
-### Get program URLs for your HackerOne private programs
+Retrieve URLs from private HackerOne programs:
 
-```
+```bash
 bbscope h1 -t <YOUR_TOKEN> -u <YOUR_H1_USERNAME> -o u -p | sort -u
 ```
-You'll get a list like this:
-```
-https://hackerone.com/demo
-https://hackerone.com/something
+
+### Bugcrowd
+
+List targets from private Bugcrowd programs that offer rewards:
+
+```bash
+bbscope bc -t <YOUR_TOKEN> -b -p -o t --otpcommand "2fa bugcrowd"
 ```
 
-### Get all immunefi scope
+### Intigriti
 
+Get targets and program URLs from all Intigriti programs, including out-of-scope elements:
+
+```bash
+bbscope it -t <YOUR_TOKEN> -o tu --oos
 ```
+
+### Immunefi
+
+Retrieve all available scope data from Immunefi:
+
+```bash
 bbscope immunefi
 ```
 
-## Beware of scope oddities
-In an ideal world, all programs use the in-scope table in the same way to clearly show what's in scope, and make parsing easy.
-Unfortunately, that's not always the case.
+---
 
-Sometimes assets are assigned the wrong category.
-For example, if you're going after URLs using the `-c url`, double checking using `-c all` is often a good idea.
+## ⚠️ Scope Parsing Considerations
 
-## Thanks
+Bug bounty programs may not consistently categorize assets. When hunting for URLs with the `-c url` flag, consider also using `-c all` to ensure no relevant targets are missed.
+
+---
+
+## 🙏 Credits
+
+Thanks to the following contributors:
+
 - [0xatul](https://github.com/0xatul)
 - [JoeMilian](https://github.com/JoeMilian)
 - [ByteOven](https://github.com/ByteOven)
 - [dee-see](https://gitlab.com/dee-see)
 - [jub0bs](https://jub0bs.com)
 - [0xbeefed](https://github.com/0xbeefed)
+- [bsysop](https://x.com/bsysop)
