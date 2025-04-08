@@ -46,7 +46,7 @@ go install rsc.io/2fa@latest
 Once installed, configure it for Bugcrowd (adjust similarly for YesWeHack):
 
 ```bash
-2fa -add bc
+2fa -add bugcrowd
 2fa key for bugcrowd: your_2fa_key_here
 ```
 
