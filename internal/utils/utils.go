@@ -28,7 +28,7 @@ func SetLogLevel(level string) {
 		Log.SetLevel(log.DebugLevel)
 	case "info":
 		Log.SetLevel(log.InfoLevel)
-	case "warning":
+	case "warning", "warn":
 		Log.SetLevel(log.WarnLevel)
 	case "error":
 		Log.SetLevel(log.ErrorLevel)
