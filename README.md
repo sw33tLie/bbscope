@@ -13,6 +13,8 @@
 
 Developed by [sw33tLie](https://x.com/sw33tLie), bbscope helps you efficiently collect and manage program scopes from the platforms where you're active. Whether you're hunting for domains, Android APKs, or binaries to reverse engineer, **bbscope** makes the process quick and simple.
 
+Visit [bbscope.com](https://bbscope.com/) to explore a daily-updated list of public scopes from all supported platforms, stats, and more!
+
 ---
 
 ## 📦 Installation
