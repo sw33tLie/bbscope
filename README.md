@@ -1,6 +1,8 @@
 # bbscope
 
-![image](https://github.com/user-attachments/assets/c0669ab6-0618-4a28-8022-942a5be0e227)
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/48010552-2c78-49ad-a0b2-1e985fafa743" alt="bbscope-logo-white">
+</p>
 
 **bbscope** is a powerful scope aggregation tool for all major bug bounty platforms:
 - [HackerOne](https://hackerone.com/)
