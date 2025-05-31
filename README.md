@@ -1,7 +1,7 @@
 # bbscope
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/48010552-2c78-49ad-a0b2-1e985fafa743" alt="bbscope-logo-white">
+  <img src="logo.svg" alt="bbscope-logo-white">
 </p>
 
 **bbscope** is a powerful scope aggregation tool for all major bug bounty platforms:
