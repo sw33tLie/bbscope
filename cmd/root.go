@@ -17,9 +17,10 @@ var cfgFile string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "bbscope",
-	Short: "Grab scope from HackerOne, Bugcrowd, Intigriti and YesWeHack",
-	Long:  `The ultimate scope gathering tool for HackerOne, Bugcrowd, Intigriti and YesWeHack by sw33tLie`,
+	Use: "bbscope",
+	Long: `Scope aggregation tool for HackerOne, Bugcrowd, Intigriti, YesWeHack, and Immunefi by sw33tLie
+
+Visit https://bbscope.com for a hourly-updated list of public scopes!`,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
