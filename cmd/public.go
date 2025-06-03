@@ -26,6 +26,10 @@ Multiple platforms can be specified comma-separated (e.g., "bc,h1").
 Use "all" to fetch from all platforms.`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
+		outputFlags, _ := rootCmd.PersistentFlags().GetString("output")
+		delimiterCharacter, _ := rootCmd.PersistentFlags().GetString("delimiter")
+		includeOOS, _ := rootCmd.PersistentFlags().GetBool("oos")
+
 		platformList := strings.Split(args[0], ",")
 		if len(platformList) == 1 && platformList[0] == "all" {
 			platformList = validPlatforms
@@ -59,9 +63,7 @@ Use "all" to fetch from all platforms.`,
 			}
 
 			for _, program := range programs {
-				for _, element := range program.InScope {
-					fmt.Printf("%s %s\n", element.Target, program.Url)
-				}
+				scope.PrintProgramScope(program, outputFlags, delimiterCharacter, includeOOS)
 			}
 		}
 	},
