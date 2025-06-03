@@ -278,9 +278,9 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 			totalCount = int(gjson.Get(string(res.BodyString), "paginationMeta.totalCount").Int())
 		}
 
-		// Bugcrowd's API sometimes tell us there are fewer pages than in reality, so we do it this way
+		// If the engagements array is empty, it means there are no more programs to fetch on subsequent pages.
 		if len(result.Array()) == 0 {
-			pageIndex = 0
+			break
 		}
 
 		// Iterating over each element in the programs array
