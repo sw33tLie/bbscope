@@ -21,6 +21,9 @@ var rootCmd = &cobra.Command{
 	Long: `Scope aggregation tool for HackerOne, Bugcrowd, Intigriti, YesWeHack, and Immunefi by sw33tLie
 
 Visit https://bbscope.com for a hourly-updated list of public scopes!`,
+	CompletionOptions: cobra.CompletionOptions{
+		DisableDefaultCmd: true,
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
