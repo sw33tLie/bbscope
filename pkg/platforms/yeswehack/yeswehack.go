@@ -103,13 +103,17 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 			log.Fatal("HTTP request failed: ", err)
 		}
 
-		data := gjson.GetMany(res.BodyString, "items.#.slug", "items.#.bounty", "items.#.public")
+		data := gjson.GetMany(res.BodyString, "items.#.slug", "items.#.bounty", "items.#.public", "items.#.disabled")
 
 		allCompanySlugs := data[0].Array()
 		allRewarding := data[1].Array()
 		allPublic := data[2].Array()
+		allDisabled := data[3].Array()
 
 		for i := 0; i < len(allCompanySlugs); i++ {
+			if allDisabled[i].Bool() {
+				continue
+			}
 			if !pvtOnly || (pvtOnly && !allPublic[i].Bool()) {
 				if !bbpOnly || (bbpOnly && allRewarding[i].Bool()) {
 					pData := GetProgramScope(token, allCompanySlugs[i].Str, categories)
