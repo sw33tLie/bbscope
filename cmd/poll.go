@@ -61,7 +61,7 @@ func init() {
 
 	pollCmd.Flags().String("platform", "all", "Comma-separated platforms to poll (h1,bc,it,ywh,immunefi) or 'all'")
 	// Make common flags persistent so subcommands inherit them
-	pollCmd.PersistentFlags().String("program", "", "Filter by program handle or full URL")
+	pollCmd.PersistentFlags().String("category", "all", "Scope categories to include (url, cidr, mobile, etc.)")
 	pollCmd.PersistentFlags().Bool("db", false, "Persist results to the database and print changes")
 	pollCmd.PersistentFlags().String("dbpath", "", "Path to SQLite DB file (default: bbscope.sqlite in CWD)")
 	// HackerOne auth flags (temporary; will move to config)
@@ -75,7 +75,7 @@ func init() {
 
 // runPollWithPollers executes the polling flow using the provided pollers.
 func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) error {
-	programFilter, _ := cmd.Flags().GetString("program")
+	categories, _ := cmd.Flags().GetString("category")
 	useDB, _ := cmd.Flags().GetBool("db")
 	dbPath, _ := cmd.Flags().GetString("dbpath")
 	if dbPath == "" {
@@ -103,15 +103,14 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 			return fmt.Errorf("authentication failed for %s: %w", p.Name(), err)
 		}
 
-		opts := platforms.PollOptions{ProgramFilter: programFilter}
+		opts := platforms.PollOptions{
+			Categories: categories,
+		}
 		handles, err := p.ListProgramHandles(ctx, opts)
 		if err != nil {
 			return err
 		}
 		for _, h := range handles {
-			if programFilter != "" && !strings.Contains(h, programFilter) {
-				continue
-			}
 			pd, err := p.FetchProgramScope(ctx, h, opts)
 			if err != nil {
 				return err

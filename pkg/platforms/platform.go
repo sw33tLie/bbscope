@@ -8,11 +8,9 @@ import (
 
 // PollOptions carries optional controls/filters used by pollers.
 type PollOptions struct {
-	PrivateOnly   bool
-	BountyOnly    bool
-	Categories    string
-	ProgramFilter string // handle or full URL substring
-	TestRun       string // for the test platform to vary outputs deterministically
+	BountyOnly  bool
+	PrivateOnly bool
+	Categories  string
 }
 
 // AuthConfig carries optional authentication inputs.
@@ -25,7 +23,8 @@ type AuthConfig struct {
 	Proxy     string
 }
 
-// PlatformPoller is a minimal interface for listing programs and fetching scope.
+// PlatformPoller defines a common interface for platform-specific polling operations,
+// abstracting away the details of authentication, program discovery, and scope fetching.
 type PlatformPoller interface {
 	Name() string
 	// Authenticate configures the poller with credentials, if needed.

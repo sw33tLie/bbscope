@@ -41,17 +41,18 @@ var statsCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', tabwriter.AlignRight)
-		fmt.Fprintln(w, "PLATFORM\tPROGRAMS\tTARGETS\t")
+		fmt.Fprintln(w, "PLATFORM\tPROGRAMS\tIN-SCOPE\tOUT-OF-SCOPE\t")
 
-		var totalPrograms, totalTargets int
+		var totalPrograms, totalInScope, totalOutOfScope int
 		for _, s := range stats {
-			fmt.Fprintf(w, "%s\t%d\t%d\t\n", s.Platform, s.ProgramCount, s.TargetCount)
+			fmt.Fprintf(w, "%s\t%d\t%d\t%d\t\n", s.Platform, s.ProgramCount, s.InScopeCount, s.OutOfScopeCount)
 			totalPrograms += s.ProgramCount
-			totalTargets += s.TargetCount
+			totalInScope += s.InScopeCount
+			totalOutOfScope += s.OutOfScopeCount
 		}
 
-		fmt.Fprintln(w, " \t \t \t")
-		fmt.Fprintf(w, "TOTAL\t%d\t%d\t\n", totalPrograms, totalTargets)
+		fmt.Fprintln(w, " \t \t \t \t")
+		fmt.Fprintf(w, "TOTAL\t%d\t%d\t%d\t\n", totalPrograms, totalInScope, totalOutOfScope)
 
 		w.Flush()
 

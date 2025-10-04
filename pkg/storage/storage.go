@@ -31,17 +31,17 @@ CREATE TABLE IF NOT EXISTS scope_entries (
   platform          TEXT NOT NULL,
   handle            TEXT NOT NULL,
   target_normalized TEXT NOT NULL,
-  target_raw        TEXT,
+  target_raw        TEXT NOT NULL,
   category          TEXT NOT NULL,
   description       TEXT,
   in_scope          INTEGER NOT NULL CHECK (in_scope IN (0,1)),
   run_id            INTEGER NOT NULL DEFAULT 0,
   first_seen_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   last_seen_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(program_url, target_normalized, category, in_scope)
+  UNIQUE(program_url, target_raw, category, in_scope)
 );
 CREATE INDEX IF NOT EXISTS idx_scope_program ON scope_entries(program_url);
-CREATE INDEX IF NOT EXISTS idx_scope_identity ON scope_entries(program_url, target_normalized, category, in_scope);
+CREATE INDEX IF NOT EXISTS idx_scope_identity ON scope_entries(program_url, target_raw, category, in_scope);
 CREATE TABLE IF NOT EXISTS scope_changes (
   id                INTEGER PRIMARY KEY,
   occurred_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -99,7 +99,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 			rows.Close()
 			return nil, err
 		}
-		existingMap[identityKey(tn, cat, inScope == 1)] = existing{Raw: raw.String, Desc: desc.String}
+		existingMap[identityKey(raw.String, cat, inScope == 1)] = existing{Raw: raw.String, Desc: desc.String}
 	}
 	if err = rows.Close(); err != nil {
 		return nil, err
@@ -107,13 +107,13 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 
 	var changes []Change
 	for _, e := range entries {
-		key := identityKey(e.TargetNormalized, e.Category, e.InScope)
+		key := identityKey(e.TargetRaw, e.Category, e.InScope)
 
 		ex, existed := existingMap[key]
 		inScopeInt := boolToInt(e.InScope)
 
 		if !existed {
-			_, err = tx.ExecContext(ctx, `INSERT INTO scope_entries(program_url, platform, handle, target_normalized, target_raw, category, description, in_scope, run_id, first_seen_at, last_seen_at) VALUES(?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, e.ProgramURL, e.Platform, e.Handle, e.TargetNormalized, nullIfEmpty(e.TargetRaw), e.Category, nullIfEmpty(e.Description), inScopeInt, runID)
+			_, err = tx.ExecContext(ctx, `INSERT INTO scope_entries(program_url, platform, handle, target_normalized, target_raw, category, description, in_scope, run_id, first_seen_at, last_seen_at) VALUES(?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, e.ProgramURL, e.Platform, e.Handle, e.TargetNormalized, e.TargetRaw, e.Category, nullIfEmpty(e.Description), inScopeInt, runID)
 			if err != nil {
 				return nil, err
 			}
@@ -121,13 +121,13 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 			existingMap[key] = existing{Raw: e.TargetRaw, Desc: e.Description} // Track the new entry
 		} else {
 			if ex.Raw != e.TargetRaw || ex.Desc != e.Description {
-				_, err = tx.ExecContext(ctx, `UPDATE scope_entries SET target_raw = ?, description = ?, run_id = ?, last_seen_at = CURRENT_TIMESTAMP WHERE program_url = ? AND target_normalized = ? AND category = ? AND in_scope = ?`, nullIfEmpty(e.TargetRaw), nullIfEmpty(e.Description), runID, e.ProgramURL, e.TargetNormalized, e.Category, inScopeInt)
+				_, err = tx.ExecContext(ctx, `UPDATE scope_entries SET target_raw = ?, description = ?, run_id = ?, last_seen_at = CURRENT_TIMESTAMP WHERE program_url = ? AND target_raw = ? AND category = ? AND in_scope = ?`, e.TargetRaw, nullIfEmpty(e.Description), runID, e.ProgramURL, e.TargetRaw, e.Category, inScopeInt)
 				if err != nil {
 					return nil, err
 				}
 				changes = append(changes, Change{OccurredAt: now, ProgramURL: programURL, Platform: platform, Handle: handle, TargetNormalized: e.TargetNormalized, Category: e.Category, InScope: e.InScope, ChangeType: "updated"})
 			} else {
-				_, err = tx.ExecContext(ctx, `UPDATE scope_entries SET run_id = ?, last_seen_at = CURRENT_TIMESTAMP WHERE program_url = ? AND target_normalized = ? AND category = ? AND in_scope = ?`, runID, e.ProgramURL, e.TargetNormalized, e.Category, inScopeInt)
+				_, err = tx.ExecContext(ctx, `UPDATE scope_entries SET run_id = ?, last_seen_at = CURRENT_TIMESTAMP WHERE program_url = ? AND target_raw = ? AND category = ? AND in_scope = ?`, runID, e.ProgramURL, e.TargetRaw, e.Category, inScopeInt)
 				if err != nil {
 					return nil, err
 				}
@@ -301,9 +301,10 @@ func (d *DB) ListRecentChanges(ctx context.Context, limit int) ([]Change, error)
 }
 
 type PlatformStats struct {
-	Platform     string
-	ProgramCount int
-	TargetCount  int
+	Platform        string
+	ProgramCount    int
+	InScopeCount    int
+	OutOfScopeCount int
 }
 
 func (d *DB) GetStats(ctx context.Context) ([]PlatformStats, error) {
@@ -311,7 +312,8 @@ func (d *DB) GetStats(ctx context.Context) ([]PlatformStats, error) {
 		SELECT
 			platform,
 			COUNT(DISTINCT program_url),
-			COUNT(target_normalized)
+			SUM(CASE WHEN in_scope = 1 THEN 1 ELSE 0 END),
+			SUM(CASE WHEN in_scope = 0 THEN 1 ELSE 0 END)
 		FROM
 			scope_entries
 		GROUP BY
@@ -328,7 +330,7 @@ func (d *DB) GetStats(ctx context.Context) ([]PlatformStats, error) {
 	var stats []PlatformStats
 	for rows.Next() {
 		var s PlatformStats
-		if err := rows.Scan(&s.Platform, &s.ProgramCount, &s.TargetCount); err != nil {
+		if err := rows.Scan(&s.Platform, &s.ProgramCount, &s.InScopeCount, &s.OutOfScopeCount); err != nil {
 			return nil, err
 		}
 		stats = append(stats, s)
@@ -346,4 +348,18 @@ func nullIfEmpty(s string) interface{} {
 		return nil
 	}
 	return s
+}
+
+func identityKey(tnorm, category string, inScope bool) string {
+	if tnorm == "" || category == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s|%s|%d", tnorm, category, boolToInt(inScope))
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
