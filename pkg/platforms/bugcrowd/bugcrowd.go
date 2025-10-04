@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,9 +16,10 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/hashicorp/go-retryablehttp"
-	"github.com/sw33tLie/bbscope/internal/utils"
-	"github.com/sw33tLie/bbscope/pkg/scope"
-	"github.com/sw33tLie/bbscope/pkg/whttp"
+	"github.com/sw33tLie/bbscope/v2/internal/utils"
+	"github.com/sw33tLie/bbscope/v2/pkg/otp"
+	"github.com/sw33tLie/bbscope/v2/pkg/scope"
+	"github.com/sw33tLie/bbscope/v2/pkg/whttp"
 	"github.com/tidwall/gjson"
 )
 
@@ -73,7 +73,7 @@ func rateLimitedSendHTTPRequest(req *whttp.WHTTPReq, client *retryablehttp.Clien
 }
 
 // Automated email + password login. 2FA needs to be disabled
-func Login(email, password, otpFetchCommand, proxy string) (string, error) {
+func Login(email, password, otpSecret, proxy string) (string, error) {
 	// Create a cookie jar
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -166,14 +166,11 @@ func Login(email, password, otpFetchCommand, proxy string) (string, error) {
 		return "", errors.New("unexpected response: MFA should be required")
 	}
 
-	// Run OTP generation command for second step
-	cmd := exec.Command("sh", "-c", otpFetchCommand)
-	output, err := cmd.Output()
+	otpCode, err := otp.GenerateTOTP(otpSecret, time.Now())
 	if err != nil {
-		return "", fmt.Errorf("failed to execute 2FA command: %v", err)
+		return "", fmt.Errorf("failed to generate TOTP: %v", err)
 	}
 
-	otpCode := strings.TrimSpace(string(output))
 	if otpCode == "" {
 		return "", fmt.Errorf("2FA code is empty")
 	}

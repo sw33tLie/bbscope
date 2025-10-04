@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sw33tLie/bbscope/internal/utils"
-	"github.com/sw33tLie/bbscope/pkg/scope"
-	"github.com/sw33tLie/bbscope/pkg/whttp"
+	"github.com/sw33tLie/bbscope/v2/internal/utils"
+	"github.com/sw33tLie/bbscope/v2/pkg/scope"
+	"github.com/sw33tLie/bbscope/v2/pkg/whttp"
 	"github.com/tidwall/gjson"
 )
 

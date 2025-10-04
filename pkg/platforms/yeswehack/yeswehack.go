@@ -3,13 +3,13 @@ package yeswehack
 import (
 	"fmt"
 	"log"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/sw33tLie/bbscope/pkg/scope"
-	"github.com/sw33tLie/bbscope/pkg/whttp"
+	"github.com/sw33tLie/bbscope/v2/pkg/otp"
+	"github.com/sw33tLie/bbscope/v2/pkg/scope"
+	"github.com/sw33tLie/bbscope/v2/pkg/whttp"
 	"github.com/tidwall/gjson"
 )
 
@@ -172,24 +172,17 @@ func Login(email string, password, otpFetchCommand, proxy string) (string, error
 		return "", fmt.Errorf("invalid login response: neither token nor totp_token found")
 	}
 
-	// 2FA flow continues...
+	// 2FA flow continues... otpFetchCommand now carries the shared secret
 	if otpFetchCommand == "" {
-		return "", fmt.Errorf("2FA is enabled but no OTP fetch command provided")
+		return "", fmt.Errorf("2FA is enabled but no OTP secret provided")
 	}
 
 	// Try OTP verification
 	OTP_ATTEMPTS := 5
 	for attempts := 1; attempts <= OTP_ATTEMPTS; attempts++ {
-		// Obtain the 2FA code by running the system command using shell
-		cmd := exec.Command("sh", "-c", otpFetchCommand)
-		output, err := cmd.Output()
+		code, err := otp.GenerateTOTP(otpFetchCommand, time.Now())
 		if err != nil {
-			return "", fmt.Errorf("failed to execute 2FA command: %v", err)
-		}
-
-		code := strings.TrimSpace(string(output))
-		if code == "" {
-			return "", fmt.Errorf("2FA code is empty")
+			return "", fmt.Errorf("failed to generate TOTP: %v", err)
 		}
 
 		// Send POST request to /account/totp with totp_token and code
@@ -225,7 +218,7 @@ func Login(email string, password, otpFetchCommand, proxy string) (string, error
 			return finalToken, nil
 		}
 
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second)
 		// If this was the last attempt, return error
 		if attempts == OTP_ATTEMPTS {
 			return "", fmt.Errorf("TOTP verification failed after %d attempts", OTP_ATTEMPTS)
