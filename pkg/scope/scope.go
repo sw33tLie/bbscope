@@ -3,7 +3,10 @@ package scope
 import (
 	"fmt"
 	"log"
+	"sort"
 	"strings"
+
+	"github.com/sw33tLie/bbscope/v2/internal/utils"
 )
 
 type ScopeElement struct {
@@ -63,7 +66,7 @@ var unificationMap = map[string][]string{
 	"url":        {"url", "website", "web", "web-application", "api", "ip_address", "ip-address"},
 	"cidr":       {"cidr", "iprange"},
 	"android":    {"android", "google_play_app_id", "other_apk", "mobile-application-android", "mobile-application"},
-	"ios":        {"ios", "apple_store_app_id", "other_ipa", "testflight", "mobile-application-ios", "apple-store"},
+	"ios":        {"ios", "apple", "apple_store_app_id", "other_ipa", "testflight", "mobile-application-ios", "apple-store"},
 	"ai":         {"ai_model"},
 	"hardware":   {"hardware", "device", "iot"},
 	"blockchain": {"smart_contract"},
@@ -95,4 +98,50 @@ func NormalizeCategory(category string) string {
 
 	// For anything else, just format it nicely.
 	return strings.ReplaceAll(catLower, "_", " ")
+}
+
+func GetAllStringsForCategories(input string) []string {
+	input = strings.ToLower(strings.TrimSpace(input))
+	if input == "all" || input == "" {
+		return nil // nil means don't filter
+	}
+
+	// Use a map to handle duplicates automatically
+	finalCategoriesSet := make(map[string]bool)
+
+	// Split comma-separated values
+	rawCategories := strings.Split(input, ",")
+
+	for _, rawCategory := range rawCategories {
+		categoryKey := strings.TrimSpace(rawCategory)
+
+		// Look up in the unificationMap
+		platformSpecificStrings, ok := unificationMap[categoryKey]
+		if !ok {
+			utils.Log.Warnf("Invalid category '%s' selected, it will be ignored.", categoryKey)
+			continue // Skip invalid category
+		}
+
+		for _, s := range platformSpecificStrings {
+			finalCategoriesSet[s] = true
+		}
+	}
+
+	if len(finalCategoriesSet) == 0 {
+		validCategories := make([]string, 0, len(unificationMap))
+		for k := range unificationMap {
+			validCategories = append(validCategories, k)
+		}
+		sort.Strings(validCategories)
+		utils.Log.Warnf("No valid categories provided, defaulting to all. Available categories: %s", strings.Join(validCategories, ", "))
+		return nil
+	}
+
+	// Convert map keys to a slice
+	result := make([]string, 0, len(finalCategoriesSet))
+	for category := range finalCategoriesSet {
+		result = append(result, category)
+	}
+
+	return result
 }

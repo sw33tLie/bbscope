@@ -3,9 +3,7 @@ package yeswehack
 import (
 	"context"
 	"fmt"
-	"log"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/sw33tLie/bbscope/v2/pkg/otp"
@@ -93,11 +91,17 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 	}
 
 	chunkData := gjson.GetMany(res.BodyString, "scopes.#.scope", "scopes.#.scope_type", "out_of_scope")
+
+	// Get the list of categories to filter by.
+	// If nil, we'll include all categories.
+	selectedCategories := scope.GetAllStringsForCategories(opts.Categories)
+
 	for i := 0; i < len(chunkData[0].Array()); i++ {
 		scopeType := chunkData[1].Array()[i].Str
 		target := chunkData[0].Array()[i].Str
 
-		if opts.Categories == "all" {
+		// If selectedCategories is nil, it means "all" were selected, so we don't filter.
+		if selectedCategories == nil {
 			pData.InScope = append(pData.InScope, scope.ScopeElement{
 				Target:   target,
 				Category: scopeType,
@@ -105,9 +109,9 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 			continue
 		}
 
-		selectedCatIDs := getCategoryID(opts.Categories)
+		// Otherwise, check if the scopeType from the API is in our list of selected categories.
 		catMatches := false
-		for _, cat := range selectedCatIDs {
+		for _, cat := range selectedCategories {
 			if cat == scopeType {
 				catMatches = true
 				break
@@ -132,23 +136,6 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 	}
 
 	return pData, nil
-}
-
-func getCategoryID(input string) []string {
-	categories := map[string][]string{
-		"url":        {"web-application", "api", "ip-address"},
-		"mobile":     {"mobile-application", "mobile-application-android", "mobile-application-ios"},
-		"android":    {"mobile-application-android"},
-		"apple":      {"mobile-application-ios"},
-		"other":      {"other"},
-		"executable": {"application"},
-	}
-
-	selectedCategory, ok := categories[strings.ToLower(input)]
-	if !ok {
-		log.Fatal("Invalid category")
-	}
-	return selectedCategory
 }
 
 func login(email string, password, otpSecret, proxy string) (string, error) {

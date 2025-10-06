@@ -105,7 +105,7 @@ func init() {
 	rootCmd.AddCommand(pollCmd)
 
 	// Make common flags persistent so subcommands inherit them
-	pollCmd.PersistentFlags().String("category", "all", "Scope categories to include (url, cidr, mobile, etc.)")
+	pollCmd.PersistentFlags().String("category", "all", "Scope categories to include (wildcard, url, cidr, apple, android, ai, etc.)")
 	pollCmd.PersistentFlags().Bool("db", false, "Save results to the database and print changes")
 	pollCmd.PersistentFlags().String("dbpath", "", "Path to SQLite DB file (default: bbscope.sqlite in CWD)")
 	pollCmd.PersistentFlags().Int("concurrency", 5, "Number of concurrent program fetches per platform")

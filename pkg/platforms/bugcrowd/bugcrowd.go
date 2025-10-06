@@ -521,6 +521,10 @@ func extractScopeFromTargetTable(scopeTableURL string, categories string, token 
 	json := string(res.BodyString)
 	targetsCount := gjson.Get(json, "targets.#").Int()
 
+	// Get the list of categories to filter by.
+	// If nil, we'll include all categories.
+	selectedCategories := scope.GetAllStringsForCategories(categories)
+
 	for i := 0; i < int(targetsCount); i++ {
 		targetPath := fmt.Sprintf("targets.%d", i)
 		name := strings.TrimSpace(gjson.Get(json, targetPath+".name").String())
@@ -528,14 +532,19 @@ func extractScopeFromTargetTable(scopeTableURL string, categories string, token 
 		category := gjson.Get(json, targetPath+".category").String()
 		description := gjson.Get(json, targetPath+".description").String()
 
-		fetchedCategories, err := GetCategories(categories)
-
-		if err != nil {
-			return err
-		}
-
-		if categories != "all" && category != fetchedCategories[0] {
-			continue
+		// If selectedCategories is not nil (i.e., not "all"), then we filter.
+		if selectedCategories != nil {
+			catMatches := false
+			for _, selectedCat := range selectedCategories {
+				if category == selectedCat {
+					catMatches = true
+					break
+				}
+			}
+			// If no match was found, skip this target.
+			if !catMatches {
+				continue
+			}
 		}
 
 		if uri == "" {
@@ -556,24 +565,6 @@ func extractScopeFromTargetTable(scopeTableURL string, categories string, token 
 	}
 
 	return nil
-}
-
-func GetCategories(input string) ([]string, error) {
-	categories := map[string][]string{
-		"url":      {"website"},
-		"api":      {"api"},
-		"mobile":   {"android", "ios"},
-		"android":  {"android"},
-		"apple":    {"ios"},
-		"other":    {"other"},
-		"hardware": {"hardware"},
-	}
-
-	selectedCategory, ok := categories[strings.ToLower(input)]
-	if !ok {
-		return nil, errors.New("invalid category")
-	}
-	return selectedCategory, nil
 }
 
 func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, concurrency int, delimiterCharacter string, includeOOS, printRealTime bool, knownHandles []string) (programs []scope.ProgramData, err error) {

@@ -91,7 +91,7 @@ func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOpti
 func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts platforms.PollOptions) (scope.ProgramData, error) {
 	pData := scope.ProgramData{Url: "https://hackerone.com/" + handle}
 	currentPageURL := "https://api.hackerone.com/v1/hackers/programs/" + handle + "/structured_scopes?page%5Bnumber%5D=1&page%5Bsize%5D=100"
-	categories := getCategories(opts.Categories)
+	categoryStrings := scope.GetAllStringsForCategories(opts.Categories)
 
 	for {
 		var res *whttp.WHTTPRes
@@ -119,13 +119,13 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 		}
 
 		assetCount := int(gjson.Get(res.BodyString, "data.#").Int())
-		isDumpAll := categories == nil
+		isDumpAll := categoryStrings == nil
 
 		for i := 0; i < assetCount; i++ {
-			assetCategory := gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_type").Str
+			assetCategory := strings.ToLower(gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_type").Str)
 			catFound := isDumpAll
 			if !isDumpAll {
-				for _, cat := range categories {
+				for _, cat := range categoryStrings {
 					if cat == assetCategory {
 						catFound = true
 						break
@@ -173,28 +173,4 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 		}
 	}
 	return pData, nil
-}
-
-func getCategories(input string) []string {
-	if strings.ToLower(input) == "all" {
-		return nil
-	}
-	categories := map[string][]string{
-		"url":        {"URL", "WILDCARD", "IP_ADDRESS"},
-		"cidr":       {"CIDR"},
-		"mobile":     {"GOOGLE_PLAY_APP_ID", "OTHER_APK", "APPLE_STORE_APP_ID"},
-		"android":    {"GOOGLE_PLAY_APP_ID", "OTHER_APK"},
-		"apple":      {"APPLE_STORE_APP_ID", "TESTFLIGHT"},
-		"ai":         {"AI_MODEL"},
-		"other":      {"OTHER"},
-		"hardware":   {"HARDWARE"},
-		"code":       {"SOURCE_CODE", "SMART_CONTRACT"},
-		"executable": {"DOWNLOADABLE_EXECUTABLES", "WINDOWS_APP_STORE_APP_ID"},
-	}
-	selected, ok := categories[strings.ToLower(input)]
-	if !ok {
-		utils.Log.Warn("Invalid category selected, defaulting to all: ", input)
-		return nil
-	}
-	return selected
 }
