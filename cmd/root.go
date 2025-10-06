@@ -13,12 +13,24 @@ import (
 
 var cfgFile string
 
+const (
+	LOGO = `	 _     _                              
+	| |__ | |__  ___  ___ ___  _ __   ___ 
+	| '_ \| '_ \/ __|/ __/ _ \| '_ \ / _ \
+	| |_) | |_) \__ \ (_| (_) | |_) |  __/
+	|_.__/|_.__/|___/\___\___/| .__/ \___|
+	                          |_|         
+							  
+`
+)
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use: "bbscope",
-	Long: `Scope aggregation tool for HackerOne, Bugcrowd, Intigriti, YesWeHack, and Immunefi by sw33tLie
+	Use:   "bbscope",
+	Short: "A powerful scope aggregator for bug bounty hunters.",
+	Long: LOGO + `bbscope helps you manage bug bounty program scopes from HackerOne, Bugcrowd, Intigriti, YesWeHack, and Immunefi, right from your command line.
 
-Visit https://bbscope.com for a hourly-updated list of public scopes!`,
+Visit https://bbscope.com for an hourly-updated list of public scopes!`,
 	CompletionOptions: cobra.CompletionOptions{
 		DisableDefaultCmd: true,
 	},
@@ -39,8 +51,6 @@ func init() {
 
 	// Global flags
 	rootCmd.PersistentFlags().StringP("proxy", "", "", "HTTP Proxy (Useful for debugging. Example: http://127.0.0.1:8080)")
-	rootCmd.PersistentFlags().BoolP("bbpOnly", "b", false, "Only fetch programs offering monetary rewards (by default private programs are included)")
-	rootCmd.PersistentFlags().BoolP("pvtOnly", "p", false, "Only fetch data from private programs")
 	rootCmd.PersistentFlags().StringP("loglevel", "l", "info", "Set log level. Available: debug, info, warn, error, fatal")
 
 }

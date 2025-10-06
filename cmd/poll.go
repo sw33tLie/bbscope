@@ -113,6 +113,8 @@ func init() {
 	pollCmd.PersistentFlags().Bool("oos", false, "Include out-of-scope elements")
 	pollCmd.PersistentFlags().StringP("output", "o", "tu", "Output flags. Supported: t (target), d (target description), c (category), u (program URL). Can be combined. Example: -o tdu")
 	pollCmd.PersistentFlags().StringP("delimiter", "d", " ", "Delimiter character to use for txt output format")
+	pollCmd.PersistentFlags().BoolP("bbpOnly", "b", false, "Only fetch programs offering monetary rewards")
+	pollCmd.PersistentFlags().BoolP("pvtOnly", "p", false, "Only fetch data from private programs")
 }
 
 // runPollWithPollers executes the polling flow using the provided pollers.
@@ -136,8 +138,12 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 
 	ctx := context.Background()
 	for _, p := range pollers {
+		bbpOnly, _ := cmd.Flags().GetBool("bbpOnly")
+		pvtOnly, _ := cmd.Flags().GetBool("pvtOnly")
 		opts := platforms.PollOptions{
-			Categories: categories,
+			Categories:  categories,
+			BountyOnly:  bbpOnly,
+			PrivateOnly: pvtOnly,
 		}
 		handles, err := p.ListProgramHandles(ctx, opts)
 		if err != nil {
