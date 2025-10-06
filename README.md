@@ -1,19 +1,21 @@
-# bbscope
-
 <p align="center">
   <img src="logo.svg" alt="bbscope-logo-white" width="500">
 </p>
 
-**bbscope** is a powerful scope aggregation tool for all major bug bounty platforms:
-- [HackerOne](https://hackerone.com/)
-- [Bugcrowd](https://bugcrowd.com/)
-- [Intigriti](https://intigriti.com/)
-- [Immunefi](https://immunefi.com/)
-- [YesWeHack](https://yeswehack.com/)
+**bbscope** is a powerful scope aggregation tool for bug bounty hunters, designed to fetch, store, and manage program scopes from HackerOne, Bugcrowd, Intigriti, YesWeHack, and Immunefi right from your command line.
 
-Developed by [sw33tLie](https://x.com/sw33tLie), bbscope helps you efficiently collect and manage program scopes from the platforms where you're active. Whether you're hunting for domains, Android APKs, or binaries to reverse engineer, **bbscope** makes the process quick and simple.
+Visit [bbscope.com](https://bbscope.com/) to explore an hourly-updated list of public scopes from all supported platforms, stats, and more!
 
-Visit [bbscope.com](https://bbscope.com/) to explore a daily-updated list of public scopes from all supported platforms, stats, and more!
+---
+
+## ✨ Features
+
+- **Multi-Platform Support**: Aggregates scopes from all major bug bounty platforms.
+- **Local Database**: Stores all scope data in a local SQLite database for fast, offline access.
+- **Powerful Querying**: Easily print targets by type (URLs, wildcards, mobile, etc.), platform, or program.
+- **Track Changes**: Monitor scope additions and removals over time.
+- **Flexible Output**: Get your data in plain text, JSON, or CSV.
+- **Direct DB Access**: Drop into an interactive SQL shell to run complex queries directly on the database.
 
 ---
 
@@ -22,146 +24,163 @@ Visit [bbscope.com](https://bbscope.com/) to explore a daily-updated list of pub
 Ensure you have a recent version of Go installed, then run:
 
 ```bash
-go install github.com/sw33tLie/bbscope@latest
+go install github.com/sw33tLie/bbscope/v2@latest
 ```
 
 ---
 
-## 🔐 Authentication
+## 🔐 Configuration
 
-Each supported platform requires specific authentication:
+`bbscope` requires API credentials for private programs. After running the tool for the first time, it will create a configuration file at `~/.bbscope.yaml`.
 
-- **HackerOne:** Use your API token, available from [H1 API Token Settings](https://hackerone.com/settings/api_token/edit).  
-  **Note:** The `-u <username>` flag is mandatory.
-- **Bugcrowd:** You have two options:
-  - **Option 1:** Supply your email, password, and OTP generation command. This allows bbscope to log in programmatically and obtain a valid token.
-  - **Option 2:** Manually log in through your browser and then provide the `_bugcrowd_session` cookie value via the `-t <YOUR_TOKEN>` flag.
-  *(Both methods require 2FA; see below for additional details.)*
-- **Intigriti:** Generate a personal access token from [Intigriti Personal Access Tokens](https://app.intigriti.com/researcher/personal-access-tokens).
-- **YesWeHack:** Use a bearer token collected from API requests. *(Requires 2FA, see below)*
-- **Immunefi:** No token is required.
+You'll need to fill in your credentials for each platform you want to use:
 
-### Two-Factor Authentication (2FA) for Bugcrowd & YesWeHack
-
-Bugcrowd and YesWeHack require two-factor authentication to access authenticated endpoints. We recommend installing the following [2FA CLI tool](https://github.com/rsc/2fa):
-
-```bash
-go install rsc.io/2fa@latest
+```yaml
+hackerone:
+  username: "YOUR_H1_USERNAME"
+  token: "YOUR_H1_API_KEY"
+bugcrowd:
+  email: ""
+  password: ""
+  otpsecret: "" # Your 2FA secret key
+intigriti:
+  token: ""
+yeswehack:
+  email: ""
+  password: ""
+  otpsecret: "" # Your 2FA secret key
 ```
 
-Once installed, configure it for Bugcrowd (adjust similarly for YesWeHack):
+Alternatively, you can provide credentials directly via command-line flags when running a `poll` subcommand. Flags will always override values in the configuration file.
 
-```bash
-2fa -add bugcrowd
-2fa key for bugcrowd: your_2fa_key_here
-```
+**Authentication Flags for `poll` Subcommands:**
 
-Then, supply the OTP automatically using the `--otpcommand` flag in your **bbscope** command:
-
-```bash
---otpcommand "2fa bugcrowd"
-```
-
-Replace `"2fa bugcrowd"` with `"2fa yeswehack"` as needed, or whatever name you gave to the 2FA code.
-
-Please note that the `--otpcommand` flag simply runs a shell command to fetch the OTP, and it expects the OTP to be printed to stdout. You can use any other way to fetch the OTP, as long as it prints the OTP to stdout.
+| Command | Flag | Description |
+| --- | --- | --- |
+| `poll h1` | `--user`, `--token` | Your HackerOne username and API token. |
+| `poll bc` | `--token` | A live `_bugcrowd_session` cookie. Use as an alternative to email/pass/otp. |
+| | `--email`, `--password`, `--otp-secret` | Your Bugcrowd login credentials. |
+| `poll it` | `--token` | Your Intigriti authorization token (Bearer). |
+| `poll ywh` | `--token` | A live YesWeHack bearer token. Use as an alternative to email/pass/otp. |
+| | `--email`, `--password`, `--otp-secret`| Your YesWeHack login credentials. |
 
 ---
 
-## 🛠️ Usage
+## 🛠️ Usage & Commands
 
-Invoke **bbscope** with the appropriate subcommand and flags:
+`bbscope` is organized into two main commands: `poll` and `db`.
 
-```bash
-bbscope (h1|bc|it|ywh|immunefi) -t <YOUR_TOKEN> [options]
-```
+### `poll` - Fetching Scopes
 
-For a complete list of options, run:
+The `poll` command fetches scope data from the platforms. You can poll all platforms at once or specify which ones to poll.
 
-```bash
-bbscope --help
-```
+**Subcommands:**
 
-Note that subcommands have different options, so be sure to check the help for each subcommand for more information.
+- `bbscope poll`: Polls all configured platforms.
+- `bbscope poll h1`: Polls HackerOne.
+- `bbscope poll bc`: Polls Bugcrowd.
+- `bbscope poll it`: Polls Intigriti.
+- `bbscope poll ywh`: Polls YesWeHack.
+- `bbscope poll immunefi`: Polls Immunefi (no authentication required).
+
+**Flags for `poll`:**
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--db` | Save results to the database and print changes. | `false` |
+| `-b, --bbpOnly` | Only fetch programs offering monetary rewards. | `false` |
+| `-p, --pvtOnly` | Only fetch data from private programs. | `false` |
+| `--category` | Scope categories to include (e.g., `url`, `cidr`, `mobile`). | `"all"` |
+| `-o, --output` | Output flags for printing to stdout (`t`=target, `d`=description, `c`=category, `u`=program URL). | `"tu"` |
+| `-d, --delimiter` | Delimiter for `txt` output when using multiple output flags. | `" "` |
+| `--oos` | Include out-of-scope targets in the output. | `false` |
+| `--concurrency`| Number of concurrent fetches per platform. | `5` |
+| `--dbpath` | Path to the SQLite database file. | `"bbscope.sqlite"`|
+
+---
+
+### `db` - Interacting with the Database
+
+The `db` command lets you query and manage the data stored in your local SQLite database.
+
+#### `db print`
+
+Prints scope data from the database.
+
+**Usage:** `bbscope db print [type]`
+
+-   **`type`** (optional): Filter by target type. Can be `urls`, `wildcards`, `apis`, or `mobile`. If omitted, prints all types.
+
+**Flags for `db print`:**
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--platform` | Comma-separated platforms to filter by (e.g., `h1,bc`), or `all`. | `"all"` |
+| `--program` | Filter by a specific program handle or URL. | |
+| `--format` | Output format: `txt`, `json`, or `csv`. | `"txt"` |
+| `-o, --output` | Output flags for `txt` format (`t`=target, `d`=description, `c`=category, `u`=program URL). | `"tu"` |
+| `-d, --delimiter` | Delimiter for `txt` output. | `" "` |
+| `--oos` | Include out-of-scope targets. | `false` |
+| `--since` | Show targets added since a given RFC3339 timestamp (e.g., `2023-10-27T10:00:00Z`). | |
+
+#### `db stats`
+
+Shows high-level statistics about the data in the database.
+
+**Usage:** `bbscope db stats`
+
+#### `db changes`
+
+Shows the most recent scope changes (additions/removals).
+
+**Usage:** `bbscope db changes`
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--limit` | Number of recent changes to show. | `50` |
+
+#### `db shell`
+
+Opens an interactive `sqlite3` shell to the database, allowing you to run any SQL query you want. It prints the database schema upon opening.
+
+**Usage:** `bbscope db shell`
+
+**Persistent Flag for `db`:**
+
+All `db` subcommands accept the `--dbpath` flag to specify the location of the database file.
 
 ---
 
 ## 📖 Examples
 
-### HackerOne
+**1. First-Time Setup: Poll all private, bounty-only programs and save to DB**
 
-Get in-scope targets from bounty-based HackerOne programs:
-
-```bash
-bbscope h1 -t <YOUR_TOKEN> -u <YOUR_H1_USERNAME> -b -o t
-```
-
-List Android APKs from your HackerOne programs:
+This is a great first command to run to populate your database.
 
 ```bash
-bbscope h1 -t <YOUR_TOKEN> -u <YOUR_H1_USERNAME> -o t -c android
+bbscope poll --db -b -p
 ```
 
-Include descriptions and program URLs with your targets:
+**2. Print all wildcard targets from HackerOne and Bugcrowd**
 
 ```bash
-bbscope h1 -t <YOUR_TOKEN> -u <YOUR_H1_USERNAME> -o tdu -d ", "
+bbscope db print wildcards --platform h1,bc
 ```
 
-Retrieve URLs from private HackerOne programs:
+**3. Get all targets for a specific program in JSON format**
 
 ```bash
-bbscope h1 -t <YOUR_TOKEN> -u <YOUR_H1_USERNAME> -o u -p | sort -u
+bbscope db print --program "hackerone" --format json
 ```
 
-### Bugcrowd
-
-List targets from private Bugcrowd programs that offer rewards, with automatic login:
+**4. Show the 10 most recent scope changes**
 
 ```bash
-bbscope bc -E <YOUR_EMAIL> -P "<YOUR_PASSWORD>" -b -p -o t --otpcommand "2fa bugcrowd"
+bbscope db changes --limit 10
 ```
 
-Similarly, you can use the `-t <YOUR_TOKEN>` flag to manually log in and supply the `_bugcrowd_session` cookie value:
+**5. Get a unique list of program URLs from Intigriti that have bounties**
 
 ```bash
-bbscope bc -t <YOUR_TOKEN> -b -p -o t
+bbscope db print --platform it --output u | sort -u
 ```
-
-Note that the cookie value will expire after some minutes, so the first method is recommended.
-
-### Intigriti
-
-Get targets and program URLs from all Intigriti programs, including out-of-scope elements:
-
-```bash
-bbscope it -t <YOUR_TOKEN> -o tu --oos
-```
-
-### Immunefi
-
-Retrieve all available scope data from Immunefi:
-
-```bash
-bbscope immunefi
-```
-
----
-
-## ⚠️ Scope Parsing Considerations
-
-Bug bounty programs may not consistently categorize assets. When hunting for URLs with the `-c url` flag, consider also using `-c all` to ensure no relevant targets are missed.
-
----
-
-## 🙏 Credits
-
-Thanks to the following contributors:
-
-- [0xatul](https://github.com/0xatul)
-- [JoeMilian](https://github.com/JoeMilian)
-- [ByteOven](https://github.com/ByteOven)
-- [dee-see](https://gitlab.com/dee-see)
-- [jub0bs](https://jub0bs.com)
-- [0xbeefed](https://github.com/0xbeefed)
-- [bsysop](https://x.com/bsysop)
