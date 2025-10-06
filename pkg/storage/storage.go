@@ -209,7 +209,7 @@ func BuildEntries(programURL, platform, handle string, items []TargetItem) ([]En
 	out := make([]Entry, 0, len(items))
 	for _, it := range items {
 		normalized := NormalizeTarget(it.URI)
-		unifiedCategory := scope.CategoryUnifier(it.Category, it.URI)
+		normalizedCategory := scope.NormalizeCategory(it.Category)
 
 		out = append(out, Entry{
 			ProgramURL:       NormalizeProgramURL(programURL),
@@ -217,7 +217,7 @@ func BuildEntries(programURL, platform, handle string, items []TargetItem) ([]En
 			Handle:           handle,
 			TargetNormalized: normalized,
 			TargetRaw:        it.URI,
-			Category:         unifiedCategory,
+			Category:         normalizedCategory,
 			Description:      it.Description,
 			InScope:          it.InScope,
 			IsBBP:            it.IsBBP,

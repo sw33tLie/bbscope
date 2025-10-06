@@ -37,7 +37,7 @@ func PrintProgramScope(programScope ProgramData, outputFlags string, delimiter s
 func createLine(scopeElement ScopeElement, url, outputFlags, delimiter string) string {
 	var line string
 	// Unify category before printing
-	unifiedCategory := CategoryUnifier(scopeElement.Category, scopeElement.Target)
+	unifiedCategory := NormalizeCategory(scopeElement.Category)
 
 	for _, f := range outputFlags {
 		switch f {
@@ -56,38 +56,41 @@ func createLine(scopeElement ScopeElement, url, outputFlags, delimiter string) s
 	return strings.TrimSuffix(line, delimiter)
 }
 
-func CategoryUnifier(category, target string) string {
-	// First, check the target format for wildcards, as this is the most reliable indicator.
-	if strings.HasPrefix(target, "*.") {
-		return "wildcard"
+// unificationMap is the source of truth for category normalization.
+// It groups raw, platform-specific category strings under a unified category name.
+var unificationMap = map[string][]string{
+	"wildcard":   {"wildcard"},
+	"url":        {"url", "website", "web", "web-application", "api", "ip_address", "ip-address"},
+	"cidr":       {"cidr", "iprange"},
+	"android":    {"android", "google_play_app_id", "other_apk", "mobile-application-android", "mobile-application"},
+	"ios":        {"ios", "apple_store_app_id", "other_ipa", "testflight", "mobile-application-ios", "apple-store"},
+	"ai":         {"ai_model"},
+	"hardware":   {"hardware", "device", "iot"},
+	"blockchain": {"smart_contract"},
+	"binary":     {"windows_app_store_app_id", "downloadable_executables"},
+	"code":       {"source_code"},
+	"other":      {"other", "aws_cloud_config", "application", "network"},
+}
+
+// categoryMap is a reverse map generated from unificationMap for efficient lookups.
+var categoryMap map[string]string
+
+func init() {
+	categoryMap = make(map[string]string)
+	for unified, raws := range unificationMap {
+		for _, raw := range raws {
+			categoryMap[raw] = unified
+		}
 	}
+}
+
+func NormalizeCategory(category string) string {
 
 	// Normalize category string for matching
 	catLower := strings.ToLower(category)
 
-	switch catLower {
-	case "wildcard":
-		return "wildcard"
-	case "url", "website", "web", "web-application", "api", "ip_address", "ip-address":
-		return "url"
-	case "cidr", "iprange":
-		return "cidr"
-	case "android", "google_play_app_id", "other_apk", "mobile-application-android", "mobile-application":
-		return "android"
-	case "ios", "apple_store_app_id", "other_ipa", "testflight", "mobile-application-ios", "apple-store":
-		return "ios"
-	case "ai_model":
-		return "ai"
-	case "hardware", "device", "iot":
-		return "hardware"
-	case "smart_contract":
-		return "blockchain"
-	case "windows_app_store_app_id", "downloadable_executables":
-		return "binary"
-	case "source_code":
-		return "code"
-	case "other", "aws_cloud_config", "application", "network":
-		return "other"
+	if unified, ok := categoryMap[catLower]; ok {
+		return unified
 	}
 
 	// For anything else, just format it nicely.
