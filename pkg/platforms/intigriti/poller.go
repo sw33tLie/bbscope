@@ -139,7 +139,8 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 		description := value.Get("description").Str
 
 		if tierID != 5 { // Not out-of-scope
-			if isInArray(int(categoryID), getCategoryID(opts.Categories)) {
+			allowedCategories := getCategoryID(opts.Categories)
+			if allowedCategories == nil || isInArray(int(categoryID), allowedCategories) {
 				pData.InScope = append(pData.InScope, scope.ScopeElement{
 					Target:      endpoint,
 					Description: strings.ReplaceAll(description, "\n", "  "),
@@ -159,6 +160,11 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 	return pData, nil
 }
 func getCategoryID(input string) []int {
+	input = strings.ToLower(input)
+	if input == "all" || input == "" {
+		return nil
+	}
+
 	categories := map[string][]int{
 		"url":      {1},
 		"cidr":     {4},
@@ -168,11 +174,10 @@ func getCategoryID(input string) []int {
 		"device":   {5},
 		"other":    {6},
 		"wildcard": {7},
-		"all":      {1, 2, 3, 4, 5, 6, 7},
 	}
-	selected, ok := categories[strings.ToLower(input)]
+	selected, ok := categories[input]
 	if !ok {
-		return categories["all"] // Default to all if category is invalid
+		return nil // Default to all if category is invalid
 	}
 	return selected
 }
