@@ -8,8 +8,9 @@ import (
 
 // poll it: dev platform
 var pollDevCmd = &cobra.Command{
-	Use:   "dev",
-	Short: "Poll sample programs - testing only",
+	Use:    "dev",
+	Short:  "Poll sample programs - testing only",
+	Hidden: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 
 		poller := devplatform.NewPoller()
