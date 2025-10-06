@@ -14,11 +14,14 @@ import (
 )
 
 type Poller struct {
-	token   string
-	urlToID map[string]string
+	token       string
+	urlToID     map[string]string
+	handleToURL map[string]string
 }
 
-func NewPoller() *Poller { return &Poller{urlToID: map[string]string{}} }
+func NewPoller() *Poller {
+	return &Poller{urlToID: map[string]string{}, handleToURL: map[string]string{}}
+}
 
 func (p *Poller) Name() string { return "it" }
 
@@ -31,6 +34,7 @@ func (p *Poller) Authenticate(ctx context.Context, cfg platforms.AuthConfig) err
 
 func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOptions) ([]string, error) {
 	p.urlToID = map[string]string{}
+	p.handleToURL = map[string]string{}
 	offset := 0
 	limit := 500
 	total := 0
@@ -68,11 +72,18 @@ func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOpti
 			programPath := programPathParts[1]
 			url := "https://app.intigriti.com/researcher" + programPath
 
+			parts := strings.Split(strings.TrimSuffix(url, "/detail"), "/")
+			handle := url
+			if len(parts) >= 2 {
+				handle = parts[len(parts)-2] + "/" + parts[len(parts)-1]
+			}
+
 			// Filtering logic from GetAllProgramsScope
 			if (opts.PrivateOnly && confidentialityLevel != 4) || !opts.PrivateOnly {
 				if (opts.BountyOnly && maxBounty != 0) || !opts.BountyOnly {
-					p.urlToID[url] = id
-					handles = append(handles, url)
+					p.urlToID[handle] = id
+					p.handleToURL[handle] = url
+					handles = append(handles, handle)
 				}
 			}
 		}
@@ -86,7 +97,7 @@ func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOpti
 }
 
 func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts platforms.PollOptions) (scope.ProgramData, error) {
-	pData := scope.ProgramData{Url: handle}
+	pData := scope.ProgramData{Url: p.handleToURL[handle]}
 	id := p.urlToID[handle]
 	if id == "" {
 		// Ensure map is built at least once
