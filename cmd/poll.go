@@ -21,7 +21,7 @@ import (
 //
 //	--platform string   Comma-separated platforms or "all" (default)
 //	--program string    Filter by program (handle or full URL)
-//	--db                Persist results to the database
+//	--db                Save results to the database
 //	--concurrency int   Number of concurrent fetches
 //	--since string      Print changes since RFC3339 timestamp (when using --db)
 //
@@ -106,10 +106,13 @@ func init() {
 
 	// Make common flags persistent so subcommands inherit them
 	pollCmd.PersistentFlags().String("category", "all", "Scope categories to include (url, cidr, mobile, etc.)")
-	pollCmd.PersistentFlags().Bool("db", false, "Persist results to the database and print changes")
+	pollCmd.PersistentFlags().Bool("db", false, "Save results to the database and print changes")
 	pollCmd.PersistentFlags().String("dbpath", "", "Path to SQLite DB file (default: bbscope.sqlite in CWD)")
 	pollCmd.PersistentFlags().Int("concurrency", 5, "Number of concurrent program fetches per platform")
 	pollCmd.PersistentFlags().String("since", "", "Only print changes since this RFC3339 timestamp (requires --db)")
+	pollCmd.PersistentFlags().Bool("oos", false, "Include out-of-scope elements")
+	pollCmd.PersistentFlags().StringP("output", "o", "tu", "Output flags. Supported: t (target), d (target description), c (category), u (program URL). Can be combined. Example: -o tdu")
+	pollCmd.PersistentFlags().StringP("delimiter", "d", " ", "Delimiter character to use for txt output format")
 }
 
 // runPollWithPollers executes the polling flow using the provided pollers.
@@ -146,7 +149,10 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 				return err
 			}
 			if !useDB {
-				scope.PrintProgramScope(pd, "tu", " ", true)
+				output, _ := cmd.Flags().GetString("output")
+				delimiter, _ := cmd.Flags().GetString("delimiter")
+				oos, _ := cmd.Flags().GetBool("oos")
+				scope.PrintProgramScope(pd, output, delimiter, oos)
 				continue
 			}
 

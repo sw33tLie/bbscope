@@ -152,5 +152,5 @@ func init() {
 	getCmd.Flags().String("format", "txt", "Output format: txt|json|csv")
 	getCmd.Flags().String("dbpath", "", "Path to SQLite DB file (default: bbscope.sqlite in CWD)")
 	getCmd.Flags().StringP("delimiter", "d", " ", "Delimiter character to use for txt output format")
-	getCmd.Flags().StringP("output", "o", "t", "Output flags. Supported: t (target), d (target description), c (category), u (program URL). Can be combined. Example: -o tdu")
+	getCmd.Flags().StringP("output", "o", "tu", "Output flags. Supported: t (target), d (target description), c (category), u (program URL). Can be combined. Example: -o tdu")
 }
