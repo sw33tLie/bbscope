@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sw33tLie/bbscope/v2/pkg/scope"
 	_ "modernc.org/sqlite"
 )
 
@@ -202,13 +203,15 @@ func BuildEntries(programURL, platform, handle string, items []TargetItem) ([]En
 	out := make([]Entry, 0, len(items))
 	for _, it := range items {
 		normalized := NormalizeTarget(it.URI)
+		unifiedCategory := scope.CategoryUnifier(it.Category, it.URI)
+
 		out = append(out, Entry{
 			ProgramURL:       NormalizeProgramURL(programURL),
 			Platform:         platform,
 			Handle:           handle,
 			TargetNormalized: normalized,
 			TargetRaw:        it.URI,
-			Category:         it.Category,
+			Category:         unifiedCategory,
 			Description:      it.Description,
 			InScope:          it.InScope,
 		})
