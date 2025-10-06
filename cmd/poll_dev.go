@@ -6,10 +6,10 @@ import (
 	devplatform "github.com/sw33tLie/bbscope/v2/pkg/platforms/dev"
 )
 
-// poll it: Intigriti
+// poll it: dev platform
 var pollDevCmd = &cobra.Command{
 	Use:   "dev",
-	Short: "Poll Intigriti programs",
+	Short: "Poll sample programs - testing only",
 	RunE: func(cmd *cobra.Command, _ []string) error {
 
 		poller := devplatform.NewPoller()

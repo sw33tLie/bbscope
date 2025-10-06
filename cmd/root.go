@@ -39,12 +39,9 @@ func init() {
 
 	// Global flags
 	rootCmd.PersistentFlags().StringP("proxy", "", "", "HTTP Proxy (Useful for debugging. Example: http://127.0.0.1:8080)")
-	rootCmd.PersistentFlags().StringP("output", "o", "t", "Output flags. Supported: t (target), d (target description), c (category), u (program URL). Can be combined. Example: -o tdu")
-	rootCmd.PersistentFlags().StringP("delimiter", "d", " ", "Delimiter character used when printing multiple data using the output flag")
 	rootCmd.PersistentFlags().BoolP("bbpOnly", "b", false, "Only fetch programs offering monetary rewards (by default private programs are included)")
 	rootCmd.PersistentFlags().BoolP("pvtOnly", "p", false, "Only fetch data from private programs")
 	rootCmd.PersistentFlags().StringP("loglevel", "l", "info", "Set log level. Available: debug, info, warn, error, fatal")
-	rootCmd.PersistentFlags().BoolP("oos", "", false, "Also print out of scope items with [OOS]")
 
 }
 

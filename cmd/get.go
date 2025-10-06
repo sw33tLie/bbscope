@@ -33,7 +33,7 @@ var getCmd = &cobra.Command{
 		}
 		platform, _ := cmd.Flags().GetString("platform")
 		program, _ := cmd.Flags().GetString("program")
-		includeOOS, _ := cmd.Flags().GetBool("include-oos")
+		oos, _ := cmd.Flags().GetBool("oos")
 		sinceStr, _ := cmd.Flags().GetString("since")
 		format, _ := cmd.Flags().GetString("format")
 		dbPath, _ := cmd.Flags().GetString("dbpath")
@@ -63,7 +63,7 @@ var getCmd = &cobra.Command{
 			since = s
 		}
 
-		entries, err := db.ListEntries(context.Background(), storage.ListOptions{Platform: platform, ProgramFilter: program, Since: since, IncludeOOS: includeOOS})
+		entries, err := db.ListEntries(context.Background(), storage.ListOptions{Platform: platform, ProgramFilter: program, Since: since, IncludeOOS: oos})
 		if err != nil {
 			return err
 		}
@@ -98,6 +98,9 @@ var getCmd = &cobra.Command{
 
 		switch format {
 		case "txt":
+			output, _ := cmd.Flags().GetString("output")
+			delimiter, _ := cmd.Flags().GetString("delimiter")
+
 			// Reuse existing printer by converting back into ProgramData groups
 			byProgram := map[string][]storage.Entry{}
 			for _, e := range filtered {
@@ -109,11 +112,11 @@ var getCmd = &cobra.Command{
 					se := scope.ScopeElement{Target: e.TargetNormalized, Description: e.Description, Category: e.Category}
 					if e.InScope {
 						pd.InScope = append(pd.InScope, se)
-					} else if includeOOS {
+					} else if oos {
 						pd.OutOfScope = append(pd.OutOfScope, se)
 					}
 				}
-				scope.PrintProgramScope(pd, "tu", " ", includeOOS)
+				scope.PrintProgramScope(pd, output, delimiter, oos)
 			}
 		case "json":
 			// Minimal JSON; keep it simple for now
@@ -144,8 +147,10 @@ func init() {
 
 	getCmd.Flags().String("platform", "all", "Comma-separated platforms (h1,bc,it,ywh,immunefi) or 'all'")
 	getCmd.Flags().String("program", "", "Filter by program handle or full URL")
-	getCmd.Flags().Bool("include-oos", false, "Include out-of-scope elements")
+	getCmd.Flags().Bool("oos", false, "Include out-of-scope elements")
 	getCmd.Flags().String("since", "", "Only include entries/changes since this RFC3339 timestamp")
 	getCmd.Flags().String("format", "txt", "Output format: txt|json|csv")
 	getCmd.Flags().String("dbpath", "", "Path to SQLite DB file (default: bbscope.sqlite in CWD)")
+	getCmd.Flags().StringP("delimiter", "d", " ", "Delimiter character to use for txt output format")
+	getCmd.Flags().StringP("output", "o", "t", "Output flags. Supported: t (target), d (target description), c (category), u (program URL). Can be combined. Example: -o tdu")
 }
