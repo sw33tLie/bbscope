@@ -315,11 +315,14 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 
 func GetProgramScope(handle string, categories string, token string) (pData scope.ProgramData, err error) {
 	isEngagement := strings.HasPrefix(handle, "/engagements/")
+	if isEngagement {
+		handle = strings.TrimPrefix(handle, "/engagements/")
+	}
 
 	pData.Url = "https://bugcrowd.com/" + strings.TrimPrefix(handle, "/")
 
 	if isEngagement {
-		getBriefVersionDocument, err := getEngagementBriefVersionDocument(handle, token)
+		getBriefVersionDocument, err := getEngagementBriefVersionDocument("/engagements/"+handle, token)
 		if err != nil {
 			return pData, err
 		}
@@ -624,7 +627,7 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 					return
 				}
 
-				if pScope.InScope == nil || len(pScope.InScope) == 0 {
+				if len(pScope.InScope) == 0 {
 					continue
 				}
 
