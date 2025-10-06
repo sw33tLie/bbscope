@@ -90,7 +90,7 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 		return pData, err
 	}
 
-	chunkData := gjson.GetMany(res.BodyString, "scopes.#.scope", "scopes.#.scope_type")
+	chunkData := gjson.GetMany(res.BodyString, "scopes.#.scope", "scopes.#.scope_type", "out_of_scope")
 	for i := 0; i < len(chunkData[0].Array()); i++ {
 		scopeType := chunkData[1].Array()[i].Str
 		target := chunkData[0].Array()[i].Str
@@ -118,6 +118,15 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 				Category: scopeType,
 			})
 		}
+	}
+
+	// Handle out of scope
+	outOfScopeItems := chunkData[2].Array()
+	for _, item := range outOfScopeItems {
+		pData.OutOfScope = append(pData.OutOfScope, scope.ScopeElement{
+			Target:   item.String(),
+			Category: "other",
+		})
 	}
 
 	return pData, nil

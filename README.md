@@ -39,18 +39,18 @@ You'll need to fill in your credentials for each platform you want to use:
 
 ```yaml
 hackerone:
-  username: "YOUR_H1_USERNAME"
-  token: "YOUR_H1_API_KEY"
+  username: "" # HackerOne username
+  token: "" # https://docs.hackerone.com/en/articles/8410331-api-token
 bugcrowd:
   email: ""
   password: ""
-  otpsecret: "" # Your 2FA secret key
+  otpsecret: "" # Your 2FA secret key string
 intigriti:
-  token: ""
+  token: "" # https://app.intigriti.com/researcher/personal-access-tokens
 yeswehack:
   email: ""
   password: ""
-  otpsecret: "" # Your 2FA secret key
+  otpsecret: "" # Your 2FA secret key string
 ```
 
 Alternatively, you can provide credentials directly via command-line flags when running a `poll` subcommand. Flags will always override values in the configuration file.
