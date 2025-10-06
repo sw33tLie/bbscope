@@ -179,7 +179,16 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 				return err
 			}
 			for _, c := range changes {
-				fmt.Printf("[change] %s %s %s %s in_scope=%t\n", c.ChangeType, c.Platform, c.ProgramURL, c.TargetNormalized, c.InScope)
+				var emoji string
+				switch c.ChangeType {
+				case "added":
+					emoji = "🆕"
+				case "removed":
+					emoji = "❌"
+				case "updated":
+					emoji = "🔄"
+				}
+				fmt.Printf("%s  %s  %s  %s  in_scope=%t\n", emoji, c.Platform, c.ProgramURL, c.TargetNormalized, c.InScope)
 			}
 		}
 	}

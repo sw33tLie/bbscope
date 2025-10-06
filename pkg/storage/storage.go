@@ -14,6 +14,45 @@ type DB struct {
 	sql *sql.DB
 }
 
+const schema = `
+CREATE TABLE IF NOT EXISTS programs (
+	id        INTEGER PRIMARY KEY,
+	platform  TEXT NOT NULL,
+	handle    TEXT NOT NULL,
+	url       TEXT NOT NULL UNIQUE,
+	last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_programs_platform ON programs(platform);
+CREATE INDEX IF NOT EXISTS idx_programs_url ON programs(url);
+CREATE TABLE IF NOT EXISTS targets (
+	id                INTEGER PRIMARY KEY,
+	program_id        INTEGER NOT NULL,
+	target_normalized TEXT NOT NULL,
+	target_raw        TEXT NOT NULL,
+	category          TEXT NOT NULL,
+	description       TEXT,
+	in_scope          INTEGER NOT NULL CHECK (in_scope IN (0,1)),
+	first_seen_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	last_seen_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY(program_id) REFERENCES programs(id),
+	UNIQUE(program_id, target_raw, category)
+);
+CREATE INDEX IF NOT EXISTS idx_targets_program_id ON targets(program_id);
+CREATE TABLE IF NOT EXISTS scope_changes (
+	id                INTEGER PRIMARY KEY,
+	occurred_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	program_url       TEXT NOT NULL,
+	platform          TEXT NOT NULL,
+	handle            TEXT NOT NULL,
+	target_normalized TEXT NOT NULL,
+	category          TEXT NOT NULL,
+	in_scope          INTEGER NOT NULL CHECK (in_scope IN (0,1)),
+	change_type       TEXT NOT NULL CHECK (change_type IN ('added','updated','removed'))
+);
+CREATE INDEX IF NOT EXISTS idx_changes_time ON scope_changes(occurred_at);
+CREATE INDEX IF NOT EXISTS idx_changes_program ON scope_changes(program_url, occurred_at);
+`
+
 func Open(path string) (*DB, error) {
 	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
 	db, err := sql.Open("sqlite", dsn)
@@ -23,39 +62,7 @@ func Open(path string) (*DB, error) {
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
-	// Ensure schema exists for convenience.
-	if _, err := db.Exec(`
-CREATE TABLE IF NOT EXISTS scope_entries (
-  id                INTEGER PRIMARY KEY,
-  program_url       TEXT NOT NULL,
-  platform          TEXT NOT NULL,
-  handle            TEXT NOT NULL,
-  target_normalized TEXT NOT NULL,
-  target_raw        TEXT NOT NULL,
-  category          TEXT NOT NULL,
-  description       TEXT,
-  in_scope          INTEGER NOT NULL CHECK (in_scope IN (0,1)),
-  run_id            INTEGER NOT NULL DEFAULT 0,
-  first_seen_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  last_seen_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(program_url, target_raw, category, in_scope)
-);
-CREATE INDEX IF NOT EXISTS idx_scope_program ON scope_entries(program_url);
-CREATE INDEX IF NOT EXISTS idx_scope_identity ON scope_entries(program_url, target_raw, category, in_scope);
-CREATE TABLE IF NOT EXISTS scope_changes (
-  id                INTEGER PRIMARY KEY,
-  occurred_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  program_url       TEXT NOT NULL,
-  platform          TEXT NOT NULL,
-  handle            TEXT NOT NULL,
-  target_normalized TEXT NOT NULL,
-  category          TEXT NOT NULL,
-  in_scope          INTEGER NOT NULL CHECK (in_scope IN (0,1)),
-  change_type       TEXT NOT NULL CHECK (change_type IN ('added','updated','removed'))
-);
-CREATE INDEX IF NOT EXISTS idx_changes_time ON scope_changes(occurred_at);
-CREATE INDEX IF NOT EXISTS idx_changes_program ON scope_changes(program_url, occurred_at);
-    `); err != nil {
+	if _, err := db.Exec(schema); err != nil {
 		return nil, err
 	}
 	return &DB{sql: db}, nil
@@ -70,115 +77,124 @@ func (d *DB) Close() error {
 
 func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, handle string, entries []Entry) ([]Change, error) {
 	now := time.Now().UTC()
-	runID := time.Now().Unix()
 
 	tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	defer tx.Rollback()
 
-	rows, err := tx.QueryContext(ctx, "SELECT target_normalized, category, in_scope, target_raw, description FROM scope_entries WHERE program_url = ?", programURL)
+	// 1. Get or create program
+	var programID int64
+	err = tx.QueryRowContext(ctx, "SELECT id FROM programs WHERE url = ?", programURL).Scan(&programID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		res, err := tx.ExecContext(ctx, "INSERT INTO programs(platform, handle, url, last_seen_at) VALUES(?,?,?,CURRENT_TIMESTAMP)", platform, handle, programURL)
+		if err != nil {
+			return nil, fmt.Errorf("inserting program: %w", err)
+		}
+		programID, err = res.LastInsertId()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Program exists, update last_seen_at
+		_, err = tx.ExecContext(ctx, "UPDATE programs SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?", programID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// 2. Get existing targets for this program
+	rows, err := tx.QueryContext(ctx, "SELECT id, target_raw, target_normalized, category, in_scope, description FROM targets WHERE program_id = ?", programID)
 	if err != nil {
 		return nil, err
 	}
 
-	type existing struct{ Raw, Desc string }
-	existingMap := make(map[string]existing)
+	type existingTarget struct {
+		ID                   int64
+		Raw, Norm, Cat, Desc string
+		InScope              bool
+	}
+	existingMap := make(map[string]existingTarget)
+
 	for rows.Next() {
 		var (
-			tn, cat   string
-			inScope   int
-			raw, desc sql.NullString
+			id, inScope    int64
+			raw, norm, cat string
+			desc           sql.NullString
 		)
-		if err = rows.Scan(&tn, &cat, &inScope, &raw, &desc); err != nil {
+		if err = rows.Scan(&id, &raw, &norm, &cat, &inScope, &desc); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		existingMap[identityKey(raw.String, cat, inScope == 1)] = existing{Raw: raw.String, Desc: desc.String}
+		key := identityKey(raw, cat)
+		existingMap[key] = existingTarget{ID: id, Raw: raw, Norm: norm, Cat: cat, Desc: desc.String, InScope: inScope == 1}
 	}
 	if err = rows.Close(); err != nil {
 		return nil, err
 	}
 
+	// 3. Insert or update new entries
 	var changes []Change
-	for _, e := range entries {
-		key := identityKey(e.TargetRaw, e.Category, e.InScope)
+	processedKeys := make(map[string]bool)
 
-		ex, existed := existingMap[key]
+	for _, e := range entries {
+		key := identityKey(e.TargetRaw, e.Category)
+		if processedKeys[key] {
+			continue // Skip duplicates within the same API response
+		}
+
 		inScopeInt := boolToInt(e.InScope)
+		ex, existed := existingMap[key]
 
 		if !existed {
-			_, err = tx.ExecContext(ctx, `INSERT INTO scope_entries(program_url, platform, handle, target_normalized, target_raw, category, description, in_scope, run_id, first_seen_at, last_seen_at) VALUES(?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, e.ProgramURL, e.Platform, e.Handle, e.TargetNormalized, e.TargetRaw, e.Category, nullIfEmpty(e.Description), inScopeInt, runID)
+			_, err = tx.ExecContext(ctx, `INSERT INTO targets(program_id, target_normalized, target_raw, category, description, in_scope, first_seen_at, last_seen_at) VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
+				programID, e.TargetNormalized, e.TargetRaw, e.Category, nullIfEmpty(e.Description), inScopeInt)
 			if err != nil {
 				return nil, err
 			}
 			changes = append(changes, Change{OccurredAt: now, ProgramURL: programURL, Platform: platform, Handle: handle, TargetNormalized: e.TargetNormalized, Category: e.Category, InScope: e.InScope, ChangeType: "added"})
-			existingMap[key] = existing{Raw: e.TargetRaw, Desc: e.Description} // Track the new entry
 		} else {
-			if ex.Raw != e.TargetRaw || ex.Desc != e.Description {
-				_, err = tx.ExecContext(ctx, `UPDATE scope_entries SET target_raw = ?, description = ?, run_id = ?, last_seen_at = CURRENT_TIMESTAMP WHERE program_url = ? AND target_raw = ? AND category = ? AND in_scope = ?`, e.TargetRaw, nullIfEmpty(e.Description), runID, e.ProgramURL, e.TargetRaw, e.Category, inScopeInt)
+			if ex.Desc != e.Description || ex.InScope != e.InScope {
+				_, err = tx.ExecContext(ctx, `UPDATE targets SET description = ?, in_scope = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`, nullIfEmpty(e.Description), inScopeInt, ex.ID)
 				if err != nil {
 					return nil, err
 				}
 				changes = append(changes, Change{OccurredAt: now, ProgramURL: programURL, Platform: platform, Handle: handle, TargetNormalized: e.TargetNormalized, Category: e.Category, InScope: e.InScope, ChangeType: "updated"})
 			} else {
-				_, err = tx.ExecContext(ctx, `UPDATE scope_entries SET run_id = ?, last_seen_at = CURRENT_TIMESTAMP WHERE program_url = ? AND target_raw = ? AND category = ? AND in_scope = ?`, runID, e.ProgramURL, e.TargetRaw, e.Category, inScopeInt)
+				// Just update last_seen_at
+				_, err = tx.ExecContext(ctx, `UPDATE targets SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`, ex.ID)
 				if err != nil {
 					return nil, err
 				}
 			}
 		}
+		processedKeys[key] = true
 	}
 
-	// Sweep: find and delete entries not touched in this run, log removals
-	staleRows, err := tx.QueryContext(ctx, "SELECT handle, target_normalized, category, in_scope FROM scope_entries WHERE platform = ? AND program_url = ? AND run_id != ?", platform, programURL, runID)
-	if err != nil {
-		return nil, err
-	}
-
-	type staleEntry struct {
-		Handle, T, C string
-		InScope      int
-	}
-	var toRemove []staleEntry
-	for staleRows.Next() {
-		var s staleEntry
-		if err = staleRows.Scan(&s.Handle, &s.T, &s.C, &s.InScope); err != nil {
-			staleRows.Close()
-			return nil, err
-		}
-		toRemove = append(toRemove, s)
-	}
-	if err = staleRows.Close(); err != nil {
-		return nil, err
-	}
-
-	if len(toRemove) > 0 {
-		_, err = tx.ExecContext(ctx, `DELETE FROM scope_entries WHERE platform = ? AND program_url = ? AND run_id != ?`, platform, programURL, runID)
-		if err != nil {
-			return nil, err
-		}
-		for _, s := range toRemove {
-			_, ierr := tx.ExecContext(ctx, `INSERT INTO scope_changes(occurred_at, program_url, platform, handle, target_normalized, category, in_scope, change_type) VALUES(CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, 'removed')`, programURL, platform, s.Handle, s.T, s.C, s.InScope)
+	// 4. Sweep for removed targets
+	for key, ex := range existingMap {
+		if !processedKeys[key] {
+			// This target existed in the DB but wasn't in the latest poll, so it's removed.
+			_, err = tx.ExecContext(ctx, `DELETE FROM targets WHERE id = ?`, ex.ID)
+			if err != nil {
+				return nil, err
+			}
+			_, ierr := tx.ExecContext(ctx, `INSERT INTO scope_changes(occurred_at, program_url, platform, handle, target_normalized, category, in_scope, change_type) VALUES(CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, 'removed')`, programURL, platform, handle, ex.Norm, ex.Cat, boolToInt(ex.InScope))
 			if ierr != nil {
 				return nil, ierr
 			}
-			changes = append(changes, Change{OccurredAt: now, ProgramURL: programURL, Platform: platform, Handle: s.Handle, TargetNormalized: s.T, Category: s.C, InScope: s.InScope == 1, ChangeType: "removed"})
+			changes = append(changes, Change{OccurredAt: now, ProgramURL: programURL, Platform: platform, Handle: handle, TargetNormalized: ex.Norm, Category: ex.Cat, InScope: ex.InScope, ChangeType: "removed"})
 		}
 	}
 
-	if err = tx.Commit(); err != nil {
-		return nil, err
-	}
-	return changes, nil
+	return changes, tx.Commit()
 }
 
-// BuildEntries unchanged
+// BuildEntries unchanged...
 func BuildEntries(programURL, platform, handle string, items []TargetItem) ([]Entry, error) {
 	if programURL == "" || platform == "" {
 		return nil, errors.New("invalid program identifiers")
@@ -213,53 +229,46 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 	where := "WHERE 1=1"
 	args := []interface{}{}
 	if opts.Platform != "" && opts.Platform != "all" {
-		where += " AND platform = ?"
+		where += " AND p.platform = ?"
 		args = append(args, opts.Platform)
 	}
 	if opts.ProgramFilter != "" {
-		where += " AND program_url LIKE ?"
+		where += " AND p.url LIKE ?"
 		args = append(args, fmt.Sprintf("%%%s%%", opts.ProgramFilter))
 	}
 	if !opts.IncludeOOS {
-		where += " AND in_scope = 1"
+		where += " AND t.in_scope = 1"
 	}
 	if !opts.Since.IsZero() {
-		where += " AND last_seen_at >= ?"
+		where += " AND t.last_seen_at >= ?"
 		args = append(args, opts.Since.UTC())
 	}
 
-	q := "SELECT program_url, platform, handle, target_normalized, target_raw, category, description, in_scope FROM scope_entries " + where + " ORDER BY program_url, target_normalized"
+	q := `
+		SELECT p.url, p.platform, p.handle, t.target_normalized, t.target_raw, t.category, t.description, t.in_scope 
+		FROM targets t JOIN programs p ON t.program_id = p.id 
+	` + where + " ORDER BY p.url, t.target_normalized"
+
 	rows, err := d.sql.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+
 	var out []Entry
 	for rows.Next() {
 		var e Entry
 		var inScopeInt int
-		var rawNS sql.NullString
-		var descNS sql.NullString
+		var rawNS, descNS sql.NullString
 		if err := rows.Scan(&e.ProgramURL, &e.Platform, &e.Handle, &e.TargetNormalized, &rawNS, &e.Category, &descNS, &inScopeInt); err != nil {
 			return nil, err
 		}
-		if rawNS.Valid {
-			e.TargetRaw = rawNS.String
-		} else {
-			e.TargetRaw = ""
-		}
-		if descNS.Valid {
-			e.Description = descNS.String
-		} else {
-			e.Description = ""
-		}
+		e.TargetRaw = rawNS.String
+		e.Description = descNS.String
 		e.InScope = inScopeInt == 1
 		out = append(out, e)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // ListRecentChanges returns the most recent N changes across all programs.
@@ -282,22 +291,15 @@ func (d *DB) ListRecentChanges(ctx context.Context, limit int) ([]Change, error)
 		if err := rows.Scan(&occurredAtStr, &c.ProgramURL, &c.Platform, &c.Handle, &c.TargetNormalized, &c.Category, &inScopeInt, &c.ChangeType); err != nil {
 			return nil, err
 		}
-		// Parse SQLite CURRENT_TIMESTAMP format
-		// Try "2006-01-02 15:04:05" then RFC3339
 		if t, perr := time.Parse("2006-01-02 15:04:05", occurredAtStr); perr == nil {
 			c.OccurredAt = t
 		} else if t2, perr2 := time.Parse(time.RFC3339, occurredAtStr); perr2 == nil {
 			c.OccurredAt = t2
-		} else {
-			c.OccurredAt = time.Time{}
 		}
 		c.InScope = inScopeInt == 1
 		changes = append(changes, c)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return changes, nil
+	return changes, rows.Err()
 }
 
 type PlatformStats struct {
@@ -310,16 +312,16 @@ type PlatformStats struct {
 func (d *DB) GetStats(ctx context.Context) ([]PlatformStats, error) {
 	query := `
 		SELECT
-			platform,
-			COUNT(DISTINCT program_url),
-			SUM(CASE WHEN in_scope = 1 THEN 1 ELSE 0 END),
-			SUM(CASE WHEN in_scope = 0 THEN 1 ELSE 0 END)
+			p.platform,
+			COUNT(DISTINCT p.id),
+			SUM(CASE WHEN t.in_scope = 1 THEN 1 ELSE 0 END),
+			SUM(CASE WHEN t.in_scope = 0 THEN 1 ELSE 0 END)
 		FROM
-			scope_entries
+			programs p JOIN targets t ON p.id = t.program_id
 		GROUP BY
-			platform
+			p.platform
 		ORDER BY
-			platform;
+			p.platform;
 	`
 	rows, err := d.sql.QueryContext(ctx, query)
 	if err != nil {
@@ -336,11 +338,54 @@ func (d *DB) GetStats(ctx context.Context) ([]PlatformStats, error) {
 		stats = append(stats, s)
 	}
 
-	if err := rows.Err(); err != nil {
+	return stats, rows.Err()
+}
+
+func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, error) {
+	likeQuery := fmt.Sprintf("%%%s%%", searchTerm)
+
+	query := `
+		SELECT p.url, p.platform, p.handle, t.target_normalized, t.target_raw, t.category, t.description, t.in_scope, 0 as is_historical
+		FROM targets t 
+		JOIN programs p ON t.program_id = p.id 
+		WHERE t.target_normalized LIKE ? OR t.description LIKE ?
+
+		UNION
+
+		SELECT c.program_url, c.platform, c.handle, c.target_normalized, '' as target_raw, c.category, '' as description, c.in_scope, 1 as is_historical
+		FROM scope_changes c
+		WHERE c.target_normalized LIKE ?;
+	`
+
+	rows, err := d.sql.QueryContext(ctx, query, likeQuery, likeQuery, likeQuery)
+	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	return stats, nil
+	var out []Entry
+	seen := make(map[string]bool)
+
+	for rows.Next() {
+		var e Entry
+		var inScopeInt, isHistoricalInt int
+		var rawNS, descNS sql.NullString
+		if err := rows.Scan(&e.ProgramURL, &e.Platform, &e.Handle, &e.TargetNormalized, &rawNS, &e.Category, &descNS, &inScopeInt, &isHistoricalInt); err != nil {
+			return nil, err
+		}
+		e.TargetRaw = rawNS.String
+		e.Description = descNS.String
+		e.InScope = inScopeInt == 1
+		e.IsHistorical = isHistoricalInt == 1
+
+		// The UNION can return duplicates, so we'll filter them here.
+		key := fmt.Sprintf("%s|%s|%s", e.ProgramURL, e.TargetNormalized, e.Category)
+		if !seen[key] {
+			out = append(out, e)
+			seen[key] = true
+		}
+	}
+	return out, rows.Err()
 }
 
 func nullIfEmpty(s string) interface{} {
@@ -350,11 +395,11 @@ func nullIfEmpty(s string) interface{} {
 	return s
 }
 
-func identityKey(tnorm, category string, inScope bool) string {
-	if tnorm == "" || category == "" {
+func identityKey(raw, category string) string {
+	if raw == "" || category == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s|%s|%d", tnorm, category, boolToInt(inScope))
+	return fmt.Sprintf("%s|%s", raw, category)
 }
 
 func boolToInt(b bool) int {

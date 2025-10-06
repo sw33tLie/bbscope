@@ -65,7 +65,7 @@ func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOpti
 			}
 			if !opts.PrivateOnly || (opts.PrivateOnly && !allPublic[i].Bool()) {
 				if !opts.BountyOnly || (opts.BountyOnly && allRewarding[i].Bool()) {
-					handles = append(handles, "https://api.yeswehack.com/programs/"+allCompanySlugs[i].Str)
+					handles = append(handles, allCompanySlugs[i].Str)
 				}
 			}
 		}
@@ -78,11 +78,13 @@ func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOpti
 }
 
 func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts platforms.PollOptions) (scope.ProgramData, error) {
-	pData := scope.ProgramData{Url: handle}
+	programAPIURL := "https://api.yeswehack.com/programs/" + handle
+	programWebURL := "https://yeswehack.com/programs/" + handle
+	pData := scope.ProgramData{Url: programWebURL}
 
 	res, err := whttp.SendHTTPRequest(&whttp.WHTTPReq{
 		Method:  "GET",
-		URL:     pData.Url,
+		URL:     programAPIURL,
 		Headers: []whttp.WHTTPHeader{{Name: "Authorization", Value: "Bearer " + p.token}},
 	}, nil)
 

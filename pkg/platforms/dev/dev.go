@@ -34,14 +34,13 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 	case strings.Contains(handle, "/a"):
 
 		pd.InScope = []scope.ScopeElement{
-			{Target: "https://lossslo.example.com/app", Description: "app v2", Category: "website"},
-			{Target: "*.a.example.com", Description: "wildcard", Category: "website"},
+			{Target: "https://loslo.example.com/app", Description: "app v2", Category: "website"},
 			{Target: "new.a.example.com", Description: "new host", Category: "website"},
 		}
 
 		pd.OutOfScope = []scope.ScopeElement{
 			{Target: "https://a.example.com/app", Description: "app", Category: "website"},
-			{Target: "*.a.example.com", Description: "wildcard", Category: "website"},
+			{Target: "*.b.example.com", Description: "wildcard", Category: "website"},
 		}
 
 	case strings.Contains(handle, "/b"):

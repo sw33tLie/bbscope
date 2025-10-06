@@ -261,12 +261,59 @@ var printCmd = &cobra.Command{
 	},
 }
 
+var findCmd = &cobra.Command{
+	Use:   "find [query]",
+	Short: "Search for a string in current and historical scopes",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		searchTerm := args[0]
+		dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
+		if dbPath == "" {
+			dbPath = "bbscope.sqlite"
+		}
+
+		db, err := storage.Open(dbPath)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+
+		results, err := db.SearchTargets(context.Background(), searchTerm)
+		if err != nil {
+			return err
+		}
+
+		if len(results) == 0 {
+			fmt.Println("No results found.")
+			return nil
+		}
+
+		// Simple text output for now
+		for _, e := range results {
+			var inScopeStatus string
+			if e.InScope {
+				inScopeStatus = "in-scope"
+			} else {
+				inScopeStatus = "out-of-scope"
+			}
+			historicalTag := ""
+			if e.IsHistorical {
+				historicalTag = " (historical)"
+			}
+			fmt.Printf("%s | %s | %s (%s)%s\n", e.Platform, e.ProgramURL, e.TargetNormalized, inScopeStatus, historicalTag)
+		}
+
+		return nil
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(dbCmd)
 	dbCmd.AddCommand(shellCmd)
 	dbCmd.AddCommand(statsCmd)
 	dbCmd.AddCommand(changesCmd)
 	dbCmd.AddCommand(printCmd)
+	dbCmd.AddCommand(findCmd)
 	changesCmd.Flags().Int("limit", 50, "Number of recent changes to show")
 	printCmd.Flags().String("platform", "all", "Comma-separated platforms (h1,bc,it,ywh,immunefi) or 'all'")
 	printCmd.Flags().String("program", "", "Filter by program handle or full URL")
