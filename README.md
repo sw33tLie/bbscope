@@ -24,8 +24,10 @@ Visit [bbscope.com](https://bbscope.com/) to explore an hourly-updated list of p
 Ensure you have a recent version of Go installed, then run:
 
 ```bash
-go install github.com/sw33tLie/bbscope/v2@latest
+go install github.com/sw33tLie/bbscope/v2@refactor/v2
 ```
+
+**Note:** This command installs directly from the `refactor/v2` branch. Once these changes are merged into the main branch and a new version is tagged, you can switch back to using `@latest`.
 
 ---
 
