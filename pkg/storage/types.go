@@ -15,6 +15,7 @@ type Entry struct {
 	Category         string
 	Description      string
 	InScope          bool
+	IsBBP            bool
 	IsHistorical     bool
 }
 
@@ -31,6 +32,7 @@ type Change struct {
 	TargetNormalized string
 	Category         string
 	InScope          bool
+	IsBBP            bool
 	ChangeType       string // added | updated | removed
 }
 
@@ -40,4 +42,5 @@ type TargetItem struct {
 	Category    string
 	Description string
 	InScope     bool
+	IsBBP       bool
 }
