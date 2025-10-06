@@ -2,32 +2,40 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+	"github.com/sw33tLie/bbscope/v2/internal/utils"
 	"github.com/sw33tLie/bbscope/v2/pkg/platforms"
 	itplatform "github.com/sw33tLie/bbscope/v2/pkg/platforms/intigriti"
 	"github.com/sw33tLie/bbscope/v2/pkg/whttp"
 )
 
-// poll it: shorthand for Intigriti
+// poll it: Intigriti
 var pollItCmd = &cobra.Command{
 	Use:   "it",
 	Short: "Poll Intigriti programs",
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		token, _ := cmd.Flags().GetString("token")
+		token := viper.GetString("intigriti.token")
 		if token == "" {
-			return cmd.Usage()
+			utils.Log.Error("intigriti requires a token")
+			return nil
 		}
 
 		proxy, _ := rootCmd.Flags().GetString("proxy")
 		if proxy != "" {
 			whttp.SetupProxy(proxy)
 		}
-		poller := itplatform.NewPoller(token)
+
+		poller := itplatform.NewPoller()
+		if err := poller.Authenticate(cmd.Context(), platforms.AuthConfig{Token: token, Proxy: proxy}); err != nil {
+			return err
+		}
+
 		return runPollWithPollers(cmd, []platforms.PlatformPoller{poller})
 	},
 }
 
 func init() {
 	pollCmd.AddCommand(pollItCmd)
-	pollItCmd.Flags().String("token", "", "Intigriti token")
-	pollItCmd.Flags().String("categories", "all", "Scope categories: all,url,cidr,mobile,android,apple,device,other,wildcard")
+	pollItCmd.Flags().String("token", "", "Intigriti authorization token (Bearer)")
+	viper.BindPFlag("intigriti.token", pollItCmd.Flags().Lookup("token"))
 }

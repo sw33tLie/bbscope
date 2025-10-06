@@ -1,4 +1,4 @@
-package test
+package dev
 
 import (
 	"context"
@@ -8,11 +8,15 @@ import (
 	"github.com/sw33tLie/bbscope/v2/pkg/scope"
 )
 
+// This is used for testing the changes tracking db logic. Ignore
+
 type Poller struct{}
 
-func (p *Poller) Name() string { return "test" }
+func NewPoller() *Poller { return &Poller{} }
 
-// Authenticate is a no-op for the test platform.
+func (p *Poller) Name() string { return "dev" }
+
+// Authenticate is a no-op for the dev platform.
 func (p *Poller) Authenticate(ctx context.Context, cfg platforms.AuthConfig) error { return nil }
 
 func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOptions) ([]string, error) {

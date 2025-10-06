@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+	"github.com/sw33tLie/bbscope/v2/internal/utils"
 	"github.com/sw33tLie/bbscope/v2/pkg/platforms"
 	h1platform "github.com/sw33tLie/bbscope/v2/pkg/platforms/hackerone"
 	"github.com/sw33tLie/bbscope/v2/pkg/whttp"
@@ -12,10 +14,11 @@ var pollH1Cmd = &cobra.Command{
 	Use:   "h1",
 	Short: "Poll HackerOne programs",
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		user, _ := cmd.Flags().GetString("user")
-		token, _ := cmd.Flags().GetString("token")
+		user := viper.GetString("hackerone.username")
+		token := viper.GetString("hackerone.token")
 		if user == "" || token == "" {
-			return cmd.Usage()
+			utils.Log.Error("hackerone requires a username and token")
+			return nil
 		}
 
 		proxy, _ := rootCmd.Flags().GetString("proxy")
@@ -31,5 +34,7 @@ func init() {
 	pollCmd.AddCommand(pollH1Cmd)
 	pollH1Cmd.Flags().String("user", "", "HackerOne username")
 	pollH1Cmd.Flags().String("token", "", "HackerOne API token")
+	viper.BindPFlag("hackerone.username", pollH1Cmd.Flags().Lookup("user"))
+	viper.BindPFlag("hackerone.token", pollH1Cmd.Flags().Lookup("token"))
 	// Reuse common flags from parent via cobra's flag inheritance
 }

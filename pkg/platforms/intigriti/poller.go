@@ -18,7 +18,7 @@ type Poller struct {
 	urlToID map[string]string
 }
 
-func NewPoller(token string) *Poller { return &Poller{token: token, urlToID: map[string]string{}} }
+func NewPoller() *Poller { return &Poller{urlToID: map[string]string{}} }
 
 func (p *Poller) Name() string { return "it" }
 

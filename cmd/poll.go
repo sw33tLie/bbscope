@@ -3,12 +3,15 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+	"github.com/sw33tLie/bbscope/v2/internal/utils"
 	"github.com/sw33tLie/bbscope/v2/pkg/platforms"
+	bcplatform "github.com/sw33tLie/bbscope/v2/pkg/platforms/bugcrowd"
 	h1platform "github.com/sw33tLie/bbscope/v2/pkg/platforms/hackerone"
-	testplatform "github.com/sw33tLie/bbscope/v2/pkg/platforms/test"
+	itplatform "github.com/sw33tLie/bbscope/v2/pkg/platforms/intigriti"
+	ywhplatform "github.com/sw33tLie/bbscope/v2/pkg/platforms/yeswehack"
 	"github.com/sw33tLie/bbscope/v2/pkg/scope"
 	"github.com/sw33tLie/bbscope/v2/pkg/storage"
 )
@@ -19,7 +22,6 @@ import (
 //	--platform string   Comma-separated platforms or "all" (default)
 //	--program string    Filter by program (handle or full URL)
 //	--db                Persist results to the database
-//	--dry-run           Simulate without writing to DB
 //	--concurrency int   Number of concurrent fetches
 //	--since string      Print changes since RFC3339 timestamp (when using --db)
 //
@@ -27,31 +29,74 @@ import (
 var pollCmd = &cobra.Command{
 	Use:   "poll",
 	Short: "Poll platforms and fetch scopes",
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		platformsFlag, _ := cmd.Flags().GetString("platform")
-		enabled := map[string]bool{}
-		if platformsFlag == "all" || platformsFlag == "" {
-			enabled["test"] = true
-		} else {
-			for _, p := range strings.Split(platformsFlag, ",") {
-				enabled[strings.ToLower(strings.TrimSpace(p))] = true
-			}
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) > 0 {
+			return fmt.Errorf("unknown command: '%s'. See 'bbscope poll --help'", args[0])
 		}
+
+		proxy, _ := cmd.Flags().GetString("proxy")
 		var pollers []platforms.PlatformPoller
-		if enabled["test"] {
-			pollers = append(pollers, &testplatform.Poller{})
+
+		// H1
+		h1User := viper.GetString("hackerone.username")
+		h1Token := viper.GetString("hackerone.token")
+		if h1User != "" && h1Token != "" {
+			h1Poller := h1platform.NewPoller(h1User, h1Token)
+			pollers = append(pollers, h1Poller)
+		} else {
+			utils.Log.Info("Skipping HackerOne: credentials not found in config.")
 		}
-		if enabled["h1"] || enabled["hackerone"] {
-			user, _ := cmd.Flags().GetString("h1-user")
-			token, _ := cmd.Flags().GetString("h1-token")
-			if user == "" || token == "" {
-				return fmt.Errorf("hackerone requires --h1-user and --h1-token")
+
+		// Bugcrowd
+		bcEmail := viper.GetString("bugcrowd.email")
+		bcPass := viper.GetString("bugcrowd.password")
+		bcOTP := viper.GetString("bugcrowd.otpsecret")
+		if bcEmail != "" && bcPass != "" && bcOTP != "" {
+			bcPoller := &bcplatform.Poller{}
+			authCfg := platforms.AuthConfig{Email: bcEmail, Password: bcPass, OtpSecret: bcOTP, Proxy: proxy}
+			if err := bcPoller.Authenticate(cmd.Context(), authCfg); err != nil {
+				utils.Log.Errorf("Bugcrowd auth failed: %v", err)
+			} else {
+				pollers = append(pollers, bcPoller)
 			}
-			pollers = append(pollers, h1platform.NewPoller(user, token))
+		} else {
+			utils.Log.Info("Skipping Bugcrowd: email, password, or otpsecret not found in config.")
 		}
+
+		// Intigriti
+		itToken := viper.GetString("intigriti.token")
+		if itToken != "" {
+			itPoller := itplatform.NewPoller()
+			if err := itPoller.Authenticate(cmd.Context(), platforms.AuthConfig{Token: itToken, Proxy: proxy}); err != nil {
+				utils.Log.Errorf("Intigriti auth failed: %v", err)
+			} else {
+				pollers = append(pollers, itPoller)
+			}
+		} else {
+			utils.Log.Info("Skipping Intigriti: token not found in config.")
+		}
+
+		// YesWeHack
+		ywhEmail := viper.GetString("yeswehack.email")
+		ywhPass := viper.GetString("yeswehack.password")
+		ywhOTP := viper.GetString("yeswehack.otpsecret")
+		if ywhEmail != "" && ywhPass != "" && ywhOTP != "" {
+			ywhPoller := &ywhplatform.Poller{}
+			authCfg := platforms.AuthConfig{Email: ywhEmail, Password: ywhPass, OtpSecret: ywhOTP, Proxy: proxy}
+			if err := ywhPoller.Authenticate(cmd.Context(), authCfg); err != nil {
+				utils.Log.Errorf("YesWeHack auth failed: %v", err)
+			} else {
+				pollers = append(pollers, ywhPoller)
+			}
+		} else {
+			utils.Log.Info("Skipping YesWeHack: email, password, or otpsecret not found in config.")
+		}
+
 		if len(pollers) == 0 {
-			return fmt.Errorf("no platforms selected")
+			utils.Log.Info("No platforms to poll. Configure credentials in ~/.bbscope.yaml")
+			return nil
 		}
+
 		return runPollWithPollers(cmd, pollers)
 	},
 }
@@ -59,16 +104,10 @@ var pollCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(pollCmd)
 
-	pollCmd.Flags().String("platform", "all", "Comma-separated platforms to poll (h1,bc,it,ywh,immunefi) or 'all'")
 	// Make common flags persistent so subcommands inherit them
 	pollCmd.PersistentFlags().String("category", "all", "Scope categories to include (url, cidr, mobile, etc.)")
 	pollCmd.PersistentFlags().Bool("db", false, "Persist results to the database and print changes")
 	pollCmd.PersistentFlags().String("dbpath", "", "Path to SQLite DB file (default: bbscope.sqlite in CWD)")
-	// HackerOne auth flags (temporary; will move to config)
-	pollCmd.Flags().String("h1-user", "", "HackerOne username (required for h1)")
-	pollCmd.Flags().String("h1-token", "", "HackerOne API token (required for h1)")
-
-	pollCmd.PersistentFlags().Bool("dry-run", false, "Simulate actions without writing to the database")
 	pollCmd.PersistentFlags().Int("concurrency", 5, "Number of concurrent program fetches per platform")
 	pollCmd.PersistentFlags().String("since", "", "Only print changes since this RFC3339 timestamp (requires --db)")
 }
@@ -94,15 +133,6 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 
 	ctx := context.Background()
 	for _, p := range pollers {
-		proxy, _ := cmd.Flags().GetString("proxy")
-		cfg := platforms.AuthConfig{
-			Proxy: proxy,
-		}
-
-		if err := p.Authenticate(ctx, cfg); err != nil {
-			return fmt.Errorf("authentication failed for %s: %w", p.Name(), err)
-		}
-
 		opts := platforms.PollOptions{
 			Categories: categories,
 		}
@@ -142,12 +172,4 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 		}
 	}
 	return nil
-}
-
-func getPollerNames(pollers []platforms.PlatformPoller) []string {
-	names := make([]string, len(pollers))
-	for i, p := range pollers {
-		names[i] = p.Name()
-	}
-	return names
 }

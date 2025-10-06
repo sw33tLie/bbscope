@@ -109,3 +109,13 @@ CREATE INDEX idx_changes_program ON scope_changes(program_url, occurred_at);
 - The `--platform` flag for the `poll` command should support "all" or multiple platforms, comma-separated, not just one at a time.
 - I want optional Dockerfile support.
 - SQLite should work with `go install` and not require any weird manual configuration.
+
+## TODO
+
+implement yaml as flag alternative in poll cmds
+
+think about poll (no subcmd) --h1-username flag and --platform
+
+port bugcrowd and immunefi
+
+recheck schema
