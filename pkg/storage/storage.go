@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS targets (
 	first_seen_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	last_seen_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	FOREIGN KEY(program_id) REFERENCES programs(id),
-	UNIQUE(program_id, target_raw, category)
+	UNIQUE(program_id, target_raw)
 );
 CREATE INDEX IF NOT EXISTS idx_targets_program_id ON targets(program_id);
 CREATE TABLE IF NOT EXISTS scope_changes (
@@ -142,7 +142,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 			rows.Close()
 			return nil, err
 		}
-		key := identityKey(raw, cat)
+		key := identityKey(raw)
 		existingMap[key] = existingTarget{ID: id, Raw: raw, Norm: norm, Cat: cat, Desc: desc.String, InScope: inScope == 1, IsBBP: isBBP == 1}
 	}
 	if err = rows.Close(); err != nil {
@@ -161,7 +161,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 	processedKeys := make(map[string]bool)
 
 	for _, e := range entries {
-		key := identityKey(e.TargetRaw, e.Category)
+		key := identityKey(e.TargetRaw)
 		if processedKeys[key] {
 			continue // Skip duplicates within the same API response
 		}
@@ -178,6 +178,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 			}
 			changes = append(changes, Change{OccurredAt: now, ProgramURL: programURL, Platform: platform, Handle: handle, TargetNormalized: e.TargetNormalized, Category: e.Category, InScope: e.InScope, IsBBP: e.IsBBP, ChangeType: "added"})
 		} else {
+			// Note: We are now intentionally NOT checking for category changes.
 			if ex.Desc != e.Description || ex.InScope != e.InScope || ex.IsBBP != e.IsBBP {
 				_, err = tx.ExecContext(ctx, `UPDATE targets SET description = ?, in_scope = ?, is_bbp = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`, nullIfEmpty(e.Description), inScopeInt, isBBPInt, ex.ID)
 				if err != nil {
@@ -558,11 +559,11 @@ func nullIfEmpty(s string) interface{} {
 	return s
 }
 
-func identityKey(raw, category string) string {
-	if raw == "" || category == "" {
+func identityKey(raw string) string {
+	if raw == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s|%s", raw, category)
+	return raw
 }
 
 func boolToInt(b bool) int {
