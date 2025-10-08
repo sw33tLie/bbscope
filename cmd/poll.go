@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"errors"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/sw33tLie/bbscope/v2/internal/utils"
@@ -161,6 +163,21 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 			return err
 		}
 
+		if useDB {
+			dbProgramCount, err := db.GetActiveProgramCount(ctx, p.Name())
+			if err != nil {
+				utils.Log.Warnf("Could not get program count for %s: %v", p.Name(), err)
+			}
+
+			// PLATFORM-LEVEL SAFETY CHECK: If the poller returns 0 programs, but we have many in the DB,
+			// it's likely the poller failed or there's a temporary API issue. We abort the sync
+			// for this platform to prevent wiping all its programs.
+			if len(handles) == 0 && dbProgramCount > 10 { // Using a threshold > 10
+				utils.Log.Errorf("Poller for %s returned 0 programs, but database has %d. Aborting sync for this platform to prevent data loss.", p.Name(), dbProgramCount)
+				continue // Skip to the next platform
+			}
+		}
+
 		polledProgramURLs := make([]string, 0, len(handles))
 
 		for _, h := range handles {
@@ -200,7 +217,11 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 			}
 			changes, err := db.UpsertProgramEntries(ctx, pd.Url, p.Name(), h, entries)
 			if err != nil {
-				return err
+				if errors.Is(err, storage.ErrAbortingScopeWipe) {
+					utils.Log.Warnf("Potential scope wipe detected for program %s. Skipping update. This might be due to a broken poller or a platform API change.", pd.Url)
+					continue // Don't treat this as a fatal error for the whole poll
+				}
+				return err // It's a different, real error
 			}
 			printChanges(changes)
 		}

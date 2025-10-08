@@ -161,10 +161,6 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 			pData.OutOfScope = []scope.ScopeElement{}
 		}
 
-		if assetCount == 0 {
-			pData.InScope = append(pData.InScope, scope.ScopeElement{Target: "NO_IN_SCOPE_TABLE"})
-		}
-
 		nextPageURL := gjson.Get(res.BodyString, "links.next").Str
 		if nextPageURL != "" {
 			currentPageURL = nextPageURL

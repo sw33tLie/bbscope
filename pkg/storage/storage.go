@@ -11,6 +11,11 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+var (
+	// ErrAbortingScopeWipe is returned when an update would wipe all targets from a program.
+	ErrAbortingScopeWipe = errors.New("aborting update to prevent wiping out all targets for a program")
+)
+
 type DB struct {
 	sql *sql.DB
 }
@@ -144,6 +149,13 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		return nil, err
 	}
 
+	// SAFETY CHECK: If the incoming data has zero entries, but we know in the DB
+	// that this program HAS entries, we abort the transaction. This prevents a broken
+	// poller from wiping out a program's scope.
+	if len(entries) == 0 && len(existingMap) > 0 {
+		return nil, ErrAbortingScopeWipe
+	}
+
 	// 3. Insert or update new entries
 	var changes []Change
 	processedKeys := make(map[string]bool)
@@ -235,6 +247,16 @@ func (d *DB) GetIgnoredPrograms(ctx context.Context, platform string) (map[strin
 		ignoredMap[url] = true
 	}
 	return ignoredMap, rows.Err()
+}
+
+// GetActiveProgramCount returns the number of active (not disabled, not ignored) programs for a platform.
+func (d *DB) GetActiveProgramCount(ctx context.Context, platform string) (int, error) {
+	var count int
+	err := d.sql.QueryRowContext(ctx, "SELECT COUNT(*) FROM programs WHERE platform = ? AND disabled = 0 AND is_ignored = 0", platform).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 // SyncPlatformPrograms marks programs that are no longer returned by a platform's API as 'disabled'
