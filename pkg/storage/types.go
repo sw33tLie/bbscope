@@ -21,19 +21,16 @@ type Entry struct {
 
 // Change captures a single change event for auditing or printing.
 type Change struct {
-	OccurredAt time.Time
-
-	// Program info
-	ProgramURL string
-	Platform   string
-	Handle     string
-
-	// Target info
+	OccurredAt       time.Time
+	ProgramURL       string
+	Platform         string
+	Handle           string
 	TargetNormalized string
+	TargetRaw        string
 	Category         string
 	InScope          bool
 	IsBBP            bool
-	ChangeType       string // added | updated | removed
+	ChangeType       string
 }
 
 // TargetItem is a light wrapper for building entries.

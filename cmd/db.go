@@ -145,7 +145,7 @@ var changesCmd = &cobra.Command{
 			if !c.InScope {
 				scopeStatus = " [OOS]"
 			}
-			fmt.Printf("%s  %-6s  %s  %s  %s%s\n", ts, c.ChangeType, c.Platform, c.ProgramURL, c.TargetNormalized, scopeStatus)
+			fmt.Printf("%s  %-6s  %s  %s  %s%s\n", ts, c.ChangeType, c.Platform, c.ProgramURL, c.TargetRaw, scopeStatus)
 		}
 		return nil
 	},

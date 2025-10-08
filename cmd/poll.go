@@ -148,6 +148,17 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 			PrivateOnly: pvtOnly,
 		}
 
+		isFirstRunForPlatform := false
+		if useDB {
+			programCount, err := db.GetActiveProgramCount(ctx, p.Name())
+			if err != nil {
+				// Don't fail the whole run, but we can't do the "first run" check.
+				utils.Log.Warnf("Could not get program count for %s: %v", p.Name(), err)
+			} else {
+				isFirstRunForPlatform = programCount == 0
+			}
+		}
+
 		var ignoredPrograms map[string]bool
 		if useDB {
 			var err error
@@ -161,6 +172,10 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 		handles, err := p.ListProgramHandles(ctx, opts)
 		if err != nil {
 			return err
+		}
+
+		if isFirstRunForPlatform && len(handles) > 0 {
+			fmt.Printf("✨ First poll for %s, populating database...\n", p.Name())
 		}
 
 		if useDB {
@@ -223,7 +238,10 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 				}
 				return err // It's a different, real error
 			}
-			printChanges(changes)
+
+			if !isFirstRunForPlatform {
+				printChanges(changes)
+			}
 		}
 
 		if useDB {
@@ -234,7 +252,9 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 				// We can log this as a warning instead of returning a fatal error
 				utils.Log.Warnf("Failed to sync removed programs for platform %s: %v", p.Name(), err)
 			}
-			printChanges(removedProgramChanges)
+			if !isFirstRunForPlatform {
+				printChanges(removedProgramChanges)
+			}
 		}
 	}
 	return nil
@@ -261,6 +281,6 @@ func printChanges(changes []storage.Change) {
 		if !c.InScope {
 			scopeStatus = " [OOS]"
 		}
-		fmt.Printf("%s  %s  %s  %s%s\n", emoji, c.Platform, c.ProgramURL, c.TargetNormalized, scopeStatus)
+		fmt.Printf("%s  %s  %s  %s%s\n", emoji, c.Platform, c.ProgramURL, c.TargetRaw, scopeStatus)
 	}
 }

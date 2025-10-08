@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS scope_changes (
 	platform          TEXT NOT NULL,
 	handle            TEXT NOT NULL,
 	target_normalized TEXT NOT NULL,
+	target_raw        TEXT NOT NULL DEFAULT '',
 	category          TEXT NOT NULL,
 	in_scope          INTEGER NOT NULL CHECK (in_scope IN (0,1)),
 	is_bbp            INTEGER NOT NULL DEFAULT 0 CHECK (is_bbp IN (0,1)),
@@ -176,7 +177,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 			if err != nil {
 				return nil, err
 			}
-			changes = append(changes, Change{OccurredAt: now, ProgramURL: programURL, Platform: platform, Handle: handle, TargetNormalized: e.TargetNormalized, Category: e.Category, InScope: e.InScope, IsBBP: e.IsBBP, ChangeType: "added"})
+			changes = append(changes, Change{OccurredAt: now, ProgramURL: programURL, Platform: platform, Handle: handle, TargetRaw: e.TargetRaw, TargetNormalized: e.TargetNormalized, Category: e.Category, InScope: e.InScope, IsBBP: e.IsBBP, ChangeType: "added"})
 		} else {
 			// Note: We are now intentionally NOT checking for category changes.
 			if ex.Desc != e.Description || ex.InScope != e.InScope || ex.IsBBP != e.IsBBP {
@@ -184,7 +185,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 				if err != nil {
 					return nil, err
 				}
-				changes = append(changes, Change{OccurredAt: now, ProgramURL: programURL, Platform: platform, Handle: handle, TargetNormalized: e.TargetNormalized, Category: e.Category, InScope: e.InScope, IsBBP: e.IsBBP, ChangeType: "updated"})
+				changes = append(changes, Change{OccurredAt: now, ProgramURL: programURL, Platform: platform, Handle: handle, TargetRaw: e.TargetRaw, TargetNormalized: e.TargetNormalized, Category: e.Category, InScope: e.InScope, IsBBP: e.IsBBP, ChangeType: "updated"})
 			} else {
 				// Just update last_seen_at
 				_, err = tx.ExecContext(ctx, `UPDATE targets SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`, ex.ID)
@@ -204,11 +205,11 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 			if err != nil {
 				return nil, err
 			}
-			_, ierr := tx.ExecContext(ctx, `INSERT INTO scope_changes(occurred_at, program_url, platform, handle, target_normalized, category, in_scope, is_bbp, change_type) VALUES(CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, 'removed')`, programURL, platform, handle, ex.Norm, ex.Cat, boolToInt(ex.InScope), boolToInt(ex.IsBBP))
+			_, ierr := tx.ExecContext(ctx, `INSERT INTO scope_changes(occurred_at, program_url, platform, handle, target_normalized, target_raw, category, in_scope, is_bbp, change_type) VALUES(CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, 'removed')`, programURL, platform, handle, ex.Norm, ex.Raw, ex.Cat, boolToInt(ex.InScope), boolToInt(ex.IsBBP))
 			if ierr != nil {
 				return nil, ierr
 			}
-			changes = append(changes, Change{OccurredAt: now, ProgramURL: programURL, Platform: platform, Handle: handle, TargetNormalized: ex.Norm, Category: ex.Cat, InScope: ex.InScope, IsBBP: ex.IsBBP, ChangeType: "removed"})
+			changes = append(changes, Change{OccurredAt: now, ProgramURL: programURL, Platform: platform, Handle: handle, TargetRaw: ex.Raw, TargetNormalized: ex.Norm, Category: ex.Cat, InScope: ex.InScope, IsBBP: ex.IsBBP, ChangeType: "removed"})
 		}
 	}
 
@@ -326,6 +327,7 @@ func (d *DB) SyncPlatformPrograms(ctx context.Context, platform string, polledPr
 			Platform:         platform,
 			Handle:           handle,
 			TargetNormalized: programURL, // Use the program URL as the "target"
+			TargetRaw:        programURL,
 			Category:         "program",
 			InScope:          false,
 			IsBBP:            false,
@@ -333,8 +335,8 @@ func (d *DB) SyncPlatformPrograms(ctx context.Context, platform string, polledPr
 		}
 		changes = append(changes, change)
 
-		_, ierr := tx.ExecContext(ctx, `INSERT INTO scope_changes(occurred_at, program_url, platform, handle, target_normalized, category, in_scope, is_bbp, change_type) VALUES(CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, 'removed')`,
-			programURL, platform, handle, programURL, "program", boolToInt(false), boolToInt(false))
+		_, ierr := tx.ExecContext(ctx, `INSERT INTO scope_changes(occurred_at, program_url, platform, handle, target_normalized, target_raw, category, in_scope, is_bbp, change_type) VALUES(CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, 'removed')`,
+			programURL, platform, handle, programURL, programURL, "program", boolToInt(false), boolToInt(false))
 		if ierr != nil {
 			return nil, ierr
 		}
@@ -436,7 +438,7 @@ func (d *DB) ListRecentChanges(ctx context.Context, limit int) ([]Change, error)
 	if limit <= 0 {
 		limit = 50
 	}
-	q := "SELECT occurred_at, program_url, platform, handle, target_normalized, category, in_scope, is_bbp, change_type FROM scope_changes ORDER BY occurred_at DESC LIMIT ?"
+	q := "SELECT occurred_at, program_url, platform, handle, target_normalized, target_raw, category, in_scope, is_bbp, change_type FROM scope_changes ORDER BY occurred_at DESC LIMIT ?"
 	rows, err := d.sql.QueryContext(ctx, q, limit)
 	if err != nil {
 		return nil, err
@@ -448,7 +450,7 @@ func (d *DB) ListRecentChanges(ctx context.Context, limit int) ([]Change, error)
 		var c Change
 		var occurredAtStr string
 		var inScopeInt, isBBPInt int
-		if err := rows.Scan(&occurredAtStr, &c.ProgramURL, &c.Platform, &c.Handle, &c.TargetNormalized, &c.Category, &inScopeInt, &isBBPInt, &c.ChangeType); err != nil {
+		if err := rows.Scan(&occurredAtStr, &c.ProgramURL, &c.Platform, &c.Handle, &c.TargetNormalized, &c.TargetRaw, &c.Category, &inScopeInt, &isBBPInt, &c.ChangeType); err != nil {
 			return nil, err
 		}
 		if t, perr := time.Parse("2006-01-02 15:04:05", occurredAtStr); perr == nil {
