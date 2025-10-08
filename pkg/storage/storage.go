@@ -70,27 +70,11 @@ func Open(path string, timeout int) (*DB, error) {
 	if timeout <= 0 {
 		timeout = 5000 // Default to 5 seconds if not specified or invalid
 	}
-	// The modernc.org/sqlite driver seems to have issues with multiple _pragma
-	// values in the DSN. It's more reliable to set them after opening the connection.
-	db, err := sql.Open("sqlite", path)
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(%d)&_pragma=journal_mode(WAL)", path, timeout)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-
-	// Enable WAL mode for better concurrency.
-	// See: https://www.sqlite.org/wal.html
-	if _, err := db.Exec("PRAGMA journal_mode = WAL;"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("could not enable WAL mode: %w", err)
-	}
-
-	// Set a busy timeout to handle concurrent writes.
-	// See: https://www.sqlite.org/pragma.html#pragma_busy_timeout
-	if _, err := db.Exec(fmt.Sprintf("PRAGMA busy_timeout = %d;", timeout)); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("could not set busy_timeout: %w", err)
-	}
-
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
