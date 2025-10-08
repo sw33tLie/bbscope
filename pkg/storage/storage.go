@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS programs (
 	first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	strict    INTEGER NOT NULL DEFAULT 0 CHECK (strict IN (0,1)),
-	disabled  INTEGER NOT NULL DEFAULT 0 CHECK (disabled IN (0,1))
+	disabled  INTEGER NOT NULL DEFAULT 0 CHECK (disabled IN (0,1)),
+	is_ignored INTEGER NOT NULL DEFAULT 0 CHECK (is_ignored IN (0,1))
 );
 CREATE INDEX IF NOT EXISTS idx_programs_platform ON programs(platform);
 CREATE INDEX IF NOT EXISTS idx_programs_url ON programs(url);
@@ -107,7 +108,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		}
 	} else {
 		// Program exists, update last_seen_at
-		_, err = tx.ExecContext(ctx, "UPDATE programs SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?", programID)
+		_, err = tx.ExecContext(ctx, "UPDATE programs SET last_seen_at = CURRENT_TIMESTAMP, disabled = 0 WHERE id = ?", programID)
 		if err != nil {
 			return nil, err
 		}
@@ -201,6 +202,127 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 	return changes, tx.Commit()
 }
 
+// SetProgramIgnoredStatus sets the is_ignored flag for a program.
+func (d *DB) SetProgramIgnoredStatus(ctx context.Context, programURL string, ignored bool) error {
+	res, err := d.sql.ExecContext(ctx, "UPDATE programs SET is_ignored = ? WHERE url LIKE ?", boolToInt(ignored), fmt.Sprintf("%%%s%%", programURL))
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("no program found matching URL pattern: %s", programURL)
+	}
+	return nil
+}
+
+// GetIgnoredPrograms returns a map of program URLs that are marked as ignored for a specific platform.
+func (d *DB) GetIgnoredPrograms(ctx context.Context, platform string) (map[string]bool, error) {
+	rows, err := d.sql.QueryContext(ctx, "SELECT url FROM programs WHERE platform = ? AND is_ignored = 1", platform)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ignoredMap := make(map[string]bool)
+	for rows.Next() {
+		var url string
+		if err := rows.Scan(&url); err != nil {
+			return nil, err
+		}
+		ignoredMap[url] = true
+	}
+	return ignoredMap, rows.Err()
+}
+
+// SyncPlatformPrograms marks programs that are no longer returned by a platform's API as 'disabled'
+// and logs their removal as a single event, preventing spam from individual target removals.
+func (d *DB) SyncPlatformPrograms(ctx context.Context, platform string, polledProgramURLs []string) ([]Change, error) {
+	now := time.Now().UTC()
+	var changes []Change
+
+	tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// Create a temporary table to hold the URLs from the latest poll
+	_, err = tx.ExecContext(ctx, `CREATE TEMP TABLE polled_urls (url TEXT NOT NULL PRIMARY KEY)`)
+	if err != nil {
+		return nil, fmt.Errorf("creating temp table: %w", err)
+	}
+
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO polled_urls (url) VALUES (?)`)
+	if err != nil {
+		return nil, fmt.Errorf("preparing insert statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, url := range polledProgramURLs {
+		if _, err := stmt.ExecContext(ctx, url); err != nil {
+			return nil, fmt.Errorf("inserting into temp table: %w", err)
+		}
+	}
+
+	// Find programs in the DB for this platform that are NOT in the polled list
+	rows, err := tx.QueryContext(ctx, `
+		SELECT p.id, p.url, p.handle
+		FROM programs p
+		LEFT JOIN polled_urls pu ON p.url = pu.url
+		WHERE p.platform = ? AND p.disabled = 0 AND p.is_ignored = 0 AND pu.url IS NULL
+	`, platform)
+	if err != nil {
+		return nil, fmt.Errorf("querying for removed programs: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var programID int64
+		var programURL, handle string
+		if err := rows.Scan(&programID, &programURL, &handle); err != nil {
+			return nil, err
+		}
+
+		// Mark the program as disabled
+		if _, err := tx.ExecContext(ctx, `UPDATE programs SET disabled = 1 WHERE id = ?`, programID); err != nil {
+			return nil, fmt.Errorf("disabling program %d: %w", programID, err)
+		}
+
+		// Delete associated targets
+		if _, err := tx.ExecContext(ctx, `DELETE FROM targets WHERE program_id = ?`, programID); err != nil {
+			return nil, fmt.Errorf("deleting targets for program %d: %w", programID, err)
+		}
+
+		// Create a single "removed" change event for the entire program
+		change := Change{
+			OccurredAt:       now,
+			ProgramURL:       programURL,
+			Platform:         platform,
+			Handle:           handle,
+			TargetNormalized: programURL, // Use the program URL as the "target"
+			Category:         "program",
+			InScope:          false,
+			IsBBP:            false,
+			ChangeType:       "removed",
+		}
+		changes = append(changes, change)
+
+		_, ierr := tx.ExecContext(ctx, `INSERT INTO scope_changes(occurred_at, program_url, platform, handle, target_normalized, category, in_scope, is_bbp, change_type) VALUES(CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, 'removed')`,
+			programURL, platform, handle, programURL, "program", boolToInt(false), boolToInt(false))
+		if ierr != nil {
+			return nil, ierr
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return changes, tx.Commit()
+}
+
 // BuildEntries unchanged...
 func BuildEntries(programURL, platform, handle string, items []TargetItem) ([]Entry, error) {
 	if programURL == "" || platform == "" {
@@ -228,10 +350,11 @@ func BuildEntries(programURL, platform, handle string, items []TargetItem) ([]En
 
 // ListOptions controls selection when listing entries.
 type ListOptions struct {
-	Platform      string
-	ProgramFilter string
-	Since         time.Time
-	IncludeOOS    bool
+	Platform       string
+	ProgramFilter  string
+	Since          time.Time
+	IncludeOOS     bool
+	IncludeIgnored bool
 }
 
 // ListEntries returns current entries matching filters.
@@ -248,6 +371,9 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 	}
 	if !opts.IncludeOOS {
 		where += " AND t.in_scope = 1"
+	}
+	if !opts.IncludeIgnored {
+		where += " AND p.is_ignored = 0"
 	}
 	if !opts.Since.IsZero() {
 		where += " AND t.last_seen_at >= ?"
@@ -330,6 +456,8 @@ func (d *DB) GetStats(ctx context.Context) ([]PlatformStats, error) {
 			SUM(CASE WHEN t.in_scope = 0 THEN 1 ELSE 0 END)
 		FROM
 			programs p JOIN targets t ON p.id = t.program_id
+		WHERE
+			p.is_ignored = 0
 		GROUP BY
 			p.platform
 		ORDER BY
@@ -360,7 +488,7 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 		SELECT p.url, p.platform, p.handle, t.target_normalized, t.target_raw, t.category, t.description, t.in_scope, t.is_bbp, 0 as is_historical
 		FROM targets t 
 		JOIN programs p ON t.program_id = p.id 
-		WHERE t.target_normalized LIKE ? OR t.description LIKE ?
+		WHERE (t.target_normalized LIKE ? OR t.description LIKE ?) AND p.is_ignored = 0
 
 		UNION
 

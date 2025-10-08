@@ -145,15 +145,39 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 			BountyOnly:  bbpOnly,
 			PrivateOnly: pvtOnly,
 		}
+
+		var ignoredPrograms map[string]bool
+		if useDB {
+			var err error
+			ignoredPrograms, err = db.GetIgnoredPrograms(ctx, p.Name())
+			if err != nil {
+				utils.Log.Warnf("Could not get ignored programs for %s: %v", p.Name(), err)
+				ignoredPrograms = make(map[string]bool) // Continue with an empty map
+			}
+		}
+
 		handles, err := p.ListProgramHandles(ctx, opts)
 		if err != nil {
 			return err
 		}
+
+		polledProgramURLs := make([]string, 0, len(handles))
+
 		for _, h := range handles {
 			pd, err := p.FetchProgramScope(ctx, h, opts)
 			if err != nil {
-				return err
+				// Log error and continue to next handle
+				utils.Log.Warnf("Failed to fetch scope for %s: %v", h, err)
+				continue
 			}
+
+			if useDB && ignoredPrograms[pd.Url] {
+				utils.Log.Debugf("Skipping ignored program: %s", pd.Url)
+				continue
+			}
+
+			polledProgramURLs = append(polledProgramURLs, pd.Url)
+
 			if !useDB {
 				output, _ := cmd.Flags().GetString("output")
 				delimiter, _ := cmd.Flags().GetString("delimiter")
@@ -178,19 +202,39 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 			if err != nil {
 				return err
 			}
-			for _, c := range changes {
-				var emoji string
-				switch c.ChangeType {
-				case "added":
-					emoji = "🆕"
-				case "removed":
-					emoji = "❌"
-				case "updated":
-					emoji = "🔄"
-				}
-				fmt.Printf("%s  %s  %s  %s  in_scope=%t\n", emoji, c.Platform, c.ProgramURL, c.TargetNormalized, c.InScope)
+			printChanges(changes)
+		}
+
+		if useDB {
+			// After processing all programs for a platform, sync the state.
+			// This will mark any programs that were not in the latest poll as disabled.
+			removedProgramChanges, err := db.SyncPlatformPrograms(ctx, p.Name(), polledProgramURLs)
+			if err != nil {
+				// We can log this as a warning instead of returning a fatal error
+				utils.Log.Warnf("Failed to sync removed programs for platform %s: %v", p.Name(), err)
 			}
+			printChanges(removedProgramChanges)
 		}
 	}
 	return nil
+}
+
+func printChanges(changes []storage.Change) {
+	for _, c := range changes {
+		var emoji string
+		switch c.ChangeType {
+		case "added":
+			emoji = "🆕"
+		case "removed":
+			// Special case for entire program removals
+			if c.Category == "program" {
+				fmt.Printf("❌ Program removed: %s\n", c.ProgramURL)
+				continue
+			}
+			emoji = "❌"
+		case "updated":
+			emoji = "🔄"
+		}
+		fmt.Printf("%s  %s  %s  %s  in_scope=%t\n", emoji, c.Platform, c.ProgramURL, c.TargetNormalized, c.InScope)
+	}
 }

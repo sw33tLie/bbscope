@@ -24,6 +24,7 @@ func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOpti
 	return []string{
 		"https://example.com/program/a",
 		"https://example.com/program/b",
+		"https://example.com/program/c",
 	}, nil
 }
 
@@ -45,6 +46,10 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 
 	case strings.Contains(handle, "/b"):
 		pd.InScope = []scope.ScopeElement{{Target: "api.b.example.com", Description: "api", Category: "api"}}
+
+	case strings.Contains(handle, "/c"):
+		pd.InScope = []scope.ScopeElement{{Target: "asdasd.google.com", Description: "api", Category: "api"}}
+
 	}
 	return pd, nil
 }

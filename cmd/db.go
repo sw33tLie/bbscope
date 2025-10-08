@@ -155,6 +155,7 @@ var printCmd = &cobra.Command{
 		oos, _ := cmd.Flags().GetBool("oos")
 		sinceStr, _ := cmd.Flags().GetString("since")
 		format, _ := cmd.Flags().GetString("format")
+		includeIgnored, _ := cmd.Flags().GetBool("include-ignored")
 		dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
 
 		if dbPath == "" {
@@ -182,7 +183,13 @@ var printCmd = &cobra.Command{
 			since = s
 		}
 
-		entries, err := db.ListEntries(context.Background(), storage.ListOptions{Platform: platform, ProgramFilter: program, Since: since, IncludeOOS: oos})
+		entries, err := db.ListEntries(context.Background(), storage.ListOptions{
+			Platform:       platform,
+			ProgramFilter:  program,
+			Since:          since,
+			IncludeOOS:     oos,
+			IncludeIgnored: includeIgnored,
+		})
 		if err != nil {
 			return err
 		}
@@ -322,5 +329,6 @@ func init() {
 	printCmd.Flags().String("format", "txt", "Output format: txt|json|csv")
 	printCmd.Flags().StringP("delimiter", "d", " ", "Delimiter character to use for txt output format")
 	printCmd.Flags().StringP("output", "o", "tu", "Output flags. Supported: t (target), d (target description), c (category), u (program URL). Can be combined. Example: -o tdu")
+	printCmd.Flags().Bool("include-ignored", false, "Include programs that are marked as ignored")
 	dbCmd.PersistentFlags().StringVar(&dbPath, "dbpath", "bbscope.sqlite", "Path to SQLite DB file")
 }
