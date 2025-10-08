@@ -91,40 +91,53 @@ func (d *DB) Close() error {
 	return d.sql.Close()
 }
 
-func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, handle string, entries []Entry) ([]Change, error) {
-	now := time.Now().UTC()
-
+// getOrCreateProgram handles the atomic retrieval or creation of a program entry.
+// It uses a short-lived transaction to prevent race conditions and minimize lock time.
+func (d *DB) getOrCreateProgram(ctx context.Context, programURL, platform, handle string) (int64, error) {
 	tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	defer tx.Rollback()
 
-	// 1. Get or create program
 	var programID int64
 	err = tx.QueryRowContext(ctx, "SELECT id FROM programs WHERE url = ?", programURL).Scan(&programID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
+		return 0, err // A real error occurred.
 	}
+
 	if errors.Is(err, sql.ErrNoRows) {
+		// Program doesn't exist, create it.
 		res, err := tx.ExecContext(ctx, "INSERT INTO programs(platform, handle, url, first_seen_at, last_seen_at) VALUES(?,?,?,CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", platform, handle, programURL)
 		if err != nil {
-			return nil, fmt.Errorf("inserting program: %w", err)
+			return 0, fmt.Errorf("inserting program: %w", err)
 		}
 		programID, err = res.LastInsertId()
 		if err != nil {
-			return nil, err
+			return 0, err
 		}
 	} else {
-		// Program exists, update last_seen_at
+		// Program exists, update last_seen_at.
 		_, err = tx.ExecContext(ctx, "UPDATE programs SET last_seen_at = CURRENT_TIMESTAMP, disabled = 0 WHERE id = ?", programID)
 		if err != nil {
-			return nil, err
+			return 0, err
 		}
 	}
 
-	// 2. Get existing targets for this program
-	rows, err := tx.QueryContext(ctx, "SELECT id, target_raw, target_normalized, category, in_scope, description, is_bbp FROM targets WHERE program_id = ?", programID)
+	return programID, tx.Commit()
+}
+
+func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, handle string, entries []Entry) ([]Change, error) {
+	now := time.Now().UTC()
+
+	// 1. Get or create program in its own short transaction to minimize lock time.
+	programID, err := d.getOrCreateProgram(ctx, programURL, platform, handle)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get or create program: %w", err)
+	}
+
+	// 2. Get existing targets for this program (this is a read, no transaction needed in WAL mode)
+	rows, err := d.sql.QueryContext(ctx, "SELECT id, target_raw, target_normalized, category, in_scope, description, is_bbp FROM targets WHERE program_id = ?", programID)
 	if err != nil {
 		return nil, err
 	}
@@ -154,65 +167,127 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 	}
 
 	// SAFETY CHECK: If the incoming data has zero entries, but we know in the DB
-	// that this program HAS entries, we abort the transaction. This prevents a broken
-	// poller from wiping out a program's scope.
+	// that this program HAS entries, we abort. This prevents a broken poller from wiping a scope.
 	if len(entries) == 0 && len(existingMap) > 0 {
 		return nil, ErrAbortingScopeWipe
 	}
 
-	// 3. Insert or update new entries
+	// 3. Perform comparison and prepare changes in memory (no DB lock)
 	var changes []Change
 	processedKeys := make(map[string]bool)
+
+	toAdd := []Entry{}
+	toUpdate := []struct {
+		entry Entry
+		id    int64
+	}{}
+	toTouch := []int64{}
 
 	for _, e := range entries {
 		key := identityKey(e.TargetRaw)
 		if processedKeys[key] {
 			continue // Skip duplicates within the same API response
 		}
+		processedKeys[key] = true
 
-		inScopeInt := boolToInt(e.InScope)
-		isBBPInt := boolToInt(e.IsBBP)
 		ex, existed := existingMap[key]
-
 		if !existed {
-			_, err = tx.ExecContext(ctx, `INSERT INTO targets(program_id, target_normalized, target_raw, category, description, in_scope, is_bbp, first_seen_at, last_seen_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
-				programID, e.TargetNormalized, e.TargetRaw, e.Category, nullIfEmpty(e.Description), inScopeInt, isBBPInt)
-			if err != nil {
-				return nil, err
-			}
+			toAdd = append(toAdd, e)
 			changes = append(changes, Change{OccurredAt: now, ProgramURL: programURL, Platform: platform, Handle: handle, TargetRaw: e.TargetRaw, TargetNormalized: e.TargetNormalized, Category: e.Category, InScope: e.InScope, IsBBP: e.IsBBP, ChangeType: "added"})
 		} else {
-			// Note: We are now intentionally NOT checking for category changes.
 			if ex.Desc != e.Description || ex.InScope != e.InScope || ex.IsBBP != e.IsBBP {
-				_, err = tx.ExecContext(ctx, `UPDATE targets SET description = ?, in_scope = ?, is_bbp = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`, nullIfEmpty(e.Description), inScopeInt, isBBPInt, ex.ID)
-				if err != nil {
-					return nil, err
-				}
+				toUpdate = append(toUpdate, struct {
+					entry Entry
+					id    int64
+				}{entry: e, id: ex.ID})
 				changes = append(changes, Change{OccurredAt: now, ProgramURL: programURL, Platform: platform, Handle: handle, TargetRaw: e.TargetRaw, TargetNormalized: e.TargetNormalized, Category: e.Category, InScope: e.InScope, IsBBP: e.IsBBP, ChangeType: "updated"})
 			} else {
-				// Just update last_seen_at
-				_, err = tx.ExecContext(ctx, `UPDATE targets SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`, ex.ID)
-				if err != nil {
-					return nil, err
-				}
+				toTouch = append(toTouch, ex.ID)
 			}
 		}
-		processedKeys[key] = true
 	}
 
-	// 4. Sweep for removed targets
+	toRemove := []existingTarget{}
 	for key, ex := range existingMap {
 		if !processedKeys[key] {
-			// This target existed in the DB but wasn't in the latest poll, so it's removed.
-			_, err = tx.ExecContext(ctx, `DELETE FROM targets WHERE id = ?`, ex.ID)
+			toRemove = append(toRemove, ex)
+			changes = append(changes, Change{OccurredAt: now, ProgramURL: programURL, Platform: platform, Handle: handle, TargetRaw: ex.Raw, TargetNormalized: ex.Norm, Category: ex.Cat, InScope: ex.InScope, IsBBP: ex.IsBBP, ChangeType: "removed"})
+		}
+	}
+
+	// 4. Start a transaction for all the batched write operations
+	tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// Batch Inserts
+	if len(toAdd) > 0 {
+		stmt, err := tx.PrepareContext(ctx, `INSERT INTO targets(program_id, target_normalized, target_raw, category, description, in_scope, is_bbp, first_seen_at, last_seen_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`)
+		if err != nil {
+			return nil, err
+		}
+		defer stmt.Close()
+		for _, e := range toAdd {
+			_, err := stmt.ExecContext(ctx, programID, e.TargetNormalized, e.TargetRaw, e.Category, nullIfEmpty(e.Description), boolToInt(e.InScope), boolToInt(e.IsBBP))
 			if err != nil {
 				return nil, err
 			}
-			_, ierr := tx.ExecContext(ctx, `INSERT INTO scope_changes(occurred_at, program_url, platform, handle, target_normalized, target_raw, category, in_scope, is_bbp, change_type) VALUES(CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, 'removed')`, programURL, platform, handle, ex.Norm, ex.Raw, ex.Cat, boolToInt(ex.InScope), boolToInt(ex.IsBBP))
-			if ierr != nil {
-				return nil, ierr
+		}
+	}
+
+	// Batch Updates
+	if len(toUpdate) > 0 {
+		stmt, err := tx.PrepareContext(ctx, `UPDATE targets SET description = ?, in_scope = ?, is_bbp = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
+		if err != nil {
+			return nil, err
+		}
+		defer stmt.Close()
+		for _, u := range toUpdate {
+			_, err := stmt.ExecContext(ctx, nullIfEmpty(u.entry.Description), boolToInt(u.entry.InScope), boolToInt(u.entry.IsBBP), u.id)
+			if err != nil {
+				return nil, err
 			}
-			changes = append(changes, Change{OccurredAt: now, ProgramURL: programURL, Platform: platform, Handle: handle, TargetRaw: ex.Raw, TargetNormalized: ex.Norm, Category: ex.Cat, InScope: ex.InScope, IsBBP: ex.IsBBP, ChangeType: "removed"})
+		}
+	}
+
+	// Batch Touches (update last_seen_at)
+	if len(toTouch) > 0 {
+		stmt, err := tx.PrepareContext(ctx, `UPDATE targets SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
+		if err != nil {
+			return nil, err
+		}
+		defer stmt.Close()
+		for _, id := range toTouch {
+			_, err := stmt.ExecContext(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Batch Deletes and log changes
+	if len(toRemove) > 0 {
+		delStmt, err := tx.PrepareContext(ctx, `DELETE FROM targets WHERE id = ?`)
+		if err != nil {
+			return nil, err
+		}
+		defer delStmt.Close()
+
+		logStmt, err := tx.PrepareContext(ctx, `INSERT INTO scope_changes(occurred_at, program_url, platform, handle, target_normalized, target_raw, category, in_scope, is_bbp, change_type) VALUES(CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, 'removed')`)
+		if err != nil {
+			return nil, err
+		}
+		defer logStmt.Close()
+
+		for _, ex := range toRemove {
+			if _, err := delStmt.ExecContext(ctx, ex.ID); err != nil {
+				return nil, err
+			}
+			if _, err := logStmt.ExecContext(ctx, programURL, platform, handle, ex.Norm, ex.Raw, ex.Cat, boolToInt(ex.InScope), boolToInt(ex.IsBBP)); err != nil {
+				return nil, err
+			}
 		}
 	}
 
