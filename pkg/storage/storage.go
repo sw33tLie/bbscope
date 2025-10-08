@@ -345,67 +345,71 @@ func (d *DB) SyncPlatformPrograms(ctx context.Context, platform string, polledPr
 	now := time.Now().UTC()
 	var changes []Change
 
-	tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	// Create a temporary table to hold the URLs from the latest poll
-	_, err = tx.ExecContext(ctx, `CREATE TEMP TABLE polled_urls (url TEXT NOT NULL PRIMARY KEY)`)
-	if err != nil {
-		return nil, fmt.Errorf("creating temp table: %w", err)
-	}
-
-	stmt, err := tx.PrepareContext(ctx, `INSERT INTO polled_urls (url) VALUES (?)`)
-	if err != nil {
-		return nil, fmt.Errorf("preparing insert statement: %w", err)
-	}
-	defer stmt.Close()
-
+	// 1. Create a set of polled URLs for efficient lookup.
+	polledURLSet := make(map[string]struct{}, len(polledProgramURLs))
 	for _, url := range polledProgramURLs {
-		if _, err := stmt.ExecContext(ctx, url); err != nil {
-			return nil, fmt.Errorf("inserting into temp table: %w", err)
-		}
+		polledURLSet[url] = struct{}{}
 	}
 
-	// Find programs in the DB for this platform that are NOT in the polled list
-	rows, err := tx.QueryContext(ctx, `
+	// 2. Get all active programs for this platform from the DB (read operation, no transaction needed).
+	rows, err := d.sql.QueryContext(ctx, `
 		SELECT p.id, p.url, p.handle
 		FROM programs p
-		LEFT JOIN polled_urls pu ON p.url = pu.url
-		WHERE p.platform = ? AND p.disabled = 0 AND p.is_ignored = 0 AND pu.url IS NULL
+		WHERE p.platform = ? AND p.disabled = 0 AND p.is_ignored = 0
 	`, platform)
 	if err != nil {
-		return nil, fmt.Errorf("querying for removed programs: %w", err)
+		return nil, fmt.Errorf("querying for active programs: %w", err)
 	}
 	defer rows.Close()
 
+	type programToRemove struct {
+		ID     int64
+		URL    string
+		Handle string
+	}
+	var toRemove []programToRemove
+
 	for rows.Next() {
-		var programID int64
-		var programURL, handle string
-		if err := rows.Scan(&programID, &programURL, &handle); err != nil {
+		var p programToRemove
+		if err := rows.Scan(&p.ID, &p.URL, &p.Handle); err != nil {
 			return nil, err
+		}
+		if _, found := polledURLSet[p.URL]; !found {
+			toRemove = append(toRemove, p)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// 3. For each program that was not in the latest poll, process its removal
+	// in its own short-lived transaction to avoid long-held locks.
+	for _, p := range toRemove {
+		tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("starting transaction for program removal %d: %w", p.ID, err)
 		}
 
 		// Mark the program as disabled
-		if _, err := tx.ExecContext(ctx, `UPDATE programs SET disabled = 1 WHERE id = ?`, programID); err != nil {
-			return nil, fmt.Errorf("disabling program %d: %w", programID, err)
+		if _, err := tx.ExecContext(ctx, `UPDATE programs SET disabled = 1 WHERE id = ?`, p.ID); err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("disabling program %d: %w", p.ID, err)
 		}
 
 		// Delete associated targets
-		if _, err := tx.ExecContext(ctx, `DELETE FROM targets WHERE program_id = ?`, programID); err != nil {
-			return nil, fmt.Errorf("deleting targets for program %d: %w", programID, err)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM targets WHERE program_id = ?`, p.ID); err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("deleting targets for program %d: %w", p.ID, err)
 		}
 
 		// Create a single "removed" change event for the entire program
 		change := Change{
 			OccurredAt:       now,
-			ProgramURL:       programURL,
+			ProgramURL:       p.URL,
 			Platform:         platform,
-			Handle:           handle,
-			TargetNormalized: programURL, // Use the program URL as the "target"
-			TargetRaw:        programURL,
+			Handle:           p.Handle,
+			TargetNormalized: p.URL, // Use the program URL as the "target"
+			TargetRaw:        p.URL,
 			Category:         "program",
 			InScope:          false,
 			IsBBP:            false,
@@ -414,16 +418,18 @@ func (d *DB) SyncPlatformPrograms(ctx context.Context, platform string, polledPr
 		changes = append(changes, change)
 
 		_, ierr := tx.ExecContext(ctx, `INSERT INTO scope_changes(occurred_at, program_url, platform, handle, target_normalized, target_raw, category, in_scope, is_bbp, change_type) VALUES(CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, 'removed')`,
-			programURL, platform, handle, programURL, programURL, "program", boolToInt(false), boolToInt(false))
+			p.URL, platform, p.Handle, p.URL, p.URL, "program", boolToInt(false), boolToInt(false))
 		if ierr != nil {
+			tx.Rollback()
 			return nil, ierr
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("committing transaction for program removal %d: %w", p.ID, err)
+		}
 	}
 
-	return changes, tx.Commit()
+	return changes, nil
 }
 
 // BuildEntries unchanged...
