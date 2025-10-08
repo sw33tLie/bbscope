@@ -110,6 +110,7 @@ func init() {
 	pollCmd.PersistentFlags().String("category", "all", "Scope categories to include (wildcard, url, cidr, apple, android, ai, etc.)")
 	pollCmd.PersistentFlags().Bool("db", false, "Save results to the database and print changes")
 	pollCmd.PersistentFlags().String("dbpath", "", "Path to SQLite DB file (default: bbscope.sqlite in CWD)")
+	pollCmd.PersistentFlags().Int("db-timeout", 15000, "Timeout in ms to wait for DB lock to be released")
 	pollCmd.PersistentFlags().Int("concurrency", 5, "Number of concurrent program fetches per platform")
 	pollCmd.PersistentFlags().String("since", "", "Only print changes since this RFC3339 timestamp (requires --db)")
 	pollCmd.PersistentFlags().Bool("oos", false, "Include out-of-scope elements")
@@ -127,11 +128,12 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 	if dbPath == "" {
 		dbPath = "bbscope.sqlite"
 	}
+	dbTimeout, _ := cmd.Flags().GetInt("db-timeout")
 
 	var db *storage.DB
 	var err error
 	if useDB {
-		db, err = storage.Open(dbPath)
+		db, err = storage.Open(dbPath, dbTimeout)
 		if err != nil {
 			return err
 		}

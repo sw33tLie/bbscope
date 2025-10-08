@@ -66,8 +66,11 @@ CREATE INDEX IF NOT EXISTS idx_changes_time ON scope_changes(occurred_at);
 CREATE INDEX IF NOT EXISTS idx_changes_program ON scope_changes(program_url, occurred_at);
 `
 
-func Open(path string) (*DB, error) {
-	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+func Open(path string, timeout int) (*DB, error) {
+	if timeout <= 0 {
+		timeout = 5000 // Default to 5 seconds if not specified or invalid
+	}
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(%d)&_pragma=journal_mode(WAL)", path, timeout)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
