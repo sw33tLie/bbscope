@@ -2,9 +2,8 @@ package cmd
 
 import (
 	"context"
-	"fmt"
-
 	"errors"
+	"fmt"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -131,8 +130,17 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 	dbTimeout, _ := cmd.Flags().GetInt("db-timeout")
 
 	var db *storage.DB
-	var err error
 	if useDB {
+		lock, err := utils.NewDBLock(dbPath)
+		if err != nil {
+			return fmt.Errorf("could not create db lock: %w", err)
+		}
+
+		if err := lock.Lock(); err != nil {
+			return fmt.Errorf("could not acquire db lock: %w", err)
+		}
+		defer lock.Unlock()
+
 		db, err = storage.Open(dbPath, dbTimeout)
 		if err != nil {
 			return err
