@@ -135,7 +135,17 @@ var changesCmd = &cobra.Command{
 		}
 		for _, c := range changes {
 			ts := c.OccurredAt.Format("2006-01-02 15:04:05")
-			fmt.Printf("%s  %-6s  %s  %s  %s  in_scope=%t\n", ts, c.ChangeType, c.Platform, c.ProgramURL, c.TargetNormalized, c.InScope)
+
+			if c.ChangeType == "removed" && c.Category == "program" {
+				fmt.Printf("%s  %-6s  %s  Program removed: %s\n", ts, c.ChangeType, c.Platform, c.ProgramURL)
+				continue
+			}
+
+			scopeStatus := ""
+			if !c.InScope {
+				scopeStatus = " [OOS]"
+			}
+			fmt.Printf("%s  %-6s  %s  %s  %s%s\n", ts, c.ChangeType, c.Platform, c.ProgramURL, c.TargetNormalized, scopeStatus)
 		}
 		return nil
 	},

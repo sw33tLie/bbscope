@@ -48,7 +48,7 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 		pd.InScope = []scope.ScopeElement{{Target: "api.b.example.com", Description: "api", Category: "api"}}
 
 	case strings.Contains(handle, "/c"):
-		pd.InScope = []scope.ScopeElement{{Target: "asdasd.google.com", Description: "api", Category: "api"}}
+		pd.OutOfScope = []scope.ScopeElement{{Target: "asdassds.google.com", Description: "api", Category: "api"}}
 
 	}
 	return pd, nil

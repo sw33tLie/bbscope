@@ -235,6 +235,11 @@ func printChanges(changes []storage.Change) {
 		case "updated":
 			emoji = "🔄"
 		}
-		fmt.Printf("%s  %s  %s  %s  in_scope=%t\n", emoji, c.Platform, c.ProgramURL, c.TargetNormalized, c.InScope)
+
+		scopeStatus := ""
+		if !c.InScope {
+			scopeStatus = " [OOS]"
+		}
+		fmt.Printf("%s  %s  %s  %s%s\n", emoji, c.Platform, c.ProgramURL, c.TargetNormalized, scopeStatus)
 	}
 }
