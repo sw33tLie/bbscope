@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"errors"
 
@@ -232,7 +234,17 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 			if err != nil {
 				return err
 			}
-			changes, err := db.UpsertProgramEntries(ctx, pd.Url, p.Name(), h, entries)
+
+			const maxRetries = 5
+			const initialBackoff = 1 * time.Second
+
+			var changes []storage.Change
+			err = executeDBWrite(maxRetries, initialBackoff, func() error {
+				var err error
+				changes, err = db.UpsertProgramEntries(ctx, pd.Url, p.Name(), h, entries)
+				return err
+			})
+
 			if err != nil {
 				if errors.Is(err, storage.ErrAbortingScopeWipe) {
 					utils.Log.Warnf("Potential scope wipe detected for program %s. Skipping update. This might be due to a broken poller or a platform API change.", pd.Url)
@@ -249,7 +261,16 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 		if useDB {
 			// After processing all programs for a platform, sync the state.
 			// This will mark any programs that were not in the latest poll as disabled.
-			removedProgramChanges, err := db.SyncPlatformPrograms(ctx, p.Name(), polledProgramURLs)
+			var removedProgramChanges []storage.Change
+			const maxRetries = 5
+			const initialBackoff = 1 * time.Second
+
+			err := executeDBWrite(maxRetries, initialBackoff, func() error {
+				var err error
+				removedProgramChanges, err = db.SyncPlatformPrograms(ctx, p.Name(), polledProgramURLs)
+				return err
+			})
+
 			if err != nil {
 				// We can log this as a warning instead of returning a fatal error
 				utils.Log.Warnf("Failed to sync removed programs for platform %s: %v", p.Name(), err)
@@ -260,6 +281,32 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 		}
 	}
 	return nil
+}
+
+// executeDBWrite handles retry logic for database write operations that might fail
+// due to locking. It uses exponential backoff.
+func executeDBWrite(maxRetries int, initialBackoff time.Duration, op func() error) error {
+	var err error
+	backoff := initialBackoff
+	for i := 0; i < maxRetries; i++ {
+		err = op()
+		if err == nil {
+			return nil
+		}
+
+		// Check if the error is a SQLite busy/locked error. This is driver-specific.
+		// For modernc.org/sqlite, the error message contains "database is locked".
+		if strings.Contains(err.Error(), "database is locked") || strings.Contains(err.Error(), "SQLITE_BUSY") {
+			utils.Log.Warnf("Database is locked, retrying in %s... (attempt %d/%d)", backoff, i+1, maxRetries)
+			time.Sleep(backoff)
+			backoff *= 2 // Exponential backoff
+			continue
+		}
+
+		// For other types of errors, don't retry.
+		return err
+	}
+	return fmt.Errorf("database operation failed after %d retries: %w", maxRetries, err)
 }
 
 func printChanges(changes []storage.Change) {
