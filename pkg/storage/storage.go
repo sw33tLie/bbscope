@@ -216,82 +216,121 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 	}
 
 	// 4. Start a transaction for all the batched write operations
-	tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	// Batch Inserts
 	if len(toAdd) > 0 {
-		stmt, err := tx.PrepareContext(ctx, `INSERT INTO targets(program_id, target_normalized, target_raw, category, description, in_scope, is_bbp, first_seen_at, last_seen_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`)
+		tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
 		if err != nil {
 			return nil, err
 		}
-		defer stmt.Close()
+		stmt, err := tx.PrepareContext(ctx, `INSERT INTO targets(program_id, target_normalized, target_raw, category, description, in_scope, is_bbp, first_seen_at, last_seen_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`)
+		if err != nil {
+			tx.Rollback()
+			return nil, err
+		}
 		for _, e := range toAdd {
 			_, err := stmt.ExecContext(ctx, programID, e.TargetNormalized, e.TargetRaw, e.Category, nullIfEmpty(e.Description), boolToInt(e.InScope), boolToInt(e.IsBBP))
 			if err != nil {
+				stmt.Close()
+				tx.Rollback()
 				return nil, err
 			}
+		}
+		stmt.Close()
+		if err := tx.Commit(); err != nil {
+			return nil, err
 		}
 	}
 
 	// Batch Updates
 	if len(toUpdate) > 0 {
-		stmt, err := tx.PrepareContext(ctx, `UPDATE targets SET description = ?, in_scope = ?, is_bbp = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
+		tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
 		if err != nil {
 			return nil, err
 		}
-		defer stmt.Close()
+		stmt, err := tx.PrepareContext(ctx, `UPDATE targets SET description = ?, in_scope = ?, is_bbp = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
+		if err != nil {
+			tx.Rollback()
+			return nil, err
+		}
 		for _, u := range toUpdate {
 			_, err := stmt.ExecContext(ctx, nullIfEmpty(u.entry.Description), boolToInt(u.entry.InScope), boolToInt(u.entry.IsBBP), u.id)
 			if err != nil {
+				stmt.Close()
+				tx.Rollback()
 				return nil, err
 			}
+		}
+		stmt.Close()
+		if err := tx.Commit(); err != nil {
+			return nil, err
 		}
 	}
 
 	// Batch Touches (update last_seen_at)
 	if len(toTouch) > 0 {
-		stmt, err := tx.PrepareContext(ctx, `UPDATE targets SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
+		tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
 		if err != nil {
 			return nil, err
 		}
-		defer stmt.Close()
+		stmt, err := tx.PrepareContext(ctx, `UPDATE targets SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
+		if err != nil {
+			tx.Rollback()
+			return nil, err
+		}
 		for _, id := range toTouch {
 			_, err := stmt.ExecContext(ctx, id)
 			if err != nil {
+				stmt.Close()
+				tx.Rollback()
 				return nil, err
 			}
+		}
+		stmt.Close()
+		if err := tx.Commit(); err != nil {
+			return nil, err
 		}
 	}
 
 	// Batch Deletes and log changes
 	if len(toRemove) > 0 {
-		delStmt, err := tx.PrepareContext(ctx, `DELETE FROM targets WHERE id = ?`)
+		tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
 		if err != nil {
 			return nil, err
 		}
-		defer delStmt.Close()
+		delStmt, err := tx.PrepareContext(ctx, `DELETE FROM targets WHERE id = ?`)
+		if err != nil {
+			tx.Rollback()
+			return nil, err
+		}
 
 		logStmt, err := tx.PrepareContext(ctx, `INSERT INTO scope_changes(occurred_at, program_url, platform, handle, target_normalized, target_raw, category, in_scope, is_bbp, change_type) VALUES(CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, 'removed')`)
 		if err != nil {
+			delStmt.Close()
+			tx.Rollback()
 			return nil, err
 		}
-		defer logStmt.Close()
 
 		for _, ex := range toRemove {
 			if _, err := delStmt.ExecContext(ctx, ex.ID); err != nil {
+				delStmt.Close()
+				logStmt.Close()
+				tx.Rollback()
 				return nil, err
 			}
 			if _, err := logStmt.ExecContext(ctx, programURL, platform, handle, ex.Norm, ex.Raw, ex.Cat, boolToInt(ex.InScope), boolToInt(ex.IsBBP)); err != nil {
+				delStmt.Close()
+				logStmt.Close()
+				tx.Rollback()
 				return nil, err
 			}
 		}
+		delStmt.Close()
+		logStmt.Close()
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
 	}
 
-	return changes, tx.Commit()
+	return changes, nil
 }
 
 // SetProgramIgnoredStatus sets the is_ignored flag for a program.

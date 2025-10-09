@@ -1,3 +1,2 @@
 bbscope
-*.sqlite
-bbscope.sqlite-*
+bbscope*
