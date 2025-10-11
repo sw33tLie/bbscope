@@ -326,6 +326,44 @@ var findCmd = &cobra.Command{
 	},
 }
 
+var addCmd = &cobra.Command{
+	Use:   "add",
+	Short: "Add a custom target to the database",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		target, _ := cmd.Flags().GetString("target")
+		category, _ := cmd.Flags().GetString("category")
+		dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
+		if dbPath == "" {
+			dbPath = "bbscope.sqlite"
+		}
+		dbTimeout, _ := cmd.Parent().Flags().GetInt("db-timeout")
+
+		if target == "" {
+			return errors.New("target flag is required")
+		}
+
+		db, err := storage.Open(dbPath, dbTimeout)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+
+		targets := strings.Split(target, ",")
+		for _, t := range targets {
+			t = strings.TrimSpace(t)
+			if t != "" {
+				err := db.AddCustomTarget(context.Background(), t, category)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error adding target %s: %v\n", t, err)
+				} else {
+					fmt.Printf("Successfully added target: %s\n", t)
+				}
+			}
+		}
+		return nil
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(dbCmd)
 	dbCmd.AddCommand(shellCmd)
@@ -333,6 +371,9 @@ func init() {
 	dbCmd.AddCommand(changesCmd)
 	dbCmd.AddCommand(printCmd)
 	dbCmd.AddCommand(findCmd)
+	dbCmd.AddCommand(addCmd)
+	addCmd.Flags().StringP("target", "t", "", "Target to add (can be comma-separated)")
+	addCmd.Flags().StringP("category", "c", "wildcard", "Category of the target")
 	changesCmd.Flags().Int("limit", 50, "Number of recent changes to show")
 	printCmd.Flags().String("platform", "all", "Comma-separated platforms (h1,bc,it,ywh,immunefi) or 'all'")
 	printCmd.Flags().String("program", "", "Filter by program handle or full URL")

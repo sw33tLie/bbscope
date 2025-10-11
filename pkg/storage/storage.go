@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/sw33tLie/bbscope/v2/pkg/scope"
@@ -554,6 +555,68 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// AddCustomTarget adds a single target for a custom program.
+func (d *DB) AddCustomTarget(ctx context.Context, target, category string) error {
+	platform := "custom"
+	// Sanitize target to avoid weird characters in URL
+	safeTarget := url.PathEscape(target)
+	programURL := "custom://" + safeTarget
+	handle := target
+
+	tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var programID int64
+	err = tx.QueryRowContext(ctx, "SELECT id FROM programs WHERE url = ?", programURL).Scan(&programID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	if errors.Is(err, sql.ErrNoRows) {
+		res, err := tx.ExecContext(ctx, "INSERT INTO programs(platform, handle, url, first_seen_at, last_seen_at) VALUES(?,?,?,CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", platform, handle, programURL)
+		if err != nil {
+			return fmt.Errorf("inserting custom program: %w", err)
+		}
+		programID, err = res.LastInsertId()
+		if err != nil {
+			return err
+		}
+	} else {
+		_, err = tx.ExecContext(ctx, "UPDATE programs SET last_seen_at = CURRENT_TIMESTAMP, disabled = 0 WHERE id = ?", programID)
+		if err != nil {
+			return err
+		}
+	}
+
+	normalizedTarget := NormalizeTarget(target)
+
+	var targetID int64
+	err = tx.QueryRowContext(ctx, "SELECT id FROM targets WHERE program_id = ? AND target_raw = ?", programID, target).Scan(&targetID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	if errors.Is(err, sql.ErrNoRows) {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO targets(program_id, target_normalized, target_raw, category, in_scope, is_bbp, first_seen_at, last_seen_at)
+			VALUES(?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+			programID, normalizedTarget, target, category, boolToInt(true), boolToInt(false))
+		if err != nil {
+			return fmt.Errorf("inserting custom target: %w", err)
+		}
+	} else {
+		_, err = tx.ExecContext(ctx, "UPDATE targets SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?", targetID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 // ListRecentChanges returns the most recent N changes across all programs.
