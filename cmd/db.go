@@ -158,10 +158,6 @@ var printCmd = &cobra.Command{
 	Short: "Print scope data from the database",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		typ := "all"
-		if len(args) == 1 {
-			typ = strings.ToLower(args[0])
-		}
 		platform, _ := cmd.Flags().GetString("platform")
 		program, _ := cmd.Flags().GetString("program")
 		oos, _ := cmd.Flags().GetBool("oos")
@@ -208,32 +204,34 @@ var printCmd = &cobra.Command{
 		}
 
 		// Basic type filtering for urls/wildcards/apis/mobile
-		filtered := entries[:0]
-		for _, e := range entries {
-			switch typ {
-			case "all":
-				filtered = append(filtered, e)
-			case "urls":
-				if strings.HasPrefix(e.TargetNormalized, "http://") || strings.HasPrefix(e.TargetNormalized, "https://") {
+		filtered := entries
+		/*
+			for _, e := range entries {
+				switch typ {
+				case "all":
 					filtered = append(filtered, e)
+				case "urls":
+					if strings.HasPrefix(e.TargetNormalized, "http://") || strings.HasPrefix(e.TargetNormalized, "https://") {
+						filtered = append(filtered, e)
+					}
+				case "wildcards":
+					if strings.HasPrefix(e.TargetNormalized, "*.") {
+						filtered = append(filtered, e)
+					}
+				case "apis":
+					if e.Category == "api" {
+						filtered = append(filtered, e)
+					}
+				case "mobile":
+					if e.Category == "android" || e.Category == "ios" {
+						filtered = append(filtered, e)
+					}
+				default:
+					// unknown type: return error
+					return fmt.Errorf("unknown type: %s", typ)
 				}
-			case "wildcards":
-				if strings.HasPrefix(e.TargetNormalized, "*.") {
-					filtered = append(filtered, e)
-				}
-			case "apis":
-				if e.Category == "api" {
-					filtered = append(filtered, e)
-				}
-			case "mobile":
-				if e.Category == "android" || e.Category == "ios" {
-					filtered = append(filtered, e)
-				}
-			default:
-				// unknown type: return error
-				return fmt.Errorf("unknown type: %s", typ)
 			}
-		}
+		*/
 
 		switch format {
 		case "txt":

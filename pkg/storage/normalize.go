@@ -13,6 +13,11 @@ func NormalizeTarget(s string) string {
 	}
 	// If it looks like a URL, normalize scheme/host/trailing slash.
 	if u, err := url.Parse(s); err == nil && u.Host != "" {
+		hostname := strings.ToLower(u.Hostname())
+		if strings.Contains(hostname, "*") {
+			return strings.TrimSuffix(hostname, ".")
+		}
+
 		u.Host = strings.ToLower(u.Host)
 		if u.Scheme == "http" && u.Port() == "80" {
 			u.Host = strings.TrimSuffix(u.Host, ":80")
