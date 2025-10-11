@@ -139,12 +139,29 @@ func runGetWildcardsCmd(cmd *cobra.Command, args []string) error {
 	outOfScopeByProgram := make(map[string]map[string]struct{})
 	for _, e := range entries {
 		if !e.InScope {
-			if _, ok := outOfScopeByProgram[e.ProgramURL]; !ok {
-				outOfScopeByProgram[e.ProgramURL] = make(map[string]struct{})
-			}
-			normalizedOOS := normalizeForSubdomainTools(e.TargetNormalized)
-			if normalizedOOS != "" {
-				outOfScopeByProgram[e.ProgramURL][normalizedOOS] = struct{}{}
+			// If an OOS entry is a wildcard, only consider the root domain OOS if the entry does not have a path.
+			if strings.Contains(e.TargetNormalized, "*") {
+				hasPath := false
+				// We avoid url.Parse because it can fail on hosts with wildcards.
+				// This is a simple heuristic to detect a path.
+				schemeStripped := e.TargetNormalized
+				if i := strings.Index(schemeStripped, "://"); i != -1 {
+					schemeStripped = schemeStripped[i+3:]
+				}
+
+				if strings.Contains(schemeStripped, "/") {
+					hasPath = true
+				}
+
+				if !hasPath {
+					if _, ok := outOfScopeByProgram[e.ProgramURL]; !ok {
+						outOfScopeByProgram[e.ProgramURL] = make(map[string]struct{})
+					}
+					normalizedOOS := normalizeForSubdomainTools(e.TargetNormalized)
+					if normalizedOOS != "" {
+						outOfScopeByProgram[e.ProgramURL][normalizedOOS] = struct{}{}
+					}
+				}
 			}
 		}
 	}
