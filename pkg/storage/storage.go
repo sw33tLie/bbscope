@@ -704,16 +704,16 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 		SELECT p.url, p.platform, p.handle, t.target_normalized, t.target_raw, t.category, t.description, t.in_scope, t.is_bbp, 0 as is_historical
 		FROM targets t 
 		JOIN programs p ON t.program_id = p.id 
-		WHERE (t.target_normalized LIKE ? OR t.description LIKE ?) AND p.is_ignored = 0
+		WHERE (t.target_normalized LIKE ? OR t.description LIKE ? OR p.url LIKE ?) AND p.is_ignored = 0
 
 		UNION
 
 		SELECT c.program_url, c.platform, c.handle, c.target_normalized, '' as target_raw, c.category, '' as description, c.in_scope, c.is_bbp, 1 as is_historical
 		FROM scope_changes c
-		WHERE c.target_normalized LIKE ?;
+		WHERE c.target_normalized LIKE ? OR c.program_url LIKE ?;
 	`
 
-	rows, err := d.sql.QueryContext(ctx, query, likeQuery, likeQuery, likeQuery)
+	rows, err := d.sql.QueryContext(ctx, query, likeQuery, likeQuery, likeQuery, likeQuery, likeQuery)
 	if err != nil {
 		return nil, err
 	}
