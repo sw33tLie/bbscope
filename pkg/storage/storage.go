@@ -303,29 +303,14 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 			return nil, err
 		}
 
-		logStmt, err := tx.PrepareContext(ctx, `INSERT INTO scope_changes(occurred_at, program_url, platform, handle, target_normalized, target_raw, category, in_scope, is_bbp, change_type) VALUES(CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, 'removed')`)
-		if err != nil {
-			delStmt.Close()
-			tx.Rollback()
-			return nil, err
-		}
-
 		for _, ex := range toRemove {
 			if _, err := delStmt.ExecContext(ctx, ex.ID); err != nil {
 				delStmt.Close()
-				logStmt.Close()
-				tx.Rollback()
-				return nil, err
-			}
-			if _, err := logStmt.ExecContext(ctx, programURL, platform, handle, ex.Norm, ex.Raw, ex.Cat, boolToInt(ex.InScope), boolToInt(ex.IsBBP)); err != nil {
-				delStmt.Close()
-				logStmt.Close()
 				tx.Rollback()
 				return nil, err
 			}
 		}
 		delStmt.Close()
-		logStmt.Close()
 		if err := tx.Commit(); err != nil {
 			return nil, err
 		}
@@ -457,19 +442,39 @@ func (d *DB) SyncPlatformPrograms(ctx context.Context, platform string, polledPr
 		}
 		changes = append(changes, change)
 
-		_, ierr := tx.ExecContext(ctx, `INSERT INTO scope_changes(occurred_at, program_url, platform, handle, target_normalized, target_raw, category, in_scope, is_bbp, change_type) VALUES(CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, 'removed')`,
-			p.URL, platform, p.Handle, p.URL, p.URL, "program", boolToInt(false), boolToInt(false))
-		if ierr != nil {
-			tx.Rollback()
-			return nil, ierr
-		}
-
 		if err := tx.Commit(); err != nil {
 			return nil, fmt.Errorf("committing transaction for program removal %d: %w", p.ID, err)
 		}
 	}
 
 	return changes, nil
+}
+
+func (d *DB) LogChanges(ctx context.Context, changes []Change) error {
+	if len(changes) == 0 {
+		return nil
+	}
+
+	tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO scope_changes(occurred_at, program_url, platform, handle, target_normalized, target_raw, category, in_scope, is_bbp, change_type) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, c := range changes {
+		_, err := stmt.ExecContext(ctx, c.OccurredAt, c.ProgramURL, c.Platform, c.Handle, c.TargetNormalized, c.TargetRaw, c.Category, boolToInt(c.InScope), boolToInt(c.IsBBP), c.ChangeType)
+		if err != nil {
+			return err // Rollback will be called
+		}
+	}
+
+	return tx.Commit()
 }
 
 // BuildEntries unchanged...
