@@ -27,9 +27,11 @@ jobs:
 
     - name: Build and push
       uses: docker/build-push-action@v3
+      env:
+        REPO_LOWER: ${{ github.repository }}
       with:
         context: .
         push: true
         tags: |
-          ghcr.io/${{ tolower(github.repository) }}:latest
-          ghcr.io/${{ tolower(github.repository) }}:${{ github.sha }}
+          ghcr.io/$(echo ${{ env.REPO_LOWER }} | tr '[:upper:]' '[:lower:]'):latest
+          ghcr.io/$(echo ${{ env.REPO_LOWER }} | tr '[:upper:]' '[:lower:]'):${{ github.sha }}
