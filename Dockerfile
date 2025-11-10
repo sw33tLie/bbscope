@@ -28,9 +28,6 @@ WORKDIR /root/
 # Copy the Pre-built binary file from the previous stage
 COPY --from=builder /app/bbscope .
 
-# Copy the database file
-COPY --from=builder /app/bbscope.sqlite .
-
 # Expose port 8080 to the outside world (if your app is a web server, which it doesn't seem to be but is good practice)
 # EXPOSE 8080
 
