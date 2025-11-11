@@ -134,7 +134,7 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 	var db *storage.DB
 	var err error
 	if useDB {
-		db, err = storage.Open(dbPath, 15000)
+		db, err = storage.Open(dbPath, storage.DefaultDBTimeout)
 		if err != nil {
 			return err
 		}

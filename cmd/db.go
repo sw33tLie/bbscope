@@ -73,7 +73,7 @@ var statsCmd = &cobra.Command{
 			dbPath = "bbscope.sqlite"
 		}
 
-		db, err := storage.Open(dbPath, 15000)
+		db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return fmt.Errorf("database file not found: %s", dbPath)
@@ -124,7 +124,7 @@ var changesCmd = &cobra.Command{
 		if _, err := os.Stat(dbPath); err != nil {
 			return fmt.Errorf("database not found: %s", dbPath)
 		}
-		db, err := storage.Open(dbPath, 15000)
+		db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
 		if err != nil {
 			return err
 		}
@@ -174,7 +174,7 @@ var printCmd = &cobra.Command{
 			return err
 		}
 
-		db, err := storage.Open(dbPath, 15000)
+		db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
 		if err != nil {
 			return err
 		}
@@ -287,7 +287,7 @@ var findCmd = &cobra.Command{
 			dbPath = "bbscope.sqlite"
 		}
 
-		db, err := storage.Open(dbPath, 15000)
+		db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
 		if err != nil {
 			return err
 		}
@@ -337,7 +337,7 @@ var addCmd = &cobra.Command{
 			return errors.New("target flag is required")
 		}
 
-		db, err := storage.Open(dbPath, 15000)
+		db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
 		if err != nil {
 			return err
 		}

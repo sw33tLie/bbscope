@@ -34,7 +34,7 @@ func setIgnoreStatus(ctx context.Context, pattern string, ignored bool) error {
 		dbPath = "bbscope.sqlite"
 	}
 
-	db, err := storage.Open(dbPath, 15000)
+	db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
 	if err != nil {
 		return err
 	}

@@ -56,7 +56,7 @@ func getAndPrintTargets(targetType string, aggressive bool) error {
 		return err
 	}
 
-	db, err := storage.Open(dbPath, 15000)
+	db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
 	if err != nil {
 		return err
 	}
@@ -118,7 +118,7 @@ func runGetWildcardsCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	db, err := storage.Open(dbPath, 15000)
+	db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
 	if err != nil {
 		return err
 	}

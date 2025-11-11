@@ -17,6 +17,11 @@ var (
 	ErrAbortingScopeWipe = errors.New("aborting update to prevent wiping out all targets for a program")
 )
 
+const (
+	// DefaultDBTimeout is the default timeout in milliseconds to wait for DB lock to be released.
+	DefaultDBTimeout = 15000
+)
+
 type DB struct {
 	sql *sql.DB
 }
