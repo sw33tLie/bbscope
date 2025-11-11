@@ -40,7 +40,7 @@ docker pull ghcr.io/sw33tlie/bbscope:latest
 
 **Run bbscope with Docker:**
 ```bash
-whedocker run --rm ghcr.io/sw33tlie/bbscope:latest [command] [flags]
+docker run --rm --pull=always ghcr.io/sw33tlie/bbscope:latest [command] [flags]
 ```
 
 **Important:** To persist your database and configuration across container runs, mount a volume:
