@@ -30,7 +30,7 @@ import (
 //	--concurrency int   Number of concurrent fetches
 //	--since string      Print changes since RFC3339 timestamp (when using --db)
 //
-// Uses global flags from root (proxy, output, delimiter, bbpOnly, pvtOnly, oos, loglevel)
+// Uses global flags from root (proxy, output, delimiter, bbp-only, private-only, oos, loglevel)
 var pollCmd = &cobra.Command{
 	Use:   "poll",
 	Short: "Poll platforms and fetch scopes",
@@ -118,8 +118,8 @@ func init() {
 	pollCmd.PersistentFlags().Bool("oos", false, "Include out-of-scope elements")
 	pollCmd.PersistentFlags().StringP("output", "o", "tu", "Output flags. Supported: t (target), d (target description), c (category), u (program URL). Can be combined. Example: -o tdu")
 	pollCmd.PersistentFlags().StringP("delimiter", "d", " ", "Delimiter character to use for txt output format")
-	pollCmd.PersistentFlags().BoolP("bbpOnly", "b", false, "Only fetch programs offering monetary rewards")
-	pollCmd.PersistentFlags().BoolP("pvtOnly", "p", false, "Only fetch data from private programs")
+	pollCmd.PersistentFlags().BoolP("bbp-only", "b", false, "Only fetch programs offering monetary rewards")
+	pollCmd.PersistentFlags().BoolP("private-only", "p", false, "Only fetch data from private programs")
 }
 
 // runPollWithPollers executes the polling flow using the provided pollers.
@@ -148,8 +148,8 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 	}
 
 	for _, p := range pollers {
-		bbpOnly, _ := cmd.Flags().GetBool("bbpOnly")
-		pvtOnly, _ := cmd.Flags().GetBool("pvtOnly")
+		bbpOnly, _ := cmd.Flags().GetBool("bbp-only")
+		pvtOnly, _ := cmd.Flags().GetBool("private-only")
 		opts := platforms.PollOptions{
 			Categories:  categories,
 			BountyOnly:  bbpOnly,

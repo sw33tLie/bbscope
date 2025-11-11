@@ -118,8 +118,8 @@ The `poll` command fetches scope data from the platforms. You can poll all platf
 | Flag | Description | Default |
 | --- | --- | --- |
 | `--db` | Save results to the database and print changes. | `false` |
-| `-b, --bbpOnly` | Only fetch programs offering monetary rewards. | `false` |
-| `-p, --pvtOnly` | Only fetch data from private programs. | `false` |
+| `-b, --bbp-only` | Only fetch programs offering monetary rewards. | `false` |
+| `-p, --private-only` | Only fetch data from private programs. | `false` |
 | `--category` | Scope categories to include (e.g., `url`, `cidr`, `mobile`). | `"all"` |
 | `-o, --output` | Output flags for printing to stdout (`t`=target, `d`=description, `c`=category, `u`=program URL). | `"tu"` |
 | `-d, --delimiter` | Delimiter for `txt` output when using multiple output flags. | `" "` |
