@@ -14,7 +14,7 @@ var pollYwhCmd = &cobra.Command{
 	Use:   "ywh",
 	Short: "Poll YesWeHack programs",
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		token := viper.GetString("yeswehack.token")
+		token, _ := cmd.Flags().GetString("token") // Token is CLI-only, not from config
 		email := viper.GetString("yeswehack.email")
 		password := viper.GetString("yeswehack.password")
 		otpSecret := viper.GetString("yeswehack.otpsecret")
@@ -42,7 +42,6 @@ func init() {
 	pollYwhCmd.Flags().String("email", "", "YesWeHack login email")
 	pollYwhCmd.Flags().String("password", "", "YesWeHack login password")
 	pollYwhCmd.Flags().String("otp-secret", "", "YesWeHack TOTP secret (base32)")
-	viper.BindPFlag("yeswehack.token", pollYwhCmd.Flags().Lookup("token"))
 	viper.BindPFlag("yeswehack.email", pollYwhCmd.Flags().Lookup("email"))
 	viper.BindPFlag("yeswehack.password", pollYwhCmd.Flags().Lookup("password"))
 	viper.BindPFlag("yeswehack.otpsecret", pollYwhCmd.Flags().Lookup("otp-secret"))
