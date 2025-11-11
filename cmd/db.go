@@ -73,8 +73,7 @@ var statsCmd = &cobra.Command{
 			dbPath = "bbscope.sqlite"
 		}
 
-		dbTimeout, _ := cmd.Parent().Flags().GetInt("db-timeout")
-		db, err := storage.Open(dbPath, dbTimeout)
+		db, err := storage.Open(dbPath, 15000)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return fmt.Errorf("database file not found: %s", dbPath)
@@ -125,8 +124,7 @@ var changesCmd = &cobra.Command{
 		if _, err := os.Stat(dbPath); err != nil {
 			return fmt.Errorf("database not found: %s", dbPath)
 		}
-		dbTimeout, _ := cmd.Parent().Flags().GetInt("db-timeout")
-		db, err := storage.Open(dbPath, dbTimeout)
+		db, err := storage.Open(dbPath, 15000)
 		if err != nil {
 			return err
 		}
@@ -176,8 +174,7 @@ var printCmd = &cobra.Command{
 			return err
 		}
 
-		dbTimeout, _ := cmd.Parent().Flags().GetInt("db-timeout")
-		db, err := storage.Open(dbPath, dbTimeout)
+		db, err := storage.Open(dbPath, 15000)
 		if err != nil {
 			return err
 		}
@@ -290,8 +287,7 @@ var findCmd = &cobra.Command{
 			dbPath = "bbscope.sqlite"
 		}
 
-		dbTimeout, _ := cmd.Parent().Flags().GetInt("db-timeout")
-		db, err := storage.Open(dbPath, dbTimeout)
+		db, err := storage.Open(dbPath, 15000)
 		if err != nil {
 			return err
 		}
@@ -336,13 +332,12 @@ var addCmd = &cobra.Command{
 		if dbPath == "" {
 			dbPath = "bbscope.sqlite"
 		}
-		dbTimeout, _ := cmd.Parent().Flags().GetInt("db-timeout")
 
 		if target == "" {
 			return errors.New("target flag is required")
 		}
 
-		db, err := storage.Open(dbPath, dbTimeout)
+		db, err := storage.Open(dbPath, 15000)
 		if err != nil {
 			return err
 		}
@@ -384,5 +379,4 @@ func init() {
 	printCmd.Flags().StringP("output", "o", "tu", "Output flags. Supported: t (target), d (target description), c (category), u (program URL). Can be combined. Example: -o tdu")
 	printCmd.Flags().Bool("include-ignored", false, "Include programs that are marked as ignored")
 	dbCmd.PersistentFlags().StringVar(&dbPath, "dbpath", "bbscope.sqlite", "Path to SQLite DB file")
-	dbCmd.PersistentFlags().Int("db-timeout", 15000, "Timeout in ms to wait for DB lock to be released")
 }
