@@ -148,6 +148,8 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 	}
 
 	for _, p := range pollers {
+		utils.Log.Infof("Fetching scope from %s...", p.Name())
+
 		bbpOnly, _ := cmd.Flags().GetBool("bbp-only")
 		pvtOnly, _ := cmd.Flags().GetBool("private-only")
 		opts := platforms.PollOptions{
