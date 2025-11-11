@@ -372,7 +372,7 @@ func executeDBWrite(maxRetries int, initialBackoff time.Duration, op func() erro
 		// Check if the error is a SQLite busy/locked error. This is driver-specific.
 		// For modernc.org/sqlite, the error message contains "database is locked".
 		if strings.Contains(err.Error(), "database is locked") || strings.Contains(err.Error(), "SQLITE_BUSY") {
-			utils.Log.Warnf("Database is locked, retrying in %s... (attempt %d/%d)", backoff, i+1, maxRetries)
+			utils.Log.Debugf("Database is locked, retrying in %s... (attempt %d/%d)", backoff, i+1, maxRetries)
 			time.Sleep(backoff)
 			backoff *= 2 // Exponential backoff
 			continue
