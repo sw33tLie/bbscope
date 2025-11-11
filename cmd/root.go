@@ -28,7 +28,8 @@ const (
 var rootCmd = &cobra.Command{
 	Use:   "bbscope",
 	Short: "A powerful scope aggregator for bug bounty hunters.",
-	Long: LOGO + `bbscope helps you manage bug bounty program scopes from HackerOne, Bugcrowd, Intigriti, YesWeHack, and Immunefi, right from your command line.
+	Long: LOGO + `bbscope helps you manage bug bounty program scopes from HackerOne, Bugcrowd,
+Intigriti, YesWeHack, and Immunefi, right from your command line.
 
 Visit https://bbscope.com for an hourly-updated list of public scopes!`,
 	CompletionOptions: cobra.CompletionOptions{
