@@ -1,0 +1,20 @@
+# Ignore local database files - they shouldn't be in the image
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Ignore git files
+.git
+.gitignore
+
+# Ignore documentation
+README.md
+REFACTOR.md
+LICENSE
+
+# Ignore CI/CD files (not needed in image)
+.github
+
+# Ignore logo
+logo.svg
+

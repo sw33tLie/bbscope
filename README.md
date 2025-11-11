@@ -29,6 +29,34 @@ go install github.com/sw33tLie/bbscope/v2@refactor/v2
 
 **Note:** This command installs directly from the `refactor/v2` branch. Once these changes are merged into the main branch and a new version is tagged, you can switch back to using `@latest`.
 
+### Docker Installation
+
+You can also run `bbscope` using Docker. The Docker image is automatically built and published to GitHub Container Registry (GHCR) on every push.
+
+**Pull the latest image:**
+```bash
+docker pull ghcr.io/sw33tlie/bbscope:latest
+```
+
+**Run bbscope with Docker:**
+```bash
+docker run --rm ghcr.io/sw33tlie/bbscope:latest [command] [flags]
+```
+
+**Important:** To persist your database and configuration across container runs, mount a volume:
+
+```bash
+# Create directory for persistent data
+mkdir -p ~/bbscope-data
+
+# Run with volume mounted (persists both config and database)
+docker run --rm \
+  -v ~/bbscope-data:/root \
+  ghcr.io/sw33tlie/bbscope:latest poll --db -b -p
+```
+
+**Note:** Without a volume mount, the SQLite database and configuration will be lost when the container stops. The database file is created automatically at `/root/bbscope.sqlite` inside the container (or wherever you specify with `--dbpath`), and the config file is at `/root/.bbscope.yaml`.
+
 ---
 
 ## 🔐 Configuration
