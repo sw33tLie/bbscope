@@ -183,7 +183,7 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 		}
 
 		if isFirstRunForPlatform && len(handles) > 0 {
-			fmt.Printf("✨ First poll for %s, populating database...\n", p.Name())
+			utils.Log.Infof("First poll for %s, populating database...", p.Name())
 		}
 
 		if useDB {
