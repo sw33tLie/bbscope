@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"errors"
@@ -143,6 +144,11 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 	}
 
 	ctx := context.Background()
+	concurrency, _ := cmd.Flags().GetInt("concurrency")
+	if concurrency <= 0 {
+		concurrency = 5 // Default to 5 if invalid
+	}
+
 	for _, p := range pollers {
 		bbpOnly, _ := cmd.Flags().GetBool("bbpOnly")
 		pvtOnly, _ := cmd.Flags().GetBool("pvtOnly")
@@ -197,68 +203,10 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 			}
 		}
 
-		polledProgramURLs := make([]string, 0, len(handles))
-
-		for _, h := range handles {
-			pd, err := p.FetchProgramScope(ctx, h, opts)
-			if err != nil {
-				// Log error and continue to next handle
-				utils.Log.Warnf("Failed to fetch scope for %s: %v", h, err)
-				continue
-			}
-
-			if useDB && ignoredPrograms[pd.Url] {
-				utils.Log.Debugf("Skipping ignored program: %s", pd.Url)
-				continue
-			}
-
-			polledProgramURLs = append(polledProgramURLs, pd.Url)
-
-			if !useDB {
-				output, _ := cmd.Flags().GetString("output")
-				delimiter, _ := cmd.Flags().GetString("delimiter")
-				oos, _ := cmd.Flags().GetBool("oos")
-				scope.PrintProgramScope(pd, output, delimiter, oos)
-				continue
-			}
-
-			var allItems []storage.TargetItem
-			for _, s := range pd.InScope {
-				allItems = append(allItems, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: true})
-			}
-			for _, s := range pd.OutOfScope {
-				allItems = append(allItems, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: false})
-			}
-
-			entries, err := storage.BuildEntries(pd.Url, p.Name(), h, allItems)
-			if err != nil {
-				return err
-			}
-
-			const maxRetries = 5
-			const initialBackoff = 1 * time.Second
-
-			var changes []storage.Change
-			err = executeDBWrite(maxRetries, initialBackoff, func() error {
-				var err error
-				changes, err = db.UpsertProgramEntries(ctx, pd.Url, p.Name(), h, entries)
-				return err
-			})
-
-			if err != nil {
-				if errors.Is(err, storage.ErrAbortingScopeWipe) {
-					utils.Log.Warnf("Potential scope wipe detected for program %s. Skipping update. This might be due to a broken poller or a platform API change.", pd.Url)
-					continue // Don't treat this as a fatal error for the whole poll
-				}
-				return err // It's a different, real error
-			}
-
-			if !isFirstRunForPlatform {
-				printChanges(changes)
-			}
-			if err := db.LogChanges(ctx, changes); err != nil {
-				utils.Log.Warnf("Could not log changes for program %s: %v", pd.Url, err)
-			}
+		// Use concurrent processing with worker pool pattern
+		polledProgramURLs, err := processProgramsConcurrently(ctx, cmd, p, handles, opts, useDB, db, ignoredPrograms, isFirstRunForPlatform, concurrency)
+		if err != nil {
+			return err
 		}
 
 		if useDB {
@@ -287,6 +235,127 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 		}
 	}
 	return nil
+}
+
+// processProgramsConcurrently processes programs using a worker pool pattern for concurrent fetching.
+func processProgramsConcurrently(ctx context.Context, cmd *cobra.Command, p platforms.PlatformPoller, handles []string, opts platforms.PollOptions, useDB bool, db *storage.DB, ignoredPrograms map[string]bool, isFirstRunForPlatform bool, concurrency int) ([]string, error) {
+	if len(handles) == 0 {
+		return []string{}, nil
+	}
+
+	// Channel to distribute work
+	handleChan := make(chan string, len(handles))
+
+	// Results collection with mutex protection
+	var mu sync.Mutex
+	polledProgramURLs := make([]string, 0, len(handles))
+	var firstError error
+	var errorMu sync.Mutex
+
+	// Worker pool
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for h := range handleChan {
+				pd, err := p.FetchProgramScope(ctx, h, opts)
+				if err != nil {
+					// Log error but continue processing other programs
+					utils.Log.Warnf("Failed to fetch scope for %s: %v", h, err)
+					errorMu.Lock()
+					if firstError == nil {
+						firstError = err // Store first error but don't stop processing
+					}
+					errorMu.Unlock()
+					continue
+				}
+
+				if useDB && ignoredPrograms[pd.Url] {
+					utils.Log.Debugf("Skipping ignored program: %s", pd.Url)
+					continue
+				}
+
+				// Add to polled URLs (thread-safe)
+				mu.Lock()
+				polledProgramURLs = append(polledProgramURLs, pd.Url)
+				mu.Unlock()
+
+				if !useDB {
+					output, _ := cmd.Flags().GetString("output")
+					delimiter, _ := cmd.Flags().GetString("delimiter")
+					oos, _ := cmd.Flags().GetBool("oos")
+					scope.PrintProgramScope(pd, output, delimiter, oos)
+					continue
+				}
+
+				// Process database operations
+				var allItems []storage.TargetItem
+				for _, s := range pd.InScope {
+					allItems = append(allItems, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: true})
+				}
+				for _, s := range pd.OutOfScope {
+					allItems = append(allItems, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: false})
+				}
+
+				entries, err := storage.BuildEntries(pd.Url, p.Name(), h, allItems)
+				if err != nil {
+					errorMu.Lock()
+					if firstError == nil {
+						firstError = err
+					}
+					errorMu.Unlock()
+					continue
+				}
+
+				const maxRetries = 5
+				const initialBackoff = 1 * time.Second
+
+				var changes []storage.Change
+				err = executeDBWrite(maxRetries, initialBackoff, func() error {
+					var err error
+					changes, err = db.UpsertProgramEntries(ctx, pd.Url, p.Name(), h, entries)
+					return err
+				})
+
+				if err != nil {
+					if errors.Is(err, storage.ErrAbortingScopeWipe) {
+						utils.Log.Warnf("Potential scope wipe detected for program %s. Skipping update. This might be due to a broken poller or a platform API change.", pd.Url)
+						continue // Don't treat this as a fatal error for the whole poll
+					}
+					// For other errors, log but continue processing
+					utils.Log.Warnf("Database error for program %s: %v", pd.Url, err)
+					errorMu.Lock()
+					if firstError == nil {
+						firstError = err
+					}
+					errorMu.Unlock()
+					continue
+				}
+
+				// Print changes (thread-safe - fmt.Printf is safe for concurrent use)
+				if !isFirstRunForPlatform {
+					printChanges(changes)
+				}
+				if err := db.LogChanges(ctx, changes); err != nil {
+					utils.Log.Warnf("Could not log changes for program %s: %v", pd.Url, err)
+				}
+			}
+		}()
+	}
+
+	// Send all handles to the channel
+	for _, h := range handles {
+		handleChan <- h
+	}
+	close(handleChan)
+
+	// Wait for all workers to finish
+	wg.Wait()
+
+	// Return first error if any occurred, but still return the results
+	// This allows partial success - some programs may have been processed successfully
+	return polledProgramURLs, firstError
 }
 
 // executeDBWrite handles retry logic for database write operations that might fail

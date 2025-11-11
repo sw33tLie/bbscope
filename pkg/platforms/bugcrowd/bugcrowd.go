@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -565,89 +564,4 @@ func extractScopeFromTargetTable(scopeTableURL string, categories string, token 
 	}
 
 	return nil
-}
-
-func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories string, outputFlags string, concurrency int, delimiterCharacter string, includeOOS, printRealTime bool, knownHandles []string) (programs []scope.ProgramData, err error) {
-	programHandles, err := GetProgramHandles(token, "bug_bounty", pvtOnly)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if !bbpOnly {
-		vdpHandles, err := GetProgramHandles(token, "vdp", pvtOnly)
-		if err != nil {
-			return nil, err
-		}
-		programHandles = append(programHandles, vdpHandles...)
-	}
-
-	// Create a map to track existing handles
-	existingHandles := make(map[string]bool)
-	for _, handle := range programHandles {
-		existingHandles[handle] = true
-	}
-
-	// Append unique handles from knownHandles to programHandles
-	for _, handle := range knownHandles {
-		if !existingHandles[handle] {
-			programHandles = append(programHandles, handle)
-			existingHandles[handle] = true
-		}
-	}
-
-	utils.Log.Info("Fetching ", strconv.Itoa(len(programHandles)), " programs...")
-
-	var mutex sync.Mutex
-	handles := make(chan string, concurrency)
-	errChan := make(chan error, 1)
-	processGroup := new(sync.WaitGroup)
-
-	for i := 0; i < concurrency; i++ {
-		processGroup.Add(1)
-		go func() {
-			defer processGroup.Done()
-			for handle := range handles {
-				pScope, err := GetProgramScope(handle, categories, token)
-
-				if err != nil {
-					select {
-					case errChan <- fmt.Errorf("error processing handle %s: %v", handle, err):
-					default:
-					}
-					return
-				}
-
-				if len(pScope.InScope) == 0 {
-					continue
-				}
-
-				mutex.Lock()
-				programs = append(programs, pScope)
-				mutex.Unlock()
-
-				if printRealTime {
-					scope.PrintProgramScope(pScope, outputFlags, delimiterCharacter, includeOOS)
-				}
-			}
-		}()
-	}
-
-	go func() {
-		for _, handle := range programHandles {
-			handles <- handle
-		}
-		close(handles)
-	}()
-
-	go func() {
-		processGroup.Wait()
-		close(errChan)
-	}()
-
-	if err := <-errChan; err != nil {
-		return programs, err // Return partial results and the error
-	}
-
-	return programs, nil
 }
