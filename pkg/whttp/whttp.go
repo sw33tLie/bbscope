@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -104,11 +103,10 @@ func SendHTTPRequest(wReq *WHTTPReq, customClient *retryablehttp.Client) (wRes *
 		Headers:    resp.Header,
 	}
 
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
-	resp.Body.Close()
 
 	wRes.BodyString = string(bodyBytes)
 	wRes.StatusCode = resp.StatusCode
