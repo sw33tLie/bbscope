@@ -46,7 +46,7 @@ type rateLimitedRequest struct {
 
 var (
 	rateLimitRequestChan       chan rateLimitedRequest
-	bugcrowdSessionCookieNames = []string{"_bugcrowd_session", "_crowdcontrol_session_key"}
+	bugcrowdSessionCookieNames = []string{"_crowdcontrol_session_key"}
 )
 
 func init() {
@@ -1217,7 +1217,7 @@ func GetAllProgramsScope(token string, bbpOnly bool, pvtOnly bool, categories st
 					return
 				}
 
-				if pScope.InScope == nil || len(pScope.InScope) == 0 {
+				if len(pScope.InScope) == 0 {
 					continue
 				}
 
@@ -1313,7 +1313,7 @@ func addStateFields(body map[string]interface{}, stateHandle, stateToken string)
 }
 
 func buildSessionCookieHeader(token string) string {
-	return fmt.Sprintf("_bugcrowd_session=%s; _crowdcontrol_session_key=%s", token, token)
+	return fmt.Sprintf("_crowdcontrol_session_key=%s", token)
 }
 
 func findSessionCookie(jar http.CookieJar, rawURL string) (string, string) {
