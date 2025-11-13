@@ -45,9 +45,8 @@ type rateLimitedRequest struct {
 }
 
 var (
-	rateLimitRequestChan        chan rateLimitedRequest
-	bugcrowdSessionCookieNames  = []string{"_bugcrowd_session", "_crowdcontrol_session_key"}
-	defaultBugcrowdSessionToken = ""
+	rateLimitRequestChan       chan rateLimitedRequest
+	bugcrowdSessionCookieNames = []string{"_bugcrowd_session", "_crowdcontrol_session_key"}
 )
 
 func init() {
@@ -227,17 +226,8 @@ func Login(email, password, otpFetchCommand, proxy string) (string, error) {
 	// The token from identity.bugcrowd.com is not valid for bugcrowd.com endpoints
 	authenticityToken := ""
 
-	// Debug: Log all cookies from bugcrowd.com to see what's available
 	bugcrowdUrl, _ := url.Parse("https://bugcrowd.com")
 	allCookies := retryClient.HTTPClient.Jar.Cookies(bugcrowdUrl)
-	utils.Log.Debug(fmt.Sprintf("Cookies from bugcrowd.com: %d cookies found", len(allCookies)))
-	for _, cookie := range allCookies {
-		cookiePreview := cookie.Value
-		if len(cookiePreview) > 20 {
-			cookiePreview = cookiePreview[:20] + "..."
-		}
-		utils.Log.Debug(fmt.Sprintf("Cookie: %s = %s", cookie.Name, cookiePreview))
-	}
 
 	// First priority: Check bugcrowd.com cookies (set by sign_in page)
 	for _, cookie := range allCookies {
@@ -245,7 +235,6 @@ func Login(email, password, otpFetchCommand, proxy string) (string, error) {
 		if cookieName == "csrf-token" || cookieName == "_csrf_token" || cookieName == "csrf_token" ||
 			cookieName == "authenticity_token" || cookieName == "_authenticity_token" {
 			authenticityToken = cookie.Value
-			utils.Log.Debug("Found authenticity token in bugcrowd.com cookies")
 			break
 		}
 	}
@@ -283,7 +272,6 @@ func Login(email, password, otpFetchCommand, proxy string) (string, error) {
 	// Fourth priority: Fall back to identity.bugcrowd.com token if bugcrowd.com token not found
 	// (This shouldn't normally work, but might be needed in some cases)
 	if authenticityToken == "" && csrfTokenFromCookie != "" {
-		utils.Log.Debug("Warning: Using CSRF token from identity.bugcrowd.com as fallback")
 		authenticityToken = csrfTokenFromCookie
 	}
 
@@ -429,24 +417,6 @@ func Login(email, password, otpFetchCommand, proxy string) (string, error) {
 	}
 
 	body := formValues.Encode()
-
-	// Debug: Log cookies before the request
-	cookiesBefore := retryClient.HTTPClient.Jar.Cookies(bugcrowdUrl)
-	utils.Log.Debug(fmt.Sprintf("Cookies before POST /user/auth/hacker: %d cookies", len(cookiesBefore)))
-	for _, cookie := range cookiesBefore {
-		cookiePreview := cookie.Value
-		if len(cookiePreview) > 30 {
-			cookiePreview = cookiePreview[:30] + "..."
-		}
-		utils.Log.Debug(fmt.Sprintf("  Cookie: %s = %s", cookie.Name, cookiePreview))
-	}
-
-	utils.Log.Debug(fmt.Sprintf("POST /user/auth/hacker URL: %s", authHackerURL))
-	bodyPreview := body
-	if len(bodyPreview) > 120 {
-		bodyPreview = bodyPreview[:120] + "..."
-	}
-	utils.Log.Debug(fmt.Sprintf("POST /user/auth/hacker body: %s", bodyPreview))
 
 	authHackerRes, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
@@ -842,7 +812,6 @@ func Login(email, password, otpFetchCommand, proxy string) (string, error) {
 			}
 		}
 	} else {
-		utils.Log.Debug("Callback URL not found after OTP verification; checking cookies directly")
 	}
 
 	if sessionValue, sessionName := findSessionCookie(retryClient.HTTPClient.Jar, "https://bugcrowd.com"); sessionValue != "" {
@@ -1363,6 +1332,8 @@ func findSessionCookie(jar http.CookieJar, rawURL string) (string, string) {
 
 func logSessionSuccess(cookieName, cookieValue string) (string, error) {
 	utils.Log.Info("Login OK. Fetching programs, please wait...")
-	utils.Log.Debug(fmt.Sprintf("SESSION (%s): %s", cookieName, cookieValue))
+	if cookieName != "" {
+		utils.Log.Debug(fmt.Sprintf("Using %s cookie for session", cookieName))
+	}
 	return cookieValue, nil
 }
