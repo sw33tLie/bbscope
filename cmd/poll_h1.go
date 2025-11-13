@@ -32,8 +32,8 @@ var pollH1Cmd = &cobra.Command{
 
 func init() {
 	pollCmd.AddCommand(pollH1Cmd)
-	pollH1Cmd.Flags().String("user", "", "HackerOne username")
-	pollH1Cmd.Flags().String("token", "", "HackerOne API token")
+	pollH1Cmd.Flags().StringP("user", "u", "", "HackerOne username")
+	pollH1Cmd.Flags().StringP("token", "t", "", "HackerOne API token")
 	viper.BindPFlag("hackerone.username", pollH1Cmd.Flags().Lookup("user"))
 	viper.BindPFlag("hackerone.token", pollH1Cmd.Flags().Lookup("token"))
 	// Reuse common flags from parent via cobra's flag inheritance

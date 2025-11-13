@@ -36,6 +36,6 @@ var pollItCmd = &cobra.Command{
 
 func init() {
 	pollCmd.AddCommand(pollItCmd)
-	pollItCmd.Flags().String("token", "", "Intigriti authorization token (Bearer)")
+	pollItCmd.Flags().StringP("token", "t", "", "Intigriti authorization token (Bearer)")
 	viper.BindPFlag("intigriti.token", pollItCmd.Flags().Lookup("token"))
 }

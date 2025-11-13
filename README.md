@@ -88,7 +88,7 @@ Alternatively, you can provide credentials directly via command-line flags when 
 | Command | Flag | Description |
 | --- | --- | --- |
 | `poll h1` | `--user`, `--token` | Your HackerOne username and API token. |
-| `poll bc` | `--token` | A live `_bugcrowd_session` cookie. Use as an alternative to email/pass/otp. |
+| `poll bc` | `--token` | A live `_crowdcontrol_session_key` cookie. Use as an alternative to email/pass/otp. |
 | | `--email`, `--password`, `--otp-secret` | Your Bugcrowd login credentials. |
 | `poll it` | `--token` | Your Intigriti authorization token (Bearer). |
 | `poll ywh` | `--token` | A live YesWeHack bearer token. Use as an alternative to email/pass/otp. |

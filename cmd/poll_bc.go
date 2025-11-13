@@ -39,10 +39,10 @@ var pollBcCmd = &cobra.Command{
 
 func init() {
 	pollCmd.AddCommand(pollBcCmd)
-	pollBcCmd.Flags().String("token", "", "Bugcrowd _bugcrowd_session cookie value")
-	pollBcCmd.Flags().String("email", "", "Bugcrowd login email")
-	pollBcCmd.Flags().String("password", "", "Bugcrowd login password")
-	pollBcCmd.Flags().String("otp-secret", "", "Bugcrowd TOTP secret (base32)")
+	pollBcCmd.Flags().StringP("token", "t", "", "Bugcrowd _crowdcontrol_session_key cookie value")
+	pollBcCmd.Flags().StringP("email", "E", "", "Bugcrowd login email")
+	pollBcCmd.Flags().StringP("password", "P", "", "Bugcrowd login password")
+	pollBcCmd.Flags().StringP("otp-secret", "O", "", "Bugcrowd TOTP secret (base32)")
 	viper.BindPFlag("bugcrowd.email", pollBcCmd.Flags().Lookup("email"))
 	viper.BindPFlag("bugcrowd.password", pollBcCmd.Flags().Lookup("password"))
 	viper.BindPFlag("bugcrowd.otpsecret", pollBcCmd.Flags().Lookup("otp-secret"))

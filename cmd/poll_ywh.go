@@ -38,10 +38,10 @@ var pollYwhCmd = &cobra.Command{
 
 func init() {
 	pollCmd.AddCommand(pollYwhCmd)
-	pollYwhCmd.Flags().String("token", "", "YesWeHack bearer token (optional if using email/password + otp secret)")
-	pollYwhCmd.Flags().String("email", "", "YesWeHack login email")
-	pollYwhCmd.Flags().String("password", "", "YesWeHack login password")
-	pollYwhCmd.Flags().String("otp-secret", "", "YesWeHack TOTP secret (base32)")
+	pollYwhCmd.Flags().StringP("token", "t", "", "YesWeHack bearer token (optional if using email/password + otp secret)")
+	pollYwhCmd.Flags().StringP("email", "E", "", "YesWeHack login email")
+	pollYwhCmd.Flags().StringP("password", "P", "", "YesWeHack login password")
+	pollYwhCmd.Flags().StringP("otp-secret", "O", "", "YesWeHack TOTP secret (base32)")
 	viper.BindPFlag("yeswehack.email", pollYwhCmd.Flags().Lookup("email"))
 	viper.BindPFlag("yeswehack.password", pollYwhCmd.Flags().Lookup("password"))
 	viper.BindPFlag("yeswehack.otpsecret", pollYwhCmd.Flags().Lookup("otp-secret"))
