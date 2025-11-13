@@ -589,44 +589,45 @@ func Login(email, password, otpFetchCommand, proxy string) (string, error) {
 		return "", errors.New("state token/handle not found in Okta introspect response")
 	}
 
-	// Step 4: POST to Okta IDX identify endpoint (with email)
-	identifyBody := map[string]interface{}{
-		"identifier": email,
+	requiresPasswordChallenge := authenticatorRequiresPassword(introspectRes.BodyString)
+
+	if remediationExists(introspectRes.BodyString, "identify") {
+		identifyBody := map[string]interface{}{
+			"identifier": email,
+		}
+		addStateFields(identifyBody, stateHandle, stateToken)
+		identifyBodyJSON, _ := json.Marshal(identifyBody)
+
+		identifyRes, err := rateLimitedSendHTTPRequest(
+			&whttp.WHTTPReq{
+				Method: "POST",
+				URL:    "https://login.hackers.bugcrowd.com/idp/idx/identify",
+				Headers: []whttp.WHTTPHeader{
+					{Name: "User-Agent", Value: USER_AGENT},
+					{Name: "Content-Type", Value: "application/json"},
+					{Name: "Accept", Value: "application/json"},
+					{Name: "X-Requested-With", Value: "XMLHttpRequest"},
+					{Name: "Origin", Value: "https://login.hackers.bugcrowd.com"},
+					{Name: "Referer", Value: authorizeURL},
+				},
+				Body: string(identifyBodyJSON),
+			}, retryClient)
+
+		if err != nil {
+			return "", err
+		}
+
+		if identifyRes.StatusCode == 403 || identifyRes.StatusCode == 406 {
+			return "", errors.New(WAF_BANNED_ERROR)
+		}
+
+		updateOktaState(&stateToken, &stateHandle, identifyRes.BodyString)
+		if stateHandle == "" && stateToken == "" {
+			return "", errors.New("state token/handle not found in Okta identify response")
+		}
+
+		requiresPasswordChallenge = authenticatorRequiresPassword(identifyRes.BodyString)
 	}
-	addStateFields(identifyBody, stateHandle, stateToken)
-	identifyBodyJSON, _ := json.Marshal(identifyBody)
-
-	identifyRes, err := rateLimitedSendHTTPRequest(
-		&whttp.WHTTPReq{
-			Method: "POST",
-			URL:    "https://login.hackers.bugcrowd.com/idp/idx/identify",
-			Headers: []whttp.WHTTPHeader{
-				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "Content-Type", Value: "application/json"},
-				{Name: "Accept", Value: "application/json"},
-				{Name: "X-Requested-With", Value: "XMLHttpRequest"},
-				{Name: "Origin", Value: "https://login.hackers.bugcrowd.com"},
-				{Name: "Referer", Value: authorizeURL},
-			},
-			Body: string(identifyBodyJSON),
-		}, retryClient)
-
-	if err != nil {
-		return "", err
-	}
-
-	if identifyRes.StatusCode == 403 || identifyRes.StatusCode == 406 {
-		return "", errors.New(WAF_BANNED_ERROR)
-	}
-
-	updateOktaState(&stateToken, &stateHandle, identifyRes.BodyString)
-	if stateHandle == "" && stateToken == "" {
-		return "", errors.New("state token/handle not found in Okta identify response")
-	}
-
-	authenticatorType := strings.ToLower(gjson.Get(identifyRes.BodyString, "currentAuthenticatorEnrollment.type").String())
-	authenticatorKey := strings.ToLower(gjson.Get(identifyRes.BodyString, "currentAuthenticatorEnrollment.key").String())
-	requiresPasswordChallenge := authenticatorType == "password" || authenticatorKey == "password"
 
 	if requiresPasswordChallenge {
 		passwordChallengeBody := map[string]interface{}{
@@ -1340,4 +1341,22 @@ func logSessionSuccess(cookieName, cookieValue string) (string, error) {
 		utils.Log.Debug(fmt.Sprintf("Using %s cookie for session", cookieName))
 	}
 	return cookieValue, nil
+}
+
+func remediationExists(body, name string) bool {
+	found := false
+	gjson.Get(body, "remediation.value").ForEach(func(_, value gjson.Result) bool {
+		if strings.EqualFold(value.Get("name").String(), name) {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+func authenticatorRequiresPassword(body string) bool {
+	authenticatorType := strings.ToLower(gjson.Get(body, "currentAuthenticatorEnrollment.type").String())
+	authenticatorKey := strings.ToLower(gjson.Get(body, "currentAuthenticatorEnrollment.key").String())
+	return authenticatorType == "password" || authenticatorKey == "password"
 }
