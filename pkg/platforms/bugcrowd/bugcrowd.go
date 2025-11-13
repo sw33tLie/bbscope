@@ -624,47 +624,51 @@ func Login(email, password, otpFetchCommand, proxy string) (string, error) {
 		return "", errors.New("state token/handle not found in Okta identify response")
 	}
 
-	// Step 5: POST password to Okta IDX challenge/answer endpoint
-	passwordChallengeBody := map[string]interface{}{
-		"credentials": map[string]interface{}{
-			"passcode": password,
-		},
-	}
-	addStateFields(passwordChallengeBody, stateHandle, stateToken)
-	passwordChallengeBodyJSON, _ := json.Marshal(passwordChallengeBody)
+	authenticatorType := strings.ToLower(gjson.Get(identifyRes.BodyString, "currentAuthenticatorEnrollment.type").String())
+	authenticatorKey := strings.ToLower(gjson.Get(identifyRes.BodyString, "currentAuthenticatorEnrollment.key").String())
+	requiresPasswordChallenge := authenticatorType == "password" || authenticatorKey == "password"
 
-	passwordChallengeRes, err := rateLimitedSendHTTPRequest(
-		&whttp.WHTTPReq{
-			Method: "POST",
-			URL:    "https://login.hackers.bugcrowd.com/idp/idx/challenge/answer",
-			Headers: []whttp.WHTTPHeader{
-				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "Content-Type", Value: "application/json"},
-				{Name: "Accept", Value: "application/json"},
-				{Name: "X-Requested-With", Value: "XMLHttpRequest"},
-				{Name: "Origin", Value: "https://login.hackers.bugcrowd.com"},
-				{Name: "Referer", Value: authorizeURL},
+	if requiresPasswordChallenge {
+		passwordChallengeBody := map[string]interface{}{
+			"credentials": map[string]interface{}{
+				"passcode": password,
 			},
-			Body: string(passwordChallengeBodyJSON),
-		}, retryClient)
+		}
+		addStateFields(passwordChallengeBody, stateHandle, stateToken)
+		passwordChallengeBodyJSON, _ := json.Marshal(passwordChallengeBody)
 
-	if err != nil {
-		return "", err
-	}
+		passwordChallengeRes, err := rateLimitedSendHTTPRequest(
+			&whttp.WHTTPReq{
+				Method: "POST",
+				URL:    "https://login.hackers.bugcrowd.com/idp/idx/challenge/answer",
+				Headers: []whttp.WHTTPHeader{
+					{Name: "User-Agent", Value: USER_AGENT},
+					{Name: "Content-Type", Value: "application/json"},
+					{Name: "Accept", Value: "application/json"},
+					{Name: "X-Requested-With", Value: "XMLHttpRequest"},
+					{Name: "Origin", Value: "https://login.hackers.bugcrowd.com"},
+					{Name: "Referer", Value: authorizeURL},
+				},
+				Body: string(passwordChallengeBodyJSON),
+			}, retryClient)
 
-	if passwordChallengeRes.StatusCode == 403 || passwordChallengeRes.StatusCode == 406 {
-		return "", errors.New(WAF_BANNED_ERROR)
-	}
+		if err != nil {
+			return "", err
+		}
 
-	// Check if password verification failed
-	if gjson.Get(passwordChallengeRes.BodyString, "errorSummary").String() != "" {
-		errorSummary := gjson.Get(passwordChallengeRes.BodyString, "errorSummary").String()
-		return "", fmt.Errorf("password verification failed: %s", errorSummary)
-	}
+		if passwordChallengeRes.StatusCode == 403 || passwordChallengeRes.StatusCode == 406 {
+			return "", errors.New(WAF_BANNED_ERROR)
+		}
 
-	updateOktaState(&stateToken, &stateHandle, passwordChallengeRes.BodyString)
-	if stateHandle == "" && stateToken == "" {
-		return "", errors.New("state token/handle not found in Okta password challenge response")
+		if gjson.Get(passwordChallengeRes.BodyString, "errorSummary").String() != "" {
+			errorSummary := gjson.Get(passwordChallengeRes.BodyString, "errorSummary").String()
+			return "", fmt.Errorf("password verification failed: %s", errorSummary)
+		}
+
+		updateOktaState(&stateToken, &stateHandle, passwordChallengeRes.BodyString)
+		if stateHandle == "" && stateToken == "" {
+			return "", errors.New("state token/handle not found in Okta password challenge response")
+		}
 	}
 
 	// Step 6: Run OTP generation command
