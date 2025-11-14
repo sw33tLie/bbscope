@@ -725,7 +725,7 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 	defer rows.Close()
 
 	var out []Entry
-	seen := make(map[string]bool)
+	seen := make(map[string]int)
 
 	for rows.Next() {
 		var e Entry
@@ -742,9 +742,14 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 
 		// The UNION can return duplicates, so we'll filter them here.
 		key := fmt.Sprintf("%s|%s|%s", e.ProgramURL, e.TargetNormalized, e.Category)
-		if !seen[key] {
+		if idx, ok := seen[key]; ok {
+			// Prefer current entries over historical ones if both exist
+			if out[idx].IsHistorical && !e.IsHistorical {
+				out[idx] = e
+			}
+		} else {
 			out = append(out, e)
-			seen[key] = true
+			seen[key] = len(out) - 1
 		}
 	}
 	return out, rows.Err()

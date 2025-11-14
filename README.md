@@ -48,6 +48,7 @@ docker run --rm --pull=always ghcr.io/sw33tlie/bbscope:latest [command] [flags]
 ```bash
 # Create directory for persistent data
 mkdir -p ~/bbscope-data
+touch ~/bbscope-data/bbscope.sqlite
 
 # Run with config & DB mounted into their expected paths
 docker run --rm --pull=always \
