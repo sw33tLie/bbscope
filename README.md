@@ -43,19 +43,22 @@ docker pull ghcr.io/sw33tlie/bbscope:latest
 docker run --rm --pull=always ghcr.io/sw33tlie/bbscope:latest [command] [flags]
 ```
 
-**Important:** To persist your database and configuration across container runs, mount a volume:
+**Important:** To persist your database and configuration across container runs, bind-mount the files Docker needs without hiding the bundled binary:
 
 ```bash
 # Create directory for persistent data
 mkdir -p ~/bbscope-data
 
-# Run with volume mounted (persists both config and database)
-docker run --rm \
-  -v ~/bbscope-data:/root \
+# Run with config & DB mounted into their expected paths
+docker run --rm --pull=always \
+  -v ~/bbscope-data/.bbscope.yaml:/root/.bbscope.yaml \
+  -v ~/bbscope-data/bbscope.sqlite:/root/bbscope.sqlite \
   ghcr.io/sw33tlie/bbscope:latest poll --db -b -p
 ```
 
-**Note:** Without a volume mount, the SQLite database and configuration will be lost when the container stops. The database file is created automatically at `/root/bbscope.sqlite` inside the container (or wherever you specify with `--dbpath`), and the config file is at `/root/.bbscope.yaml`.
+If you prefer keeping the database in a subdirectory, mount that directory (e.g., `/root/data`) and pass `--dbpath /root/data/bbscope.sqlite`.
+
+**Note:** Without these mounts, the SQLite database and configuration will be lost when the container stops. The database file is created automatically at `/root/bbscope.sqlite` inside the container (or wherever you specify with `--dbpath`), and the config file is at `/root/.bbscope.yaml`.
 
 ---
 
