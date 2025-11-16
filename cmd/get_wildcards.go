@@ -64,6 +64,7 @@ var blacklistedSuffixes = []string{
 	"amazonaws.com",
 	"amazoncognito.com",
 	"azurewebsites.net",
+	"azure.com",
 	"cloudfront.net",
 	"herokuapp.com",
 	"appspot.com",
