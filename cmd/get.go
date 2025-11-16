@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/sw33tLie/bbscope/v2/internal/utils"
 	"github.com/sw33tLie/bbscope/v2/pkg/storage"
 )
 
@@ -50,6 +52,23 @@ func getAndPrintTargets(targetType string, aggressive bool) error {
 		switch targetType {
 		case "urls":
 			if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
+				fmt.Println(target)
+			}
+		case "ips":
+			if utils.IsIP(target) {
+				fmt.Println(target)
+				continue
+			}
+			if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
+				if u, err := url.Parse(target); err == nil {
+					host := strings.Trim(u.Hostname(), "[]")
+					if utils.IsIP(host) {
+						fmt.Println(host)
+					}
+				}
+			}
+		case "cidrs":
+			if utils.IsCIDR(target) || utils.IsIPRange(target) {
 				fmt.Println(target)
 			}
 		case "wildcards":
