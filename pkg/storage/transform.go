@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"net"
 	"net/url"
 	"strings"
 
@@ -20,6 +21,11 @@ func AggressiveTransform(scope string) string {
 	host := scope
 	if u, err := url.Parse(scope); err == nil && u.Host != "" {
 		host = u.Hostname()
+	}
+
+	// Don't attempt to transform IP addresses or ranges into wildcards.
+	if net.ParseIP(host) != nil {
+		return scope
 	}
 
 	// This is not a domain
@@ -65,6 +71,11 @@ func ExtractRootDomain(scope string) (string, bool) {
 
 	// Don't extract a root domain from something that is already a wildcard.
 	if strings.Contains(host, "*") {
+		return "", false
+	}
+
+	// Hostnames that are actually IP addresses shouldn't be treated as domains.
+	if net.ParseIP(host) != nil {
 		return "", false
 	}
 
