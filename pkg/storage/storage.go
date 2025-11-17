@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS programs (
 );
 CREATE INDEX IF NOT EXISTS idx_programs_platform ON programs(platform);
 CREATE INDEX IF NOT EXISTS idx_programs_url ON programs(url);
-CREATE TABLE IF NOT EXISTS targets (
+CREATE TABLE IF NOT EXISTS raw_targets (
 	id                INTEGER PRIMARY KEY,
 	program_id        INTEGER NOT NULL,
 	target_normalized TEXT NOT NULL,
@@ -55,8 +55,8 @@ CREATE TABLE IF NOT EXISTS targets (
 	FOREIGN KEY(program_id) REFERENCES programs(id),
 	UNIQUE(program_id, category, target_normalized)
 );
-CREATE INDEX IF NOT EXISTS idx_targets_program_id ON targets(program_id);
-CREATE TABLE IF NOT EXISTS target_variants (
+CREATE INDEX IF NOT EXISTS idx_raw_targets_program_id ON raw_targets(program_id);
+CREATE TABLE IF NOT EXISTS targets_normalized (
 	id                 INTEGER PRIMARY KEY,
 	target_id          INTEGER NOT NULL,
 	variant_normalized TEXT NOT NULL,
@@ -64,10 +64,10 @@ CREATE TABLE IF NOT EXISTS target_variants (
 	in_scope           INTEGER NOT NULL CHECK (in_scope IN (0,1)),
 	first_seen_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	last_seen_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	FOREIGN KEY(target_id) REFERENCES targets(id) ON DELETE CASCADE,
+	FOREIGN KEY(target_id) REFERENCES raw_targets(id) ON DELETE CASCADE,
 	UNIQUE(target_id, variant_normalized)
 );
-CREATE INDEX IF NOT EXISTS idx_target_variants_target_id ON target_variants(target_id);
+CREATE INDEX IF NOT EXISTS idx_targets_normalized_target_id ON targets_normalized(target_id);
 CREATE TABLE IF NOT EXISTS scope_changes (
 	id                INTEGER PRIMARY KEY,
 	occurred_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -176,7 +176,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 	}
 
 	// 2. Load existing targets for this program
-	rows, err := d.sql.QueryContext(ctx, "SELECT id, target_raw, target_normalized, category, in_scope, description, is_bbp FROM targets WHERE program_id = ?", programID)
+	rows, err := d.sql.QueryContext(ctx, "SELECT id, target_raw, target_normalized, category, in_scope, description, is_bbp FROM raw_targets WHERE program_id = ?", programID)
 	if err != nil {
 		return nil, err
 	}
@@ -215,8 +215,8 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 	// 3. Load existing variants tied to those targets
 	variantRows, err := d.sql.QueryContext(ctx, `
 		SELECT v.id, v.target_id, v.variant_raw, v.variant_normalized, v.in_scope
-		FROM target_variants v
-		JOIN targets t ON v.target_id = t.id
+		FROM targets_normalized v
+		JOIN raw_targets t ON v.target_id = t.id
 		WHERE t.program_id = ?
 	`, programID)
 	if err != nil {
@@ -346,7 +346,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		stmt, err := tx.PrepareContext(ctx, `INSERT INTO targets(program_id, target_normalized, target_raw, category, description, in_scope, is_bbp, first_seen_at, last_seen_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`)
+		stmt, err := tx.PrepareContext(ctx, `INSERT INTO raw_targets(program_id, target_normalized, target_raw, category, description, in_scope, is_bbp, first_seen_at, last_seen_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
@@ -390,7 +390,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		stmt, err := tx.PrepareContext(ctx, `UPDATE targets SET description = ?, in_scope = ?, is_bbp = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
+		stmt, err := tx.PrepareContext(ctx, `UPDATE raw_targets SET description = ?, in_scope = ?, is_bbp = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
@@ -415,7 +415,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		stmt, err := tx.PrepareContext(ctx, `UPDATE targets SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
+		stmt, err := tx.PrepareContext(ctx, `UPDATE raw_targets SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
@@ -559,7 +559,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		stmt, err := tx.PrepareContext(ctx, `INSERT INTO target_variants(target_id, variant_normalized, variant_raw, in_scope, first_seen_at, last_seen_at) VALUES(?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`)
+		stmt, err := tx.PrepareContext(ctx, `INSERT INTO targets_normalized(target_id, variant_normalized, variant_raw, in_scope, first_seen_at, last_seen_at) VALUES(?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
@@ -597,7 +597,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		stmt, err := tx.PrepareContext(ctx, `UPDATE target_variants SET variant_raw = ?, in_scope = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
+		stmt, err := tx.PrepareContext(ctx, `UPDATE targets_normalized SET variant_raw = ?, in_scope = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
@@ -628,7 +628,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		stmt, err := tx.PrepareContext(ctx, `DELETE FROM target_variants WHERE id = ?`)
+		stmt, err := tx.PrepareContext(ctx, `DELETE FROM targets_normalized WHERE id = ?`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
@@ -655,7 +655,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		delStmt, err := tx.PrepareContext(ctx, `DELETE FROM targets WHERE id = ?`)
+		delStmt, err := tx.PrepareContext(ctx, `DELETE FROM raw_targets WHERE id = ?`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
@@ -780,7 +780,7 @@ func (d *DB) SyncPlatformPrograms(ctx context.Context, platform string, polledPr
 		}
 
 		// Delete associated targets
-		if _, err := tx.ExecContext(ctx, `DELETE FROM targets WHERE program_id = ?`, p.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM raw_targets WHERE program_id = ?`, p.ID); err != nil {
 			tx.Rollback()
 			return nil, fmt.Errorf("deleting targets for program %d: %w", p.ID, err)
 		}
@@ -942,9 +942,9 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 			t.is_bbp,
 			0 AS is_historical,
 			'raw' AS source
-		FROM targets t 
+		FROM raw_targets t 
 		JOIN programs p ON t.program_id = p.id
-		%s AND NOT EXISTS (SELECT 1 FROM target_variants v WHERE v.target_id = t.id)
+		%s AND NOT EXISTS (SELECT 1 FROM targets_normalized v WHERE v.target_id = t.id)
 	`, rawWhere)
 
 	variantSelect := fmt.Sprintf(`
@@ -962,8 +962,8 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 			t.is_bbp,
 			0 AS is_historical,
 			'variant' AS source
-		FROM target_variants v
-		JOIN targets t ON v.target_id = t.id
+		FROM targets_normalized v
+		JOIN raw_targets t ON v.target_id = t.id
 		JOIN programs p ON t.program_id = p.id
 		%s
 	`, variantWhere)
@@ -1061,21 +1061,21 @@ func (d *DB) AddCustomTarget(ctx context.Context, target, category string) error
 	normalizedTarget := NormalizeTarget(target)
 
 	var targetID int64
-	err = tx.QueryRowContext(ctx, "SELECT id FROM targets WHERE program_id = ? AND target_raw = ?", programID, target).Scan(&targetID)
+	err = tx.QueryRowContext(ctx, "SELECT id FROM raw_targets WHERE program_id = ? AND target_raw = ?", programID, target).Scan(&targetID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
 
 	if errors.Is(err, sql.ErrNoRows) {
 		_, err = tx.ExecContext(ctx, `
-			INSERT INTO targets(program_id, target_normalized, target_raw, category, in_scope, is_bbp, first_seen_at, last_seen_at)
+			INSERT INTO raw_targets(program_id, target_normalized, target_raw, category, in_scope, is_bbp, first_seen_at, last_seen_at)
 			VALUES(?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
 			programID, normalizedTarget, target, category, boolToInt(true), boolToInt(false))
 		if err != nil {
 			return fmt.Errorf("inserting custom target: %w", err)
 		}
 	} else {
-		_, err = tx.ExecContext(ctx, "UPDATE targets SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?", targetID)
+		_, err = tx.ExecContext(ctx, "UPDATE raw_targets SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?", targetID)
 		if err != nil {
 			return err
 		}
@@ -1127,12 +1127,12 @@ func (d *DB) GetStats(ctx context.Context) ([]PlatformStats, error) {
 	query := `
 		WITH effective_targets AS (
 			SELECT t.program_id, t.in_scope
-			FROM targets t
-			WHERE NOT EXISTS (SELECT 1 FROM target_variants v WHERE v.target_id = t.id)
+			FROM raw_targets t
+			WHERE NOT EXISTS (SELECT 1 FROM targets_normalized v WHERE v.target_id = t.id)
 			UNION ALL
 			SELECT t.program_id, v.in_scope
-			FROM target_variants v
-			JOIN targets t ON v.target_id = t.id
+			FROM targets_normalized v
+			JOIN raw_targets t ON v.target_id = t.id
 		)
 		SELECT
 			p.platform,
@@ -1184,9 +1184,9 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 			t.is_bbp,
 			0 as is_historical,
 			'raw' as source
-		FROM targets t 
+		FROM raw_targets t 
 		JOIN programs p ON t.program_id = p.id 
-		WHERE (t.target_normalized LIKE ? OR t.description LIKE ? OR p.url LIKE ?) AND p.is_ignored = 0 AND NOT EXISTS (SELECT 1 FROM target_variants v2 WHERE v2.target_id = t.id)
+		WHERE (t.target_normalized LIKE ? OR t.description LIKE ? OR p.url LIKE ?) AND p.is_ignored = 0 AND NOT EXISTS (SELECT 1 FROM targets_normalized v2 WHERE v2.target_id = t.id)
 
 		UNION ALL
 
@@ -1204,8 +1204,8 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 			t.is_bbp,
 			0 as is_historical,
 			'variant' as source
-		FROM target_variants v
-		JOIN targets t ON v.target_id = t.id
+		FROM targets_normalized v
+		JOIN raw_targets t ON v.target_id = t.id
 		JOIN programs p ON t.program_id = p.id
 		WHERE (v.variant_normalized LIKE ? OR t.description LIKE ? OR p.url LIKE ?) AND p.is_ignored = 0
 
