@@ -24,6 +24,7 @@ var getWildcardsCmd = &cobra.Command{
 
 func init() {
 	getWildcardsCmd.Flags().BoolP("aggressive", "a", false, "Extract root domains from all URL targets in addition to wildcards.")
+	getWildcardsCmd.Flags().String("platform", "all", "Limit results to a specific platform (e.g. h1, bugcrowd, intigriti).")
 	getCmd.AddCommand(getWildcardsCmd)
 }
 
@@ -45,7 +46,13 @@ func runGetWildcardsCmd(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	entries, err := db.ListEntries(context.Background(), storage.ListOptions{IncludeOOS: true})
+	platformFilter, _ := cmd.Flags().GetString("platform")
+	listOpts := storage.ListOptions{
+		Platform:   platformFilter,
+		IncludeOOS: true,
+	}
+
+	entries, err := db.ListEntries(context.Background(), listOpts)
 	if err != nil {
 		return err
 	}
