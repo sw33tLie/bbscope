@@ -3,10 +3,12 @@ package ai
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -33,6 +35,7 @@ type Config struct {
 	MaxBatch       int
 	MaxConcurrency int
 	HTTPClient     *http.Client
+	Proxy          string
 }
 
 // Normalizer defines the behavior required to transform raw scope targets via LLMs.
@@ -112,6 +115,13 @@ func newOpenAINormalizer(cfg Config) (*openAINormalizer, error) {
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 45 * time.Second}
+	}
+	if cfg.Proxy != "" {
+		proxyURL, err := url.Parse(cfg.Proxy)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ai proxy: %w", err)
+		}
+		applyProxyToClient(httpClient, proxyURL)
 	}
 
 	return &openAINormalizer{
@@ -317,17 +327,19 @@ Allowed unified categories: %s
 
 For every item you receive:
 - Convert wildcard targets to lowercase.
-- Strip unnecessary whitespaces in URLs, wildcards, etc, as well as obvious typos.
+- Strip unnecessary whitespaces in URLs, wildcards (*.rootdomain.com), etc, as well as obvious typos.
 - Expand bracket or pipe notations like "example.(it|com)" into each explicit domain.
-- When a scope ends with ".*" assume ".com" (example.* -> example.com, *.example.* -> *.example.com).
+- When a scope ends with ".*" assume ".com" and remove the wildcard prefix. For example, "example.*" -> "example.com" (category: "url"), "*.example.*" -> "example.com" (category: "wildcard").
 - If a scope element is just text describing somethign with no domains or anything else to extract, leave it as it is.
-- If a wildcard scope has multiple "*" characters, remove all but the first one. For example, "*.dev.*.example.com/**" should be cleaned to "example.com".
+- CRITICAL: Targets starting with "*." (wildcard prefix) must be categorized as "wildcard", not "url". When normalizing wildcard targets, remove the "*." prefix from the normalized value itself (the category field indicates it's a wildcard). For example, "*.example.com" should be normalized to "example.com" with category "wildcard", not "*.example.com" with category "url".
+- If a wildcard scope has multiple "*" characters in the domain part, clean it to remove all asterisks and paths. For example, "*.dev.*.example.com/**" should be normalized to "example.com" with category "wildcard".
 - Keep URLs/IPs/CIDRs intact but fix malformed hosts (remove regex, trailing dots, or redundant slashes).
-- When the text clearly states "out of scope", "test-only", or similar, set "in_scope": false. If it clearly says "in scope", set true. If unclear, omit the field.
+- CRITICAL: If the target string contains "OUT OF SCOPE", "out of scope", "OOS", "out-of-scope", "not in scope", "test-only", "excluded", or similar phrases indicating exclusion, you MUST set "in_scope": false. Extract the actual target from the string (e.g., "OUT OF SCOPE! target: example.com" -> extract "example.com" and set in_scope: false). Ignore the original in_scope value when these phrases are present.
+- If the text clearly states "in scope" or similar inclusion phrases, set "in_scope": true. If unclear, omit the field.
 - If a target clearly belongs to a different category than the one provided, change it to one of the allowed unified categories and return it via the optional "category" field. Leave "category" empty if you agree with the original.
 - If unsure how to clean a target, fall back to the provided string exactly.
 - For android and iOS app, keep the http(s):// url if it points to play/apple store. If it's just the app id, keep it like that too.
-- Remove paths from wildcard scope targets. For example, "*.example.com/*" should be cleaned to "example.com".
+- Remove paths and the "*." prefix from wildcard scope targets. The normalized value should be the domain without the wildcard prefix, and the category should be "wildcard". For example, "*.example.com/*" should be normalized to "example.com" with category "wildcard".
 
 Return ONLY JSON following this schema:
 {
@@ -462,4 +474,23 @@ func sanitizeTargets(targets []string) []string {
 		out = append(out, trimmed)
 	}
 	return out
+}
+
+func applyProxyToClient(client *http.Client, proxyURL *url.URL) {
+	var baseTransport *http.Transport
+	if transport, ok := client.Transport.(*http.Transport); ok && transport != nil {
+		baseTransport = transport.Clone()
+	} else if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
+		baseTransport = defaultTransport.Clone()
+	} else {
+		baseTransport = &http.Transport{}
+	}
+	baseTransport.Proxy = http.ProxyURL(proxyURL)
+	// Skip TLS certificate verification when using a proxy (useful for debugging proxies)
+	if baseTransport.TLSClientConfig == nil {
+		baseTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	} else {
+		baseTransport.TLSClientConfig.InsecureSkipVerify = true
+	}
+	client.Transport = baseTransport
 }

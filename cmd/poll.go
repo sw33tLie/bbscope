@@ -43,7 +43,7 @@ var pollCmd = &cobra.Command{
 			return fmt.Errorf("unknown command: '%s'. See 'bbscope poll --help'", args[0])
 		}
 
-		proxy, _ := cmd.Flags().GetString("proxy")
+		proxyURL, _ := cmd.Flags().GetString("proxy")
 		var pollers []platforms.PlatformPoller
 
 		// H1
@@ -62,7 +62,7 @@ var pollCmd = &cobra.Command{
 		bcOTP := viper.GetString("bugcrowd.otpsecret")
 		if bcEmail != "" && bcPass != "" && bcOTP != "" {
 			bcPoller := &bcplatform.Poller{}
-			authCfg := platforms.AuthConfig{Email: bcEmail, Password: bcPass, OtpSecret: bcOTP, Proxy: proxy}
+			authCfg := platforms.AuthConfig{Email: bcEmail, Password: bcPass, OtpSecret: bcOTP, Proxy: proxyURL}
 			if err := bcPoller.Authenticate(cmd.Context(), authCfg); err != nil {
 				utils.Log.Errorf("Bugcrowd auth failed: %v", err)
 			} else {
@@ -76,7 +76,7 @@ var pollCmd = &cobra.Command{
 		itToken := viper.GetString("intigriti.token")
 		if itToken != "" {
 			itPoller := itplatform.NewPoller()
-			if err := itPoller.Authenticate(cmd.Context(), platforms.AuthConfig{Token: itToken, Proxy: proxy}); err != nil {
+			if err := itPoller.Authenticate(cmd.Context(), platforms.AuthConfig{Token: itToken, Proxy: proxyURL}); err != nil {
 				utils.Log.Errorf("Intigriti auth failed: %v", err)
 			} else {
 				pollers = append(pollers, itPoller)
@@ -91,7 +91,7 @@ var pollCmd = &cobra.Command{
 		ywhOTP := viper.GetString("yeswehack.otpsecret")
 		if ywhEmail != "" && ywhPass != "" && ywhOTP != "" {
 			ywhPoller := &ywhplatform.Poller{}
-			authCfg := platforms.AuthConfig{Email: ywhEmail, Password: ywhPass, OtpSecret: ywhOTP, Proxy: proxy}
+			authCfg := platforms.AuthConfig{Email: ywhEmail, Password: ywhPass, OtpSecret: ywhOTP, Proxy: proxyURL}
 			if err := ywhPoller.Authenticate(cmd.Context(), authCfg); err != nil {
 				utils.Log.Errorf("YesWeHack auth failed: %v", err)
 			} else {
@@ -153,6 +153,7 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 
 	var aiNormalizer ai.Normalizer
 	if useAI {
+		proxyURL, _ := rootCmd.Flags().GetString("proxy")
 		cfg := ai.Config{
 			Provider:       strings.TrimSpace(viper.GetString("ai.provider")),
 			APIKey:         strings.TrimSpace(viper.GetString("ai.api_key")),
@@ -160,6 +161,11 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 			MaxBatch:       viper.GetInt("ai.max_batch"),
 			MaxConcurrency: viper.GetInt("ai.max_concurrency"),
 			Endpoint:       strings.TrimSpace(viper.GetString("ai.endpoint")),
+			Proxy:          strings.TrimSpace(viper.GetString("ai.proxy")),
+		}
+		// Command-line proxy flag takes precedence over config file
+		if proxyURL != "" {
+			cfg.Proxy = proxyURL
 		}
 		if cfg.APIKey == "" {
 			cfg.APIKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
@@ -465,7 +471,24 @@ func executeDBWrite(maxRetries int, initialBackoff time.Duration, op func() erro
 }
 
 func printChanges(changes []storage.Change) {
+	// Track which targets have variant changes (AI-normalized)
+	hasVariants := make(map[string]bool)
 	for _, c := range changes {
+		if c.TargetAINormalized != "" {
+			key := fmt.Sprintf("%s|%s|%s", c.Platform, c.ProgramURL, c.TargetRaw)
+			hasVariants[key] = true
+		}
+	}
+
+	for _, c := range changes {
+		// Skip base target changes if there are variant changes for the same target
+		if c.TargetAINormalized == "" {
+			key := fmt.Sprintf("%s|%s|%s", c.Platform, c.ProgramURL, c.TargetRaw)
+			if hasVariants[key] {
+				continue
+			}
+		}
+
 		var emoji string
 		switch c.ChangeType {
 		case "added":
