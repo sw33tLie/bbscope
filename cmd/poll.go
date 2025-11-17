@@ -152,11 +152,12 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 	var aiNormalizer ai.Normalizer
 	if useAI {
 		cfg := ai.Config{
-			Provider: strings.TrimSpace(viper.GetString("ai.provider")),
-			APIKey:   strings.TrimSpace(viper.GetString("ai.api_key")),
-			Model:    strings.TrimSpace(viper.GetString("ai.model")),
-			MaxBatch: viper.GetInt("ai.max_batch"),
-			Endpoint: strings.TrimSpace(viper.GetString("ai.endpoint")),
+			Provider:       strings.TrimSpace(viper.GetString("ai.provider")),
+			APIKey:         strings.TrimSpace(viper.GetString("ai.api_key")),
+			Model:          strings.TrimSpace(viper.GetString("ai.model")),
+			MaxBatch:       viper.GetInt("ai.max_batch"),
+			MaxConcurrency: viper.GetInt("ai.max_concurrency"),
+			Endpoint:       strings.TrimSpace(viper.GetString("ai.endpoint")),
 		}
 		if cfg.APIKey == "" {
 			cfg.APIKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))

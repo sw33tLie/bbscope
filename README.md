@@ -89,6 +89,7 @@ ai:
   api_key: "" # or set OPENAI_API_KEY env var
   model: "gpt-4o-mini"
   max_batch: 25
+  max_concurrency: 10
 ```
 
 Alternatively, you can provide credentials directly via command-line flags when running a `poll` subcommand. Flags will always override values in the configuration file.
@@ -150,6 +151,7 @@ bbscope poll --db --ai
 - Entries are batched per program to minimize API calls.
 - If the model fails or omits an entry, the original target is used so nothing is lost.
 - When the text explicitly says “out of scope” or similar, the AI pass can flip the entry’s `in_scope` flag for you.
+- Tune throughput with `max_batch` (targets per request) and `max_concurrency` (simultaneous requests) in the `ai` config section.
 
 ---
 

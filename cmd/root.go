@@ -103,6 +103,7 @@ func initConfig() {
 	viper.SetDefault("ai.api_key", "")
 	viper.SetDefault("ai.endpoint", "")
 	viper.SetDefault("ai.max_batch", 25)
+	viper.SetDefault("ai.max_concurrency", 3)
 
 	// Init log library
 	levelString, _ := rootCmd.PersistentFlags().GetString("loglevel")

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sw33tLie/bbscope/v2/internal/utils"
@@ -23,12 +24,13 @@ type ProgramInfo struct {
 
 // Config controls how the AI normalizer behaves.
 type Config struct {
-	Provider   string
-	APIKey     string
-	Model      string
-	Endpoint   string
-	MaxBatch   int
-	HTTPClient *http.Client
+	Provider       string
+	APIKey         string
+	Model          string
+	Endpoint       string
+	MaxBatch       int
+	MaxConcurrency int
+	HTTPClient     *http.Client
 }
 
 // Normalizer defines the behavior required to transform raw scope targets via LLMs.
@@ -37,10 +39,11 @@ type Normalizer interface {
 }
 
 const (
-	defaultProvider     = "openai"
-	defaultModel        = "gpt-4.1-mini"
-	defaultEndpoint     = "https://api.openai.com/v1/chat/completions"
-	defaultMaxBatchSize = 25
+	defaultProvider       = "openai"
+	defaultModel          = "gpt-4.1-mini"
+	defaultEndpoint       = "https://api.openai.com/v1/chat/completions"
+	defaultMaxBatchSize   = 25
+	defaultMaxConcurrency = 10
 )
 
 // NewNormalizer builds a concrete Normalizer implementation based on the provided config.
@@ -63,11 +66,12 @@ type httpClient interface {
 }
 
 type openAINormalizer struct {
-	apiKey       string
-	model        string
-	endpoint     string
-	maxBatchSize int
-	client       httpClient
+	apiKey         string
+	model          string
+	endpoint       string
+	maxBatchSize   int
+	maxConcurrency int
+	client         httpClient
 }
 
 type normalizedResult struct {
@@ -96,17 +100,23 @@ func newOpenAINormalizer(cfg Config) (*openAINormalizer, error) {
 		maxBatch = defaultMaxBatchSize
 	}
 
+	maxConcurrency := cfg.MaxConcurrency
+	if maxConcurrency <= 0 {
+		maxConcurrency = defaultMaxConcurrency
+	}
+
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 45 * time.Second}
 	}
 
 	return &openAINormalizer{
-		apiKey:       apiKey,
-		model:        model,
-		endpoint:     endpoint,
-		maxBatchSize: maxBatch,
-		client:       httpClient,
+		apiKey:         apiKey,
+		model:          model,
+		endpoint:       endpoint,
+		maxBatchSize:   maxBatch,
+		maxConcurrency: maxConcurrency,
+		client:         httpClient,
 	}, nil
 }
 
@@ -119,22 +129,70 @@ func (n *openAINormalizer) NormalizeTargets(ctx context.Context, info ProgramInf
 
 	utils.Log.Debugf("[ai] starting normalization for %s (%s) - %d targets", info.ProgramURL, info.Handle, len(items))
 
-	var out []storage.TargetItem
+	type chunkWork struct {
+		index int
+		start int
+		end   int
+		items []storage.TargetItem
+	}
+
+	var chunks []chunkWork
 	for start := 0; start < len(items); start += n.maxBatchSize {
 		end := start + n.maxBatchSize
 		if end > len(items) {
 			end = len(items)
 		}
-		chunk := items[start:end]
+		chunks = append(chunks, chunkWork{
+			index: len(chunks),
+			start: start,
+			end:   end,
+			items: items[start:end],
+		})
+	}
 
-		utils.Log.Debugf("[ai] normalizing chunk %d-%d (size %d)", start, end-1, len(chunk))
-		chunkResult, err := n.normalizeChunk(ctx, info, start, chunk)
-		if err != nil {
-			utils.Log.Debugf("[ai] chunk %d-%d failed: %v", start, end-1, err)
-			return nil, err
-		}
-		utils.Log.Debugf("[ai] chunk %d-%d normalized into %d targets", start, end-1, len(chunkResult))
-		out = append(out, chunkResult...)
+	if len(chunks) == 0 {
+		return nil, nil
+	}
+
+	results := make([][]storage.TargetItem, len(chunks))
+
+	workerLimit := n.maxConcurrency
+	if workerLimit <= 0 {
+		workerLimit = 1
+	}
+	sem := make(chan struct{}, workerLimit)
+
+	var wg sync.WaitGroup
+	var firstErr error
+	var errOnce sync.Once
+
+	for _, chunk := range chunks {
+		wg.Add(1)
+		go func(c chunkWork) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			utils.Log.Debugf("[ai] normalizing chunk %d-%d (size %d)", c.start, c.end-1, len(c.items))
+			chunkResult, err := n.normalizeChunk(ctx, info, c.start, c.items)
+			if err != nil {
+				utils.Log.Debugf("[ai] chunk %d-%d failed: %v", c.start, c.end-1, err)
+				errOnce.Do(func() { firstErr = err })
+				return
+			}
+			utils.Log.Debugf("[ai] chunk %d-%d normalized into %d targets", c.start, c.end-1, len(chunkResult))
+			results[c.index] = chunkResult
+		}(chunk)
+	}
+
+	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+
+	var out []storage.TargetItem
+	for _, chunkRes := range results {
+		out = append(out, chunkRes...)
 	}
 
 	utils.Log.Debugf("[ai] finished normalization for %s (%s) - expanded to %d targets", info.ProgramURL, info.Handle, len(out))
