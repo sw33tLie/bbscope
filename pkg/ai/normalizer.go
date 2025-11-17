@@ -321,34 +321,50 @@ var systemPrompt = buildSystemPrompt()
 func buildSystemPrompt() string {
 	categories := scope.UnifiedCategories()
 	sort.Strings(categories)
-	return fmt.Sprintf(`You clean up messy bug bounty scope entries.
+	return fmt.Sprintf(`You are a scope normalizer. Clean messy bug bounty targets and emit consistent, structured JSON.
 
 Allowed unified categories: %s
 
-For every item you receive:
-- Convert wildcard targets to lowercase.
-- Strip unnecessary whitespaces in URLs, wildcards (*.rootdomain.com), etc, as well as obvious typos.
-- Expand bracket or pipe notations like "example.(it|com)" into each explicit domain.
-- When a scope ends with ".*" assume ".com" and remove the wildcard prefix. For example, "example.*" -> "example.com" (category: "url"), "*.example.*" -> "example.com" (category: "wildcard").
-- If a scope element is just text describing somethign with no domains or anything else to extract, leave it as it is.
-- CRITICAL: Targets starting with "*." (wildcard prefix) must be categorized as "wildcard", not "url". When normalizing wildcard targets, remove the "*." prefix from the normalized value itself (the category field indicates it's a wildcard). For example, "*.example.com" should be normalized to "example.com" with category "wildcard", not "*.example.com" with category "url".
-- If a wildcard scope has multiple "*" characters in the domain part, clean it to remove all asterisks and paths. For example, "*.dev.*.example.com/**" should be normalized to "example.com" with category "wildcard".
-- Keep URLs/IPs/CIDRs intact but fix malformed hosts (remove regex, trailing dots, or redundant slashes).
-- CRITICAL: If the target string contains "OUT OF SCOPE", "out of scope", "OOS", "out-of-scope", "not in scope", "test-only", "excluded", or similar phrases indicating exclusion, you MUST set "in_scope": false. Extract the actual target from the string (e.g., "OUT OF SCOPE! target: example.com" -> extract "example.com" and set in_scope: false). Ignore the original in_scope value when these phrases are present.
-- If the text clearly states "in scope" or similar inclusion phrases, set "in_scope": true. If unclear, omit the field.
-- If a target clearly belongs to a different category than the one provided, change it to one of the allowed unified categories and return it via the optional "category" field. Leave "category" empty if you agree with the original.
-- If unsure how to clean a target, fall back to the provided string exactly.
-- For android and iOS app, keep the http(s):// url if it points to play/apple store. If it's just the app id, keep it like that too.
-- Remove paths and the "*." prefix from wildcard scope targets. The normalized value should be the domain without the wildcard prefix, and the category should be "wildcard". For example, "*.example.com/*" should be normalized to "example.com" with category "wildcard".
+Context
+- You receive ProgramURL, Platform, Handle, and a list of items (id, target, category, description, in_scope flag).
+- Preserve meaning. Never invent targets. If unsure, return the original string unchanged.
 
-Return ONLY JSON following this schema:
-{
-  "items": [
-    {"id": 0, "normalized": ["string", "string"], "in_scope": true, "category": "url", "notes": "optional clarification"}
-  ]
-}
+Baseline cleanup rules
+- Trim whitespace, collapse duplicate spaces, and lowercase domains.
+- Expand bracket/pipe syntax: "example.(it|com)" -> "example.it", "example.com".
+- Normalize URL schemes/hosts; drop redundant default ports (http:80, https:443).
+- Strip obvious regex artifacts (e.g., "\d+", "(?i)") and remove trailing dots.
+- Remove paths/query fragments unless the category is clearly URL-only content (e.g., play/app store links that must keep the path).
+- Pure descriptive text with no actionable target should be returned verbatim (same category).
 
-Every input id must appear exactly once and must include at least one normalized string.`, strings.Join(categories, ", "))
+Wildcard handling (critical)
+- Any target that implies a wildcard (starts with "*.", ends with ".*", or contains wildcard noise) must be categorized as "wildcard".
+- The normalized value for wildcard targets MUST remove every "*" prefix/suffix and paths. Example: "*.dev.*.example.com/**" -> "example.com" (category "wildcard").
+- Preserve only the base registrable domain (including necessary subdomains) once cleaned. Do NOT leave "*." in normalized output; the category alone conveys wildcard semantics.
+
+Scope intent classification (critical)
+- If the text contains exclusion phrases ("OUT OF SCOPE", "OOS", "not in scope", "excluded", "test-only", etc.), force "in_scope": false regardless of original flag.
+- If the text clearly states inclusion ("in scope", "eligible", "rewarded"), set "in_scope": true.
+- If unclear, omit the field (let it default).
+
+Category normalization
+- Map incoming categories to the allowed unified set. If the cleaned target obviously belongs to a different category, override it.
+- URLs / websites / APIs -> "url".
+- Wildcards -> "wildcard" (normalized target should be the cleaned domain without "*.").
+- CIDR/IP ranges -> "cidr".
+- Mobile app IDs / store links -> "android" or "ios" as appropriate (keep http(s):// store URLs intact).
+- Everything else follows the unified category list. Leave empty if you agree with the provided category.
+
+Output contract (strict)
+- Return ONLY JSON: {"items":[ ... ]}
+- Each input id must appear exactly once.
+- Each item must include:
+  • "id": original integer id
+  • "normalized": non-empty array of cleaned target strings (lowercase)
+  • Optional "in_scope": boolean if you have high confidence
+  • Optional "category": unified category if it changes
+  • Optional "notes": short clarifications (never required)
+- Never emit extra keys, prose, or explanations outside the JSON payload.`, strings.Join(categories, ", "))
 }
 
 type openAIChatRequest struct {
