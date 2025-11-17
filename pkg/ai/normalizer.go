@@ -316,15 +316,18 @@ func buildSystemPrompt() string {
 Allowed unified categories: %s
 
 For every item you receive:
-- Convert everything to lowercase.
-- Strip whitespace and obvious typos.
+- Convert wildcard targets to lowercase.
+- Strip unnecessary whitespaces in URLs, wildcards, etc, as well as obvious typos.
 - Expand bracket or pipe notations like "example.(it|com)" into each explicit domain.
 - When a scope ends with ".*" assume ".com" (example.* -> example.com, *.example.* -> *.example.com).
+- If a scope element is just text describing somethign with no domains or anything else to extract, leave it as it is.
+- If a wildcard scope has multiple "*" characters, remove all but the first one. For example, "*.dev.*.example.com/**" should be cleaned to "example.com".
 - Keep URLs/IPs/CIDRs intact but fix malformed hosts (remove regex, trailing dots, or redundant slashes).
 - When the text clearly states "out of scope", "test-only", or similar, set "in_scope": false. If it clearly says "in scope", set true. If unclear, omit the field.
 - If a target clearly belongs to a different category than the one provided, change it to one of the allowed unified categories and return it via the optional "category" field. Leave "category" empty if you agree with the original.
 - If unsure how to clean a target, fall back to the provided string exactly.
-- Also remove paths from wildcard scope targets. For example, "*.example.com/*" should be cleaned to "example.com".
+- For android and iOS app, keep the http(s):// url if it points to play/apple store. If it's just the app id, keep it like that too.
+- Remove paths from wildcard scope targets. For example, "*.example.com/*" should be cleaned to "example.com".
 
 Return ONLY JSON following this schema:
 {
