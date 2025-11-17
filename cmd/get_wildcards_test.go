@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/sw33tLie/bbscope/v2/pkg/storage"
@@ -32,9 +31,15 @@ func TestCollectWildcards_NonAggressiveExplicitOnly(t *testing.T) {
 	}
 
 	got := collectWildcards(entries, false)
-	expect := []string{"example.com"}
-	if !reflect.DeepEqual(got, expect) {
-		t.Fatalf("unexpected domains.\nwant: %#v\ngot:  %#v", expect, got)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 domain, got %d", len(got))
+	}
+	programs, ok := got["example.com"]
+	if !ok {
+		t.Fatalf("expected example.com domain")
+	}
+	if _, ok := programs["https://hackerone.com/example"]; !ok {
+		t.Fatalf("expected program url for example.com")
 	}
 }
 
@@ -57,9 +62,15 @@ func TestCollectWildcardsAggressiveSkipsIPs(t *testing.T) {
 	}
 
 	got := collectWildcards(entries, true)
-	expect := []string{"test.ai"}
-	if !reflect.DeepEqual(got, expect) {
-		t.Fatalf("unexpected domains.\nwant: %#v\ngot:  %#v", expect, got)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 domain, got %d", len(got))
+	}
+	programs, ok := got["test.ai"]
+	if !ok {
+		t.Fatalf("expected test.ai domain")
+	}
+	if _, ok := programs["https://hackerone.com/test_bbp"]; !ok {
+		t.Fatalf("expected program url for test.ai")
 	}
 }
 
@@ -147,8 +158,11 @@ func TestCollectWildcardsDeduplicatesAndSorts(t *testing.T) {
 	}
 
 	got := collectWildcards(entries, true)
-	expect := []string{"example.com"}
-	if !reflect.DeepEqual(got, expect) {
-		t.Fatalf("expected deduped sorted domains %#v, got %#v", expect, got)
+	programs, ok := got["example.com"]
+	if !ok || len(got) != 1 {
+		t.Fatalf("expected only example.com domain, got %#v", got)
+	}
+	if _, ok := programs["https://hackerone.com/sdgsdfa"]; !ok {
+		t.Fatalf("expected program for example.com dedupe test")
 	}
 }

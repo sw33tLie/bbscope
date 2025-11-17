@@ -25,6 +25,8 @@ var getWildcardsCmd = &cobra.Command{
 func init() {
 	getWildcardsCmd.Flags().BoolP("aggressive", "a", false, "Extract root domains from all URL targets in addition to wildcards.")
 	getWildcardsCmd.Flags().String("platform", "all", "Limit results to a specific platform (e.g. h1, bugcrowd, intigriti).")
+	getWildcardsCmd.Flags().StringP("output", "o", "t", "Output flags. Supported: t (target), u (program URL). Example: -o tu")
+	getWildcardsCmd.Flags().StringP("delimiter", "d", " ", "Delimiter to use between output fields.")
 	getCmd.AddCommand(getWildcardsCmd)
 }
 
@@ -58,10 +60,47 @@ func runGetWildcardsCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	aggressive, _ := cmd.Flags().GetBool("aggressive")
-	domains := collectWildcards(entries, aggressive)
+	outputFlags, _ := cmd.Flags().GetString("output")
+	if outputFlags == "" {
+		outputFlags = "t"
+	}
+	for _, flag := range outputFlags {
+		if flag != 't' && flag != 'u' {
+			return fmt.Errorf("invalid output flag '%c'. Supported flags: t, u", flag)
+		}
+	}
+	delimiter, _ := cmd.Flags().GetString("delimiter")
+
+	domainPrograms := collectWildcards(entries, aggressive)
+	domains := make([]string, 0, len(domainPrograms))
+	for domain := range domainPrograms {
+		domains = append(domains, domain)
+	}
+	sort.Strings(domains)
+
+	includeProgram := strings.ContainsRune(outputFlags, 'u')
 
 	for _, domain := range domains {
-		fmt.Fprintln(cmd.OutOrStdout(), domain)
+		programs := domainPrograms[domain]
+		if includeProgram {
+			programList := make([]string, 0, len(programs))
+			for programURL := range programs {
+				programList = append(programList, programURL)
+			}
+			sort.Strings(programList)
+			for _, programURL := range programList {
+				line := formatWildcardLine(domain, programURL, outputFlags, delimiter)
+				if line != "" {
+					fmt.Fprintln(cmd.OutOrStdout(), line)
+				}
+			}
+			continue
+		}
+
+		line := formatWildcardLine(domain, "", outputFlags, delimiter)
+		if line != "" {
+			fmt.Fprintln(cmd.OutOrStdout(), line)
+		}
 	}
 
 	return nil
@@ -101,8 +140,8 @@ var nonDomainCategories = map[string]struct{}{
 	"blockchain": {},
 }
 
-func collectWildcards(entries []storage.Entry, aggressive bool) []string {
-	uniqueDomains := make(map[string]struct{})
+func collectWildcards(entries []storage.Entry, aggressive bool) map[string]map[string]struct{} {
+	uniqueDomains := make(map[string]map[string]struct{})
 
 	outOfScopeByProgram := make(map[string]map[string]struct{})
 	for _, e := range entries {
@@ -192,15 +231,30 @@ func collectWildcards(entries []storage.Entry, aggressive bool) []string {
 				continue
 			}
 		}
-		uniqueDomains[finalDomain] = struct{}{}
+		if _, exists := uniqueDomains[finalDomain]; !exists {
+			uniqueDomains[finalDomain] = make(map[string]struct{})
+		}
+		uniqueDomains[finalDomain][e.ProgramURL] = struct{}{}
 	}
 
-	domains := make([]string, 0, len(uniqueDomains))
-	for domain := range uniqueDomains {
-		domains = append(domains, domain)
+	return uniqueDomains
+}
+
+func formatWildcardLine(domain, programURL, outputFlags, delimiter string) string {
+	var builder strings.Builder
+	for _, flag := range outputFlags {
+		switch flag {
+		case 't':
+			builder.WriteString(domain)
+			builder.WriteString(delimiter)
+		case 'u':
+			builder.WriteString(programURL)
+			builder.WriteString(delimiter)
+		}
 	}
-	sort.Strings(domains)
-	return domains
+	line := builder.String()
+	line = strings.TrimSuffix(line, delimiter)
+	return line
 }
 
 func wildcardHasPath(target string) bool {
