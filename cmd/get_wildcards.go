@@ -123,6 +123,8 @@ var blacklistedSuffixes = []string{
 	"amazon.com.be",
 	"vercel.app",
 	"webhosting.be",
+	"firebase.app",
+	"run.app",
 	"adobeaemcloud.com",
 	"azurefd.net",
 	"windows.net",
