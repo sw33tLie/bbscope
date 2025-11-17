@@ -452,12 +452,12 @@ func printChanges(changes []storage.Change) {
 		if targetDisplay == "" {
 			targetDisplay = c.TargetNormalized
 		}
-		if c.VariantRaw != "" || c.VariantNormalized != "" {
+		if c.VariantRaw != "" || c.TargetAINormalized != "" {
 			var variant string
 			if c.VariantRaw != "" {
 				variant = c.VariantRaw
 			} else {
-				variant = c.VariantNormalized
+				variant = c.TargetAINormalized
 			}
 			targetDisplay = fmt.Sprintf("%s -> %s", targetDisplay, variant)
 		}

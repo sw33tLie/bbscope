@@ -27,18 +27,18 @@ type Entry struct {
 
 // Change captures a single change event for auditing or printing.
 type Change struct {
-	OccurredAt        time.Time
-	ProgramURL        string
-	Platform          string
-	Handle            string
-	TargetNormalized  string
-	TargetRaw         string
-	VariantNormalized string
-	VariantRaw        string
-	Category          string
-	InScope           bool
-	IsBBP             bool
-	ChangeType        string
+	OccurredAt         time.Time
+	ProgramURL         string
+	Platform           string
+	Handle             string
+	TargetNormalized   string
+	TargetRaw          string
+	TargetAINormalized string
+	VariantRaw         string
+	Category           string
+	InScope            bool
+	IsBBP              bool
+	ChangeType         string
 }
 
 // UpsertEntry represents the raw scope item along with its variants.
@@ -57,9 +57,9 @@ type UpsertEntry struct {
 
 // EntryVariant represents a derived/expanded target tied to a raw entry.
 type EntryVariant struct {
-	Raw        string
-	Normalized string
-	InScope    bool
+	Raw          string
+	AINormalized string
+	InScope      bool
 }
 
 // TargetItem is a light wrapper for building entries.
