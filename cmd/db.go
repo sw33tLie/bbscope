@@ -145,7 +145,20 @@ var changesCmd = &cobra.Command{
 			if !c.InScope {
 				scopeStatus = " [OOS]"
 			}
-			fmt.Printf("%s  %-6s  %s  %s  %s%s\n", ts, c.ChangeType, c.Platform, c.ProgramURL, c.TargetRaw, scopeStatus)
+			targetDisplay := c.TargetRaw
+			if targetDisplay == "" {
+				targetDisplay = c.TargetNormalized
+			}
+			if c.VariantRaw != "" || c.VariantNormalized != "" {
+				var variant string
+				if c.VariantRaw != "" {
+					variant = c.VariantRaw
+				} else {
+					variant = c.VariantNormalized
+				}
+				targetDisplay = fmt.Sprintf("%s -> %s", targetDisplay, variant)
+			}
+			fmt.Printf("%s  %-6s  %s  %s  %s%s\n", ts, c.ChangeType, c.Platform, c.ProgramURL, targetDisplay, scopeStatus)
 		}
 		return nil
 	},

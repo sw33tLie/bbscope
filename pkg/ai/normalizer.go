@@ -307,6 +307,7 @@ For every item you receive:
 - Keep URLs/IPs/CIDRs intact but fix malformed hosts (remove regex, trailing dots, or redundant slashes).
 - When the text clearly states "out of scope", "test-only", or similar, set "in_scope": false. If it clearly says "in scope", set true. If unclear, omit the field.
 - If unsure how to clean a target, fall back to the provided string exactly.
+- Also remove paths from wildcard scope targets. For example, "*.example.com/*" should be cleaned to "example.com".
 
 Return ONLY JSON following this schema:
 {
@@ -377,21 +378,34 @@ func mergeNormalized(items []storage.TargetItem, baseID int, normalized map[int]
 		id := baseID + idx
 		result := normalized[id]
 		targets := sanitizeTargets(result.Targets)
-		if len(targets) == 0 {
-			targets = []string{strings.TrimSpace(original.URI)}
+
+		cloned := original
+		cloned.Variants = nil
+		if result.InScope != nil {
+			cloned.InScope = *result.InScope
 		}
 
-		for _, target := range targets {
-			if target == "" {
-				continue
+		if len(targets) > 0 {
+			cloned.Variants = make([]storage.TargetVariant, 0, len(targets))
+			for _, target := range targets {
+				if target == "" {
+					continue
+				}
+				var hasInScope bool
+				var inScopeVal bool
+				if result.InScope != nil {
+					hasInScope = true
+					inScopeVal = *result.InScope
+				}
+				cloned.Variants = append(cloned.Variants, storage.TargetVariant{
+					Value:      target,
+					HasInScope: hasInScope,
+					InScope:    inScopeVal,
+				})
 			}
-			cloned := original
-			cloned.URI = target
-			if result.InScope != nil {
-				cloned.InScope = *result.InScope
-			}
-			out = append(out, cloned)
 		}
+
+		out = append(out, cloned)
 	}
 
 	return out

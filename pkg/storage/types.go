@@ -9,28 +9,57 @@ type Entry struct {
 	Platform   string
 	Handle     string
 
-	// Target info
+	// Display target info (variant or raw)
 	TargetNormalized string
 	TargetRaw        string
-	Category         string
-	Description      string
-	InScope          bool
-	IsBBP            bool
-	IsHistorical     bool
+
+	// Base target info (always deterministic/raw)
+	BaseTargetNormalized string
+	BaseTargetRaw        string
+
+	Category     string
+	Description  string
+	InScope      bool
+	IsBBP        bool
+	IsHistorical bool
+	Source       string
 }
 
 // Change captures a single change event for auditing or printing.
 type Change struct {
-	OccurredAt       time.Time
+	OccurredAt        time.Time
+	ProgramURL        string
+	Platform          string
+	Handle            string
+	TargetNormalized  string
+	TargetRaw         string
+	VariantNormalized string
+	VariantRaw        string
+	Category          string
+	InScope           bool
+	IsBBP             bool
+	ChangeType        string
+}
+
+// UpsertEntry represents the raw scope item along with its variants.
+type UpsertEntry struct {
 	ProgramURL       string
 	Platform         string
 	Handle           string
 	TargetNormalized string
 	TargetRaw        string
 	Category         string
+	Description      string
 	InScope          bool
 	IsBBP            bool
-	ChangeType       string
+	Variants         []EntryVariant
+}
+
+// EntryVariant represents a derived/expanded target tied to a raw entry.
+type EntryVariant struct {
+	Raw        string
+	Normalized string
+	InScope    bool
 }
 
 // TargetItem is a light wrapper for building entries.
@@ -40,4 +69,12 @@ type TargetItem struct {
 	Description string
 	InScope     bool
 	IsBBP       bool
+	Variants    []TargetVariant
+}
+
+// TargetVariant captures a requested expansion for a target.
+type TargetVariant struct {
+	Value      string
+	HasInScope bool
+	InScope    bool
 }

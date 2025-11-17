@@ -29,9 +29,25 @@ func TestNormalizerScenarios(t *testing.T) {
 				6: {Targets: []string{"example.it", " example.com "}},
 			},
 			expected: []storage.TargetItem{
-				{URI: "example.com", Category: "wildcard", Description: "main", InScope: true},
-				{URI: "example.it", Category: "url", Description: "alt", InScope: false},
-				{URI: "example.com", Category: "url", Description: "alt", InScope: false},
+				{
+					URI:         "example.*",
+					Category:    "wildcard",
+					Description: "main",
+					InScope:     true,
+					Variants: []storage.TargetVariant{
+						{Value: "example.com"},
+					},
+				},
+				{
+					URI:         "example.(it|com)",
+					Category:    "url",
+					Description: "alt",
+					InScope:     false,
+					Variants: []storage.TargetVariant{
+						{Value: "example.it"},
+						{Value: "example.com"},
+					},
+				},
 			},
 		},
 		{
@@ -55,7 +71,14 @@ func TestNormalizerScenarios(t *testing.T) {
 				0: {Targets: []string{"example.com"}, InScope: &falseVal},
 			},
 			expected: []storage.TargetItem{
-				{URI: "example.com", Category: "url", InScope: false},
+				{
+					URI:      "example.com",
+					Category: "url",
+					InScope:  false,
+					Variants: []storage.TargetVariant{
+						{Value: "example.com", HasInScope: true, InScope: false},
+					},
+				},
 			},
 		},
 	}
