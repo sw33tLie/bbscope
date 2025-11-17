@@ -149,14 +149,8 @@ var changesCmd = &cobra.Command{
 			if targetDisplay == "" {
 				targetDisplay = c.TargetNormalized
 			}
-			if c.VariantRaw != "" || c.TargetAINormalized != "" {
-				var variant string
-				if c.VariantRaw != "" {
-					variant = c.VariantRaw
-				} else {
-					variant = c.TargetAINormalized
-				}
-				targetDisplay = fmt.Sprintf("%s -> %s", targetDisplay, variant)
+			if c.TargetAINormalized != "" {
+				targetDisplay = fmt.Sprintf("%s -> %s", targetDisplay, c.TargetAINormalized)
 			}
 			fmt.Printf("%s  %-6s  %s  %s  %s%s\n", ts, c.ChangeType, c.Platform, c.ProgramURL, targetDisplay, scopeStatus)
 		}

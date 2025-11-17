@@ -34,7 +34,6 @@ type Change struct {
 	TargetNormalized   string
 	TargetRaw          string
 	TargetAINormalized string
-	VariantRaw         string
 	Category           string
 	InScope            bool
 	IsBBP              bool
@@ -57,7 +56,6 @@ type UpsertEntry struct {
 
 // EntryVariant represents a derived/expanded target tied to a raw entry.
 type EntryVariant struct {
-	Raw          string
 	AINormalized string
 	InScope      bool
 }
