@@ -494,8 +494,10 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 					variant:  variant,
 				})
 				changeCategory := entry.Category
-				if variant.HasCategory {
+				if variant.HasCategory && !strings.EqualFold(variant.Category, entry.Category) {
 					changeCategory = variant.Category
+				} else {
+					variant.HasCategory = false
 				}
 				changeInScope := entry.InScope
 				if variant.HasInScope {
@@ -536,14 +538,16 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 					variant: variant,
 				})
 				changeCategory := entry.Category
-				if variant.HasCategory {
+				if variant.HasCategory && !strings.EqualFold(variant.Category, entry.Category) {
 					changeCategory = variant.Category
+				} else {
+					variant.HasCategory = false
 				}
 				changeInScope := entry.InScope
-				if variant.HasInScope {
+				if variant.HasInScope && variant.InScope != entry.InScope {
 					changeInScope = variant.InScope
-				} else if ev.HasInScope {
-					changeInScope = entry.InScope
+				} else {
+					variant.HasInScope = false
 				}
 				changes = append(changes, Change{
 					OccurredAt:         now,
@@ -607,12 +611,16 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		}
 		for _, add := range variantAdds {
 			var catVal interface{}
-			if add.variant.HasCategory {
+			if add.variant.HasCategory && !strings.EqualFold(add.variant.Category, add.entry.Category) {
 				catVal = add.variant.Category
+			} else {
+				add.variant.HasCategory = false
 			}
 			var inScopeVal interface{}
-			if add.variant.HasInScope {
+			if add.variant.HasInScope && add.variant.InScope != add.entry.InScope {
 				inScopeVal = boolToInt(add.variant.InScope)
+			} else {
+				add.variant.HasInScope = false
 			}
 			res, err := stmt.ExecContext(ctx, add.targetID, add.variant.AINormalized, catVal, inScopeVal)
 			if err != nil {
@@ -655,12 +663,16 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		}
 		for _, upd := range variantUpdates {
 			var catVal interface{}
-			if upd.variant.HasCategory {
+			if upd.variant.HasCategory && !strings.EqualFold(upd.variant.Category, upd.entry.Category) {
 				catVal = upd.variant.Category
+			} else {
+				upd.variant.HasCategory = false
 			}
 			var inScopeVal interface{}
-			if upd.variant.HasInScope {
+			if upd.variant.HasInScope && upd.variant.InScope != upd.entry.InScope {
 				inScopeVal = boolToInt(upd.variant.InScope)
+			} else {
+				upd.variant.HasInScope = false
 			}
 			if _, err := stmt.ExecContext(ctx, upd.variant.AINormalized, catVal, inScopeVal, upd.id); err != nil {
 				stmt.Close()
@@ -1070,7 +1082,7 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 			}
 			if aiCategoryNS.Valid {
 				cat := strings.ToLower(strings.TrimSpace(aiCategoryNS.String))
-				if scope.IsUnifiedCategory(cat) {
+				if scope.IsUnifiedCategory(cat) && !strings.EqualFold(cat, baseCategory) {
 					entry.Category = cat
 				}
 			}
@@ -1354,7 +1366,7 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 				}
 				if aiCategoryNS.Valid {
 					cat := strings.ToLower(strings.TrimSpace(aiCategoryNS.String))
-					if scope.IsUnifiedCategory(cat) {
+					if scope.IsUnifiedCategory(cat) && !strings.EqualFold(cat, baseCategory) {
 						entry.Category = cat
 					}
 				}
