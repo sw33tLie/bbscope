@@ -57,7 +57,10 @@ type UpsertEntry struct {
 // EntryVariant represents a derived/expanded target tied to a raw entry.
 type EntryVariant struct {
 	AINormalized string
+	HasInScope   bool
 	InScope      bool
+	HasCategory  bool
+	Category     string
 }
 
 // TargetItem is a light wrapper for building entries.
@@ -72,7 +75,9 @@ type TargetItem struct {
 
 // TargetVariant captures a requested expansion for a target.
 type TargetVariant struct {
-	Value      string
-	HasInScope bool
-	InScope    bool
+	Value       string
+	HasInScope  bool
+	InScope     bool
+	HasCategory bool
+	Category    string
 }

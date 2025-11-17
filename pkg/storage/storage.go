@@ -56,12 +56,13 @@ CREATE TABLE IF NOT EXISTS targets_raw (
 );
 CREATE INDEX IF NOT EXISTS idx_targets_raw_program_id ON targets_raw(program_id);
 CREATE TABLE IF NOT EXISTS targets_ai_enhanced (
-	id                 INTEGER PRIMARY KEY,
-	target_id          INTEGER NOT NULL,
+	id                   INTEGER PRIMARY KEY,
+	target_id            INTEGER NOT NULL,
 	target_ai_normalized TEXT NOT NULL,
-	in_scope           INTEGER NOT NULL CHECK (in_scope IN (0,1)),
-	first_seen_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	last_seen_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	category             TEXT,
+	in_scope             INTEGER,
+	first_seen_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	last_seen_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	FOREIGN KEY(target_id) REFERENCES targets_raw(id) ON DELETE CASCADE,
 	UNIQUE(target_id, target_ai_normalized)
 );
@@ -155,9 +156,12 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 	}
 
 	type existingVariant struct {
-		ID      int64
-		Norm    string
-		InScope bool
+		ID          int64
+		Norm        string
+		Category    string
+		HasCategory bool
+		HasInScope  bool
+		InScope     bool
 	}
 
 	type existingTarget struct {
@@ -208,7 +212,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 
 	// 3. Load existing AI enhancements tied to those targets
 	variantRows, err := d.sql.QueryContext(ctx, `
-		SELECT v.id, v.target_id, v.target_ai_normalized, v.in_scope
+		SELECT v.id, v.target_id, v.target_ai_normalized, v.category, v.in_scope
 		FROM targets_ai_enhanced v
 		JOIN targets_raw t ON v.target_id = t.id
 		WHERE t.program_id = ?
@@ -220,10 +224,12 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 
 	for variantRows.Next() {
 		var (
-			id, targetID, inScope int64
-			normAI                string
+			id, targetID int64
+			normAI       string
+			catNS        sql.NullString
+			inScopeNS    sql.NullInt64
 		)
-		if err := variantRows.Scan(&id, &targetID, &normAI, &inScope); err != nil {
+		if err := variantRows.Scan(&id, &targetID, &normAI, &catNS, &inScopeNS); err != nil {
 			return nil, err
 		}
 		if target, ok := existingByID[targetID]; ok {
@@ -232,9 +238,12 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 					target.Variants = make(map[string]existingVariant)
 				}
 				target.Variants[normAI] = existingVariant{
-					ID:      id,
-					Norm:    normAI,
-					InScope: inScope == 1,
+					ID:          id,
+					Norm:        normAI,
+					Category:    strings.ToLower(catNS.String),
+					HasCategory: catNS.Valid,
+					HasInScope:  inScopeNS.Valid,
+					InScope:     inScopeNS.Int64 == 1,
 				}
 			}
 		}
@@ -484,6 +493,14 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 					entry:    entry,
 					variant:  variant,
 				})
+				changeCategory := entry.Category
+				if variant.HasCategory {
+					changeCategory = variant.Category
+				}
+				changeInScope := entry.InScope
+				if variant.HasInScope {
+					changeInScope = variant.InScope
+				}
 				changes = append(changes, Change{
 					OccurredAt:         now,
 					ProgramURL:         programURL,
@@ -492,18 +509,42 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 					TargetRaw:          entry.TargetRaw,
 					TargetNormalized:   entry.TargetNormalized,
 					TargetAINormalized: variant.AINormalized,
-					Category:           entry.Category,
-					InScope:            variant.InScope,
+					Category:           changeCategory,
+					InScope:            changeInScope,
 					IsBBP:              entry.IsBBP,
 					ChangeType:         "added",
 				})
-			} else if ev.InScope != variant.InScope {
+			} else {
+				needsUpdate := false
+				if variant.HasInScope != ev.HasInScope {
+					needsUpdate = true
+				} else if variant.HasInScope && ev.InScope != variant.InScope {
+					needsUpdate = true
+				}
+				if variant.HasCategory != ev.HasCategory {
+					needsUpdate = true
+				} else if variant.HasCategory && !strings.EqualFold(ev.Category, variant.Category) {
+					needsUpdate = true
+				}
+				if !needsUpdate {
+					continue
+				}
 				variantUpdates = append(variantUpdates, variantUpdateOp{
 					id:      ev.ID,
 					key:     key,
 					entry:   entry,
 					variant: variant,
 				})
+				changeCategory := entry.Category
+				if variant.HasCategory {
+					changeCategory = variant.Category
+				}
+				changeInScope := entry.InScope
+				if variant.HasInScope {
+					changeInScope = variant.InScope
+				} else if ev.HasInScope {
+					changeInScope = entry.InScope
+				}
 				changes = append(changes, Change{
 					OccurredAt:         now,
 					ProgramURL:         programURL,
@@ -512,8 +553,8 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 					TargetRaw:          entry.TargetRaw,
 					TargetNormalized:   entry.TargetNormalized,
 					TargetAINormalized: variant.AINormalized,
-					Category:           entry.Category,
-					InScope:            variant.InScope,
+					Category:           changeCategory,
+					InScope:            changeInScope,
 					IsBBP:              entry.IsBBP,
 					ChangeType:         "updated",
 				})
@@ -530,6 +571,14 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 				entry:   entry,
 				variant: ev,
 			})
+			changeCategory := entry.Category
+			if ev.HasCategory {
+				changeCategory = ev.Category
+			}
+			changeInScope := entry.InScope
+			if ev.HasInScope {
+				changeInScope = ev.InScope
+			}
 			changes = append(changes, Change{
 				OccurredAt:         now,
 				ProgramURL:         programURL,
@@ -538,8 +587,8 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 				TargetRaw:          entry.TargetRaw,
 				TargetNormalized:   entry.TargetNormalized,
 				TargetAINormalized: ev.Norm,
-				Category:           entry.Category,
-				InScope:            ev.InScope,
+				Category:           changeCategory,
+				InScope:            changeInScope,
 				IsBBP:              entry.IsBBP,
 				ChangeType:         "removed",
 			})
@@ -551,13 +600,21 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		stmt, err := tx.PrepareContext(ctx, `INSERT INTO targets_ai_enhanced(target_id, target_ai_normalized, in_scope, first_seen_at, last_seen_at) VALUES(?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`)
+		stmt, err := tx.PrepareContext(ctx, `INSERT INTO targets_ai_enhanced(target_id, target_ai_normalized, category, in_scope, first_seen_at, last_seen_at) VALUES(?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
 		}
 		for _, add := range variantAdds {
-			res, err := stmt.ExecContext(ctx, add.targetID, add.variant.AINormalized, boolToInt(add.variant.InScope))
+			var catVal interface{}
+			if add.variant.HasCategory {
+				catVal = add.variant.Category
+			}
+			var inScopeVal interface{}
+			if add.variant.HasInScope {
+				inScopeVal = boolToInt(add.variant.InScope)
+			}
+			res, err := stmt.ExecContext(ctx, add.targetID, add.variant.AINormalized, catVal, inScopeVal)
 			if err != nil {
 				stmt.Close()
 				tx.Rollback()
@@ -571,9 +628,12 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 			}
 			if existing := existingMap[add.key]; existing != nil {
 				existing.Variants[add.variant.AINormalized] = existingVariant{
-					ID:      id,
-					Norm:    add.variant.AINormalized,
-					InScope: add.variant.InScope,
+					ID:          id,
+					Norm:        add.variant.AINormalized,
+					Category:    add.variant.Category,
+					HasCategory: add.variant.HasCategory,
+					HasInScope:  add.variant.HasInScope,
+					InScope:     add.variant.InScope,
 				}
 			}
 		}
@@ -588,22 +648,33 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		stmt, err := tx.PrepareContext(ctx, `UPDATE targets_ai_enhanced SET target_ai_normalized = ?, in_scope = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
+		stmt, err := tx.PrepareContext(ctx, `UPDATE targets_ai_enhanced SET target_ai_normalized = ?, category = ?, in_scope = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
 		}
 		for _, upd := range variantUpdates {
-			if _, err := stmt.ExecContext(ctx, upd.variant.AINormalized, boolToInt(upd.variant.InScope), upd.id); err != nil {
+			var catVal interface{}
+			if upd.variant.HasCategory {
+				catVal = upd.variant.Category
+			}
+			var inScopeVal interface{}
+			if upd.variant.HasInScope {
+				inScopeVal = boolToInt(upd.variant.InScope)
+			}
+			if _, err := stmt.ExecContext(ctx, upd.variant.AINormalized, catVal, inScopeVal, upd.id); err != nil {
 				stmt.Close()
 				tx.Rollback()
 				return nil, err
 			}
 			if existing := existingMap[upd.key]; existing != nil {
 				existing.Variants[upd.variant.AINormalized] = existingVariant{
-					ID:      upd.id,
-					Norm:    upd.variant.AINormalized,
-					InScope: upd.variant.InScope,
+					ID:          upd.id,
+					Norm:        upd.variant.AINormalized,
+					Category:    upd.variant.Category,
+					HasCategory: upd.variant.HasCategory,
+					HasInScope:  upd.variant.HasInScope,
+					InScope:     upd.variant.InScope,
 				}
 			}
 		}
@@ -856,12 +927,23 @@ func BuildEntries(programURL, platform, handle string, items []TargetItem) ([]Up
 				}
 				variantNorm := NormalizeTarget(rawValue)
 				inScope := entry.InScope
+				hasInScope := false
 				if variant.HasInScope {
+					hasInScope = true
 					inScope = variant.InScope
+				}
+				var cat string
+				var hasCat bool
+				if variant.HasCategory && scope.IsUnifiedCategory(strings.ToLower(strings.TrimSpace(variant.Category))) {
+					cat = strings.ToLower(strings.TrimSpace(variant.Category))
+					hasCat = true
 				}
 				entry.Variants = append(entry.Variants, EntryVariant{
 					AINormalized: variantNorm,
+					HasInScope:   hasInScope,
 					InScope:      inScope,
+					HasCategory:  hasCat,
+					Category:     cat,
 				})
 			}
 		}
@@ -916,8 +998,9 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 			t.in_scope,
 			t.is_bbp,
 			a.target_ai_normalized,
+			a.category,
 			a.in_scope,
-			CASE WHEN a.id IS NULL THEN 'raw' ELSE 'ai' END AS source
+			a.id
 		FROM targets_raw t
 		JOIN programs p ON t.program_id = p.id
 		LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
@@ -934,55 +1017,74 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 	var out []Entry
 	for rows.Next() {
 		var (
-			e              Entry
-			rawTarget      string
-			category       string
-			descNS         sql.NullString
-			baseInScopeInt int
-			aiTargetNS     sql.NullString
-			aiInScopeNS    sql.NullInt64
-			isBBPInt       int
-			source         string
+			programURL   string
+			platform     string
+			handle       string
+			rawTarget    string
+			baseCategory string
+			descNS       sql.NullString
+			baseInScope  int
+			isBBPInt     int
+			aiTargetNS   sql.NullString
+			aiCategoryNS sql.NullString
+			aiInScopeNS  sql.NullInt64
+			aiIDNS       sql.NullInt64
 		)
 		if err := rows.Scan(
-			&e.ProgramURL,
-			&e.Platform,
-			&e.Handle,
+			&programURL,
+			&platform,
+			&handle,
 			&rawTarget,
-			&category,
+			&baseCategory,
 			&descNS,
-			&baseInScopeInt,
+			&baseInScope,
 			&isBBPInt,
 			&aiTargetNS,
+			&aiCategoryNS,
 			&aiInScopeNS,
-			&source,
+			&aiIDNS,
 		); err != nil {
 			return nil, err
 		}
 
 		baseNorm := NormalizeTarget(rawTarget)
-		e.Category = category
-		e.Description = descNS.String
-		e.IsBBP = isBBPInt == 1
-		e.BaseTargetRaw = rawTarget
-		e.BaseTargetNormalized = baseNorm
-		e.TargetRaw = rawTarget
-		e.Source = source
-		e.IsHistorical = false
-
-		if aiTargetNS.Valid {
-			e.TargetNormalized = aiTargetNS.String
-			if aiInScopeNS.Valid {
-				e.InScope = aiInScopeNS.Int64 == 1
-			} else {
-				e.InScope = baseInScopeInt == 1
-			}
-		} else {
-			e.TargetNormalized = baseNorm
-			e.InScope = baseInScopeInt == 1
+		entry := Entry{
+			ProgramURL:           programURL,
+			Platform:             platform,
+			Handle:               handle,
+			BaseTargetRaw:        rawTarget,
+			BaseTargetNormalized: baseNorm,
+			TargetRaw:            rawTarget,
+			Description:          descNS.String,
+			IsBBP:                isBBPInt == 1,
+			Category:             baseCategory,
+			Source:               "raw",
 		}
 
-		out = append(out, e)
+		if aiIDNS.Valid {
+			entry.Source = "ai"
+			if aiTargetNS.Valid && aiTargetNS.String != "" {
+				entry.TargetNormalized = aiTargetNS.String
+			} else {
+				entry.TargetNormalized = baseNorm
+			}
+			if aiCategoryNS.Valid {
+				cat := strings.ToLower(strings.TrimSpace(aiCategoryNS.String))
+				if scope.IsUnifiedCategory(cat) {
+					entry.Category = cat
+				}
+			}
+			if aiInScopeNS.Valid {
+				entry.InScope = aiInScopeNS.Int64 == 1
+			} else {
+				entry.InScope = baseInScope == 1
+			}
+		} else {
+			entry.TargetNormalized = baseNorm
+			entry.InScope = baseInScope == 1
+		}
+
+		out = append(out, entry)
 	}
 	return out, rows.Err()
 }
@@ -1089,13 +1191,9 @@ type PlatformStats struct {
 func (d *DB) GetStats(ctx context.Context) ([]PlatformStats, error) {
 	query := `
 		WITH effective_targets AS (
-			SELECT t.program_id, a.in_scope
-			FROM targets_ai_enhanced a
-			JOIN targets_raw t ON a.target_id = t.id
-			UNION ALL
-			SELECT t.program_id, t.in_scope
+			SELECT t.program_id, COALESCE(a.in_scope, t.in_scope) AS in_scope
 			FROM targets_raw t
-			WHERE NOT EXISTS (SELECT 1 FROM targets_ai_enhanced a WHERE a.target_id = t.id)
+			LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
 		)
 		SELECT
 			p.platform,
@@ -1143,8 +1241,10 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 			t.in_scope,
 			t.is_bbp,
 			a.target_ai_normalized,
+			a.category,
 			a.in_scope,
-			CASE WHEN a.id IS NULL THEN 'raw' ELSE 'ai' END AS source
+			a.id,
+			'current' AS source
 		FROM targets_raw t
 		JOIN programs p ON t.program_id = p.id
 		LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
@@ -1166,7 +1266,9 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 			CASE WHEN c.in_scope = 1 THEN 1 ELSE 0 END as in_scope,
 			CASE WHEN c.is_bbp = 1 THEN 1 ELSE 0 END as is_bbp,
 			c.target_ai_normalized,
+			c.category,
 			CASE WHEN c.in_scope = 1 THEN 1 ELSE 0 END as ai_in_scope,
+			NULL as ai_id,
 			'historical' as source
 		FROM scope_changes c
 		WHERE c.target_normalized LIKE ? OR c.target_ai_normalized LIKE ? OR c.program_url LIKE ?;
@@ -1186,29 +1288,33 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 
 	for rows.Next() {
 		var (
-			programURL     string
-			platform       string
-			handle         string
-			rawTarget      string
-			category       string
-			descNS         sql.NullString
-			baseInScopeInt int
-			isBBPInt       int
-			aiTargetNS     sql.NullString
-			aiInScopeNS    sql.NullInt64
-			source         string
+			programURL   string
+			platform     string
+			handle       string
+			rawTarget    string
+			baseCategory string
+			descNS       sql.NullString
+			baseInScope  int
+			isBBPInt     int
+			aiTargetNS   sql.NullString
+			aiCategoryNS sql.NullString
+			aiInScopeNS  sql.NullInt64
+			aiIDNS       sql.NullInt64
+			source       string
 		)
 		if err := rows.Scan(
 			&programURL,
 			&platform,
 			&handle,
 			&rawTarget,
-			&category,
+			&baseCategory,
 			&descNS,
-			&baseInScopeInt,
+			&baseInScope,
 			&isBBPInt,
 			&aiTargetNS,
+			&aiCategoryNS,
 			&aiInScopeNS,
+			&aiIDNS,
 			&source,
 		); err != nil {
 			return nil, err
@@ -1219,13 +1325,12 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 			ProgramURL:           programURL,
 			Platform:             platform,
 			Handle:               handle,
-			Category:             category,
+			Category:             baseCategory,
 			Description:          descNS.String,
 			BaseTargetRaw:        rawTarget,
 			BaseTargetNormalized: baseNorm,
 			TargetRaw:            rawTarget,
 			IsBBP:                isBBPInt == 1,
-			Source:               source,
 		}
 
 		if source == "historical" {
@@ -1234,21 +1339,42 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 			} else {
 				entry.TargetNormalized = baseNorm
 			}
-			entry.InScope = baseInScopeInt == 1
+			if aiCategoryNS.Valid && scope.IsUnifiedCategory(strings.ToLower(strings.TrimSpace(aiCategoryNS.String))) {
+				entry.Category = strings.ToLower(strings.TrimSpace(aiCategoryNS.String))
+			}
+			entry.InScope = baseInScope == 1
 			entry.IsHistorical = true
 		} else {
-			if aiTargetNS.Valid && aiTargetNS.String != "" {
-				entry.TargetNormalized = aiTargetNS.String
+			entry.IsHistorical = false
+			if aiIDNS.Valid {
+				if aiTargetNS.Valid && aiTargetNS.String != "" {
+					entry.TargetNormalized = aiTargetNS.String
+				} else {
+					entry.TargetNormalized = baseNorm
+				}
+				if aiCategoryNS.Valid {
+					cat := strings.ToLower(strings.TrimSpace(aiCategoryNS.String))
+					if scope.IsUnifiedCategory(cat) {
+						entry.Category = cat
+					}
+				}
 				if aiInScopeNS.Valid {
 					entry.InScope = aiInScopeNS.Int64 == 1
 				} else {
-					entry.InScope = baseInScopeInt == 1
+					entry.InScope = baseInScope == 1
 				}
 			} else {
 				entry.TargetNormalized = baseNorm
-				entry.InScope = baseInScopeInt == 1
+				entry.InScope = baseInScope == 1
 			}
-			entry.IsHistorical = false
+		}
+
+		if source == "historical" {
+			entry.Source = "historical"
+		} else if aiIDNS.Valid {
+			entry.Source = "ai"
+		} else {
+			entry.Source = "raw"
 		}
 
 		key := fmt.Sprintf("%s|%s|%s|%s", entry.ProgramURL, entry.TargetNormalized, entry.BaseTargetNormalized, entry.Category)

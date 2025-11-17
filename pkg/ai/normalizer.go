@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/sw33tLie/bbscope/v2/internal/utils"
+	"github.com/sw33tLie/bbscope/v2/pkg/scope"
 	"github.com/sw33tLie/bbscope/v2/pkg/storage"
 )
 
@@ -75,14 +77,16 @@ type openAINormalizer struct {
 }
 
 type normalizedResult struct {
-	Targets []string
-	InScope *bool
+	Targets     []string
+	InScope     *bool
+	Category    string
+	HasCategory bool
 }
 
 func newOpenAINormalizer(cfg Config) (*openAINormalizer, error) {
 	apiKey := strings.TrimSpace(cfg.APIKey)
 	if apiKey == "" {
-		return nil, errors.New("ai normalization requires an API key (set ai.api_key in config or OPENAI_API_KEY)")
+		return nil, errors.New("ai normalizaton requires an API key (set ai.api_key in config or OPENAI_API_KEY)")
 	}
 
 	model := strings.TrimSpace(cfg.Model)
@@ -288,16 +292,28 @@ func (n *openAINormalizer) queryLLM(ctx context.Context, info ProgramInfo, baseI
 
 	result := make(map[int]normalizedResult, len(parsed.Items))
 	for _, item := range parsed.Items {
-		result[item.ID] = normalizedResult{
+		res := normalizedResult{
 			Targets: item.Normalized,
 			InScope: item.InScope,
 		}
+		if cat := strings.ToLower(strings.TrimSpace(item.Category)); cat != "" && scope.IsUnifiedCategory(cat) {
+			res.Category = cat
+			res.HasCategory = true
+		}
+		result[item.ID] = res
 	}
 
 	return result, nil
 }
 
-const systemPrompt = `You clean up messy bug bounty scope entries.
+var systemPrompt = buildSystemPrompt()
+
+func buildSystemPrompt() string {
+	categories := scope.UnifiedCategories()
+	sort.Strings(categories)
+	return fmt.Sprintf(`You clean up messy bug bounty scope entries.
+
+Allowed unified categories: %s
 
 For every item you receive:
 - Convert everything to lowercase.
@@ -306,17 +322,19 @@ For every item you receive:
 - When a scope ends with ".*" assume ".com" (example.* -> example.com, *.example.* -> *.example.com).
 - Keep URLs/IPs/CIDRs intact but fix malformed hosts (remove regex, trailing dots, or redundant slashes).
 - When the text clearly states "out of scope", "test-only", or similar, set "in_scope": false. If it clearly says "in scope", set true. If unclear, omit the field.
+- If a target clearly belongs to a different category than the one provided, change it to one of the allowed unified categories and return it via the optional "category" field. Leave "category" empty if you agree with the original.
 - If unsure how to clean a target, fall back to the provided string exactly.
 - Also remove paths from wildcard scope targets. For example, "*.example.com/*" should be cleaned to "example.com".
 
 Return ONLY JSON following this schema:
 {
   "items": [
-    {"id": 0, "normalized": ["string", "string"], "in_scope": true, "notes": "optional clarification"}
+    {"id": 0, "normalized": ["string", "string"], "in_scope": true, "category": "url", "notes": "optional clarification"}
   ]
 }
 
-Every input id must appear exactly once and must include at least one normalized string.`
+Every input id must appear exactly once and must include at least one normalized string.`, strings.Join(categories, ", "))
+}
 
 type openAIChatRequest struct {
 	Model          string               `json:"model"`
@@ -366,6 +384,7 @@ type llmOutputItem struct {
 	Normalized []string `json:"normalized"`
 	InScope    *bool    `json:"in_scope,omitempty"`
 	Notes      string   `json:"notes"`
+	Category   string   `json:"category"`
 }
 
 func mergeNormalized(items []storage.TargetItem, baseID int, normalized map[int]normalizedResult) []storage.TargetItem {
@@ -398,9 +417,11 @@ func mergeNormalized(items []storage.TargetItem, baseID int, normalized map[int]
 					inScopeVal = *result.InScope
 				}
 				cloned.Variants = append(cloned.Variants, storage.TargetVariant{
-					Value:      target,
-					HasInScope: hasInScope,
-					InScope:    inScopeVal,
+					Value:       target,
+					HasInScope:  hasInScope,
+					InScope:     inScopeVal,
+					HasCategory: result.HasCategory,
+					Category:    result.Category,
 				})
 			}
 		}

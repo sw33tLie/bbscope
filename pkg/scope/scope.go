@@ -77,6 +77,7 @@ var unificationMap = map[string][]string{
 
 // categoryMap is a reverse map generated from unificationMap for efficient lookups.
 var categoryMap map[string]string
+var unifiedCategoryList []string
 
 func init() {
 	categoryMap = make(map[string]string)
@@ -85,6 +86,11 @@ func init() {
 			categoryMap[raw] = unified
 		}
 	}
+	unifiedCategoryList = make([]string, 0, len(unificationMap))
+	for k := range unificationMap {
+		unifiedCategoryList = append(unifiedCategoryList, k)
+	}
+	sort.Strings(unifiedCategoryList)
 }
 
 func NormalizeCategory(category string) string {
@@ -98,6 +104,18 @@ func NormalizeCategory(category string) string {
 
 	// For anything else, just format it nicely.
 	return strings.ReplaceAll(catLower, "_", " ")
+}
+
+// UnifiedCategories returns the sorted list of allowed unified category names.
+func UnifiedCategories() []string {
+	return append([]string(nil), unifiedCategoryList...)
+}
+
+// IsUnifiedCategory reports whether the provided category matches a known unified category.
+func IsUnifiedCategory(category string) bool {
+	category = strings.ToLower(strings.TrimSpace(category))
+	_, ok := unificationMap[category]
+	return ok
 }
 
 func GetAllStringsForCategories(input string) []string {
