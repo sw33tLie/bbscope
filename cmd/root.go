@@ -98,6 +98,11 @@ func initConfig() {
 	viper.SetDefault("yeswehack.email", "")
 	viper.SetDefault("yeswehack.password", "")
 	viper.SetDefault("yeswehack.otpsecret", "")
+	viper.SetDefault("ai.provider", "openai")
+	viper.SetDefault("ai.model", "gpt-4o-mini")
+	viper.SetDefault("ai.api_key", "")
+	viper.SetDefault("ai.endpoint", "")
+	viper.SetDefault("ai.max_batch", 25)
 
 	// Init log library
 	levelString, _ := rootCmd.PersistentFlags().GetString("loglevel")

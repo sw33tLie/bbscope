@@ -14,6 +14,7 @@ Visit [bbscope.com](https://bbscope.com/) to explore an hourly-updated list of p
 - **Local Database**: Stores all scope data in a local SQLite database for fast, offline access.
 - **Powerful Querying**: Easily print targets by type (URLs, wildcards, mobile, etc.), platform, or program.
 - **Track Changes**: Monitor scope additions and removals over time.
+- **LLM Cleanup (opt-in)**: Let GPT-style models fix messy scope strings in bulk when polling.
 - **Flexible Output**: Get your data in plain text, JSON, or CSV.
 - **Direct DB Access**: Drop into an interactive SQL shell to run complex queries directly on the database.
 
@@ -83,6 +84,11 @@ yeswehack:
   email: ""
   password: ""
   otpsecret: "" # Your 2FA secret key string
+ai:
+  provider: "openai"
+  api_key: "" # or set OPENAI_API_KEY env var
+  model: "gpt-4o-mini"
+  max_batch: 25
 ```
 
 Alternatively, you can provide credentials directly via command-line flags when running a `poll` subcommand. Flags will always override values in the configuration file.
@@ -122,6 +128,7 @@ The `poll` command fetches scope data from the platforms. You can poll all platf
 | Flag | Description | Default |
 | --- | --- | --- |
 | `--db` | Save results to the database and print changes. | `false` |
+| `--ai` | Normalize messy targets in bulk using an LLM before writing to the DB (requires API key). | `false` |
 | `-b, --bbp-only` | Only fetch programs offering monetary rewards. | `false` |
 | `-p, --private-only` | Only fetch data from private programs. | `false` |
 | `--category` | Scope categories to include (e.g., `url`, `cidr`, `mobile`). | `"all"` |
@@ -130,6 +137,19 @@ The `poll` command fetches scope data from the platforms. You can poll all platf
 | `--oos` | Include out-of-scope targets in the output. | `false` |
 | `--concurrency`| Number of concurrent fetches per platform. | `5` |
 | `--dbpath` | Path to the SQLite database file. | `"bbscope.sqlite"`|
+
+#### AI-Assisted Normalization (Experimental)
+
+Messy scope entries from platforms can now be cleaned up in bulk with the `--ai` flag:
+
+```bash
+bbscope poll --db --ai
+```
+
+- Requires an API key in `~/.bbscope.yaml` under the `ai` section (or the `OPENAI_API_KEY` environment variable).
+- Entries are batched per program to minimize API calls.
+- If the model fails or omits an entry, the original target is used so nothing is lost.
+- When the text explicitly says “out of scope” or similar, the AI pass can flip the entry’s `in_scope` flag for you.
 
 ---
 

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/sw33tLie/bbscope/v2/internal/utils"
+	"github.com/sw33tLie/bbscope/v2/pkg/ai"
 	"github.com/sw33tLie/bbscope/v2/pkg/platforms"
 	bcplatform "github.com/sw33tLie/bbscope/v2/pkg/platforms/bugcrowd"
 	h1platform "github.com/sw33tLie/bbscope/v2/pkg/platforms/hackerone"
@@ -120,12 +122,14 @@ func init() {
 	pollCmd.PersistentFlags().StringP("delimiter", "d", " ", "Delimiter character to use for txt output format")
 	pollCmd.PersistentFlags().BoolP("bbp-only", "b", false, "Only fetch programs offering monetary rewards")
 	pollCmd.PersistentFlags().BoolP("private-only", "p", false, "Only fetch data from private programs")
+	pollCmd.PersistentFlags().Bool("ai", false, "Enable LLM-assisted normalization (requires ai.api_key or OPENAI_API_KEY)")
 }
 
 // runPollWithPollers executes the polling flow using the provided pollers.
 func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) error {
 	categories, _ := cmd.Flags().GetString("category")
 	useDB, _ := cmd.Flags().GetBool("db")
+	useAI, _ := cmd.Flags().GetBool("ai")
 	dbPath, _ := cmd.Flags().GetString("dbpath")
 	if dbPath == "" {
 		dbPath = "bbscope.sqlite"
@@ -139,6 +143,30 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 			return err
 		}
 		defer db.Close()
+	}
+
+	if useAI && !useDB {
+		utils.Log.Warn("--ai flag currently only affects --db workflows; enable --db to persist normalized results")
+	}
+
+	var aiNormalizer ai.Normalizer
+	if useAI {
+		cfg := ai.Config{
+			Provider: strings.TrimSpace(viper.GetString("ai.provider")),
+			APIKey:   strings.TrimSpace(viper.GetString("ai.api_key")),
+			Model:    strings.TrimSpace(viper.GetString("ai.model")),
+			MaxBatch: viper.GetInt("ai.max_batch"),
+			Endpoint: strings.TrimSpace(viper.GetString("ai.endpoint")),
+		}
+		if cfg.APIKey == "" {
+			cfg.APIKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+		}
+
+		normalizer, err := ai.NewNormalizer(cfg)
+		if err != nil {
+			return err
+		}
+		aiNormalizer = normalizer
 	}
 
 	ctx := context.Background()
@@ -204,7 +232,7 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 		}
 
 		// Use concurrent processing with worker pool pattern
-		polledProgramURLs, err := processProgramsConcurrently(ctx, cmd, p, handles, opts, useDB, db, ignoredPrograms, isFirstRunForPlatform, concurrency)
+		polledProgramURLs, err := processProgramsConcurrently(ctx, cmd, p, handles, opts, useDB, db, ignoredPrograms, isFirstRunForPlatform, concurrency, aiNormalizer)
 		if err != nil {
 			return err
 		}
@@ -238,7 +266,7 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 }
 
 // processProgramsConcurrently processes programs using a worker pool pattern for concurrent fetching.
-func processProgramsConcurrently(ctx context.Context, cmd *cobra.Command, p platforms.PlatformPoller, handles []string, opts platforms.PollOptions, useDB bool, db *storage.DB, ignoredPrograms map[string]bool, isFirstRunForPlatform bool, concurrency int) ([]string, error) {
+func processProgramsConcurrently(ctx context.Context, cmd *cobra.Command, p platforms.PlatformPoller, handles []string, opts platforms.PollOptions, useDB bool, db *storage.DB, ignoredPrograms map[string]bool, isFirstRunForPlatform bool, concurrency int, aiNormalizer ai.Normalizer) ([]string, error) {
 	if len(handles) == 0 {
 		return []string{}, nil
 	}
@@ -298,7 +326,21 @@ func processProgramsConcurrently(ctx context.Context, cmd *cobra.Command, p plat
 					allItems = append(allItems, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: false})
 				}
 
-				entries, err := storage.BuildEntries(pd.Url, p.Name(), h, allItems)
+				processedItems := allItems
+				if aiNormalizer != nil && len(allItems) > 0 {
+					normalized, err := aiNormalizer.NormalizeTargets(ctx, ai.ProgramInfo{
+						ProgramURL: pd.Url,
+						Platform:   p.Name(),
+						Handle:     h,
+					}, allItems)
+					if err != nil {
+						utils.Log.Warnf("AI normalization failed for %s: %v", pd.Url, err)
+					} else if len(normalized) > 0 {
+						processedItems = normalized
+					}
+				}
+
+				entries, err := storage.BuildEntries(pd.Url, p.Name(), h, processedItems)
 				if err != nil {
 					errorMu.Lock()
 					if firstError == nil {
