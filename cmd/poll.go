@@ -23,6 +23,8 @@ import (
 	"github.com/sw33tLie/bbscope/v2/pkg/storage"
 )
 
+const maxRetries = 15
+
 // pollCmd implements: bbscope poll
 // Flags (from REFACTOR.md):
 //
@@ -242,7 +244,6 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 			// After processing all programs for a platform, sync the state.
 			// This will mark any programs that were not in the latest poll as disabled.
 			var removedProgramChanges []storage.Change
-			const maxRetries = 5
 			const initialBackoff = 1 * time.Second
 
 			err := executeDBWrite(maxRetries, initialBackoff, func() error {
@@ -327,18 +328,55 @@ func processProgramsConcurrently(ctx context.Context, cmd *cobra.Command, p plat
 					allItems = append(allItems, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: false})
 				}
 
-				processedItems := allItems
+				processedItems := make([]storage.TargetItem, 0, len(allItems))
+				var aiCandidates []storage.TargetItem
+				var aiEnhancements map[string][]storage.TargetVariant
+
 				if aiNormalizer != nil && len(allItems) > 0 {
-					normalized, err := aiNormalizer.NormalizeTargets(ctx, ai.ProgramInfo{
-						ProgramURL: pd.Url,
-						Platform:   p.Name(),
-						Handle:     h,
-					}, allItems)
+					var err error
+					aiEnhancements, err = db.ListAIEnhancements(ctx, pd.Url)
 					if err != nil {
-						utils.Log.Warnf("AI normalization failed for %s: %v", pd.Url, err)
-					} else if len(normalized) > 0 {
-						processedItems = normalized
+						utils.Log.Warnf("Failed to load AI enhancements for %s: %v", pd.Url, err)
+						aiEnhancements = nil
 					}
+				}
+
+				if aiNormalizer != nil && len(allItems) > 0 {
+					aiCandidates = make([]storage.TargetItem, 0, len(allItems))
+					for _, item := range allItems {
+						key := storage.BuildTargetCategoryKey(item.URI, item.Category)
+						if variants, ok := aiEnhancements[key]; ok && len(variants) > 0 {
+							clone := item
+							clone.Variants = append([]storage.TargetVariant(nil), variants...)
+							processedItems = append(processedItems, clone)
+							continue
+						}
+						aiCandidates = append(aiCandidates, item)
+					}
+
+					if len(aiCandidates) > 0 {
+						normalized, err := aiNormalizer.NormalizeTargets(ctx, ai.ProgramInfo{
+							ProgramURL: pd.Url,
+							Platform:   p.Name(),
+							Handle:     h,
+						}, aiCandidates)
+						if err != nil {
+							utils.Log.Warnf("AI normalization failed for %s: %v", pd.Url, err)
+							processedItems = append(processedItems, aiCandidates...)
+						} else if len(normalized) > 0 {
+							processedItems = append(processedItems, normalized...)
+						} else {
+							processedItems = append(processedItems, aiCandidates...)
+						}
+					}
+
+					// if there were no candidates but also no pre-existing enhancements,
+					// ensure raw items still get processed
+					if len(processedItems) == 0 {
+						processedItems = append(processedItems, allItems...)
+					}
+				} else if len(processedItems) == 0 {
+					processedItems = append(processedItems, allItems...)
 				}
 
 				entries, err := storage.BuildEntries(pd.Url, p.Name(), h, processedItems)
@@ -351,7 +389,6 @@ func processProgramsConcurrently(ctx context.Context, cmd *cobra.Command, p plat
 					continue
 				}
 
-				const maxRetries = 5
 				const initialBackoff = 1 * time.Second
 
 				var changes []storage.Change

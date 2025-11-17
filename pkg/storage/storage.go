@@ -965,6 +965,80 @@ func BuildEntries(programURL, platform, handle string, items []TargetItem) ([]Up
 	return out, nil
 }
 
+// ListAICoveredTargets returns a set of normalized target+category keys that already have AI enhancements.
+func (d *DB) ListAIEnhancements(ctx context.Context, programURL string) (map[string][]TargetVariant, error) {
+	result := make(map[string][]TargetVariant)
+	if programURL == "" {
+		return result, nil
+	}
+
+	var programID int64
+	err := d.sql.QueryRowContext(ctx, "SELECT id FROM programs WHERE url = ?", programURL).Scan(&programID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return result, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := d.sql.QueryContext(ctx, `
+		SELECT t.target, t.category, a.target_ai_normalized, a.in_scope, a.category
+		FROM targets_ai_enhanced a
+		JOIN targets_raw t ON a.target_id = t.id
+		WHERE t.program_id = ?
+	`, programID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			rawTarget    string
+			category     string
+			aiValue      string
+			inScopeNS    sql.NullInt64
+			aiCategoryNS sql.NullString
+		)
+		if err := rows.Scan(&rawTarget, &category, &aiValue, &inScopeNS, &aiCategoryNS); err != nil {
+			return nil, err
+		}
+
+		key := BuildTargetCategoryKey(rawTarget, category)
+		if key == "" {
+			continue
+		}
+
+		variant := TargetVariant{
+			Value:       aiValue,
+			HasInScope:  inScopeNS.Valid,
+			InScope:     inScopeNS.Int64 == 1,
+			HasCategory: false,
+		}
+		if aiCategoryNS.Valid {
+			cat := strings.ToLower(strings.TrimSpace(aiCategoryNS.String))
+			if scope.IsUnifiedCategory(cat) {
+				variant.HasCategory = true
+				variant.Category = cat
+			}
+		}
+
+		result[key] = append(result[key], variant)
+	}
+
+	return result, rows.Err()
+}
+
+// BuildTargetCategoryKey creates a normalized key for a target/category combination.
+func BuildTargetCategoryKey(target, category string) string {
+	normTarget := strings.ToLower(NormalizeTarget(target))
+	if normTarget == "" {
+		normTarget = strings.ToLower(strings.TrimSpace(target))
+	}
+	normCategory := scope.NormalizeCategory(category)
+	return fmt.Sprintf("%s|%s", normTarget, normCategory)
+}
+
 // ListOptions controls selection when listing entries.
 type ListOptions struct {
 	Platform       string

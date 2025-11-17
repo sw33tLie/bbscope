@@ -409,6 +409,8 @@ func mergeNormalized(items []storage.TargetItem, baseID int, normalized map[int]
 
 		if len(targets) > 0 {
 			cloned.Variants = make([]storage.TargetVariant, 0, len(targets))
+			baseNormalized := strings.ToLower(strings.TrimSpace(storage.NormalizeTarget(cloned.URI)))
+
 			for _, target := range targets {
 				if target == "" {
 					continue
@@ -419,6 +421,12 @@ func mergeNormalized(items []storage.TargetItem, baseID int, normalized map[int]
 					hasInScope = true
 					inScopeVal = *result.InScope
 				}
+
+				if baseNormalized != "" && target == baseNormalized && !hasInScope && !result.HasCategory {
+					// AI produced the same normalized value without changing scope/category.
+					continue
+				}
+
 				cloned.Variants = append(cloned.Variants, storage.TargetVariant{
 					Value:       target,
 					HasInScope:  hasInScope,

@@ -126,6 +126,8 @@ var blacklistedSuffixes = []string{
 	"firebase.app",
 	"run.app",
 	"adobeaemcloud.com",
+	"firebaseapp.com",
+	"web.app",
 	"azurefd.net",
 	"windows.net",
 	"strapiapp.com",
