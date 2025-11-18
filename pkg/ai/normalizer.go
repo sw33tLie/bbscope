@@ -333,13 +333,13 @@ Baseline cleanup rules
 - Trim whitespace, collapse duplicate spaces, and lowercase domains.
 - Expand bracket/pipe syntax: "example.(it|com)" -> "example.it", "example.com".
 - Normalize URL schemes/hosts; drop redundant default ports (http:80, https:443).
+- Preserve http(s) schemes plus any path/query fragments for real URLs. Do NOT strip protocol, path, or query parameters from URLs—keep them exactly as provided (after trimming whitespace) unless the text actually represents a wildcard.
 - Strip obvious regex artifacts (e.g., "\d+", "(?i)") and remove trailing dots.
-- Remove paths/query fragments unless the category is clearly URL-only content (e.g., play/app store links that must keep the path).
 - Pure descriptive text with no actionable target should be returned verbatim (same category).
 
 Wildcard handling (critical)
 - Any target that implies a wildcard (starts with "*.", ends with ".*", or contains wildcard noise) must be categorized as "wildcard".
-- The normalized value for wildcard targets MUST remove every "*" prefix/suffix and paths. Example: "*.dev.*.example.com/**" -> "example.com" (category "wildcard").
+- The normalized value for wildcard targets MUST remove every "*" prefix/suffix, the scheme, and any paths. Example: "https://*.dev.*.example.com/**" -> "example.com" (category "wildcard").
 - Preserve only the base registrable domain (including necessary subdomains) once cleaned. Do NOT leave "*." in normalized output; the category alone conveys wildcard semantics.
 
 Scope intent classification (critical)
