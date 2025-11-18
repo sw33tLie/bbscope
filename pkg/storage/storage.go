@@ -120,27 +120,18 @@ func (d *DB) getOrCreateProgram(ctx context.Context, programURL, platform, handl
 	defer tx.Rollback()
 
 	var programID int64
-	err = tx.QueryRowContext(ctx, "SELECT id FROM programs WHERE url = ?", programURL).Scan(&programID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return 0, err // A real error occurred.
-	}
-
-	if errors.Is(err, sql.ErrNoRows) {
-		// Program doesn't exist, create it.
-		res, err := tx.ExecContext(ctx, "INSERT INTO programs(platform, handle, url, first_seen_at, last_seen_at) VALUES(?,?,?,CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", platform, handle, programURL)
-		if err != nil {
-			return 0, fmt.Errorf("inserting program: %w", err)
-		}
-		programID, err = res.LastInsertId()
-		if err != nil {
-			return 0, err
-		}
-	} else {
-		// Program exists, update last_seen_at.
-		_, err = tx.ExecContext(ctx, "UPDATE programs SET last_seen_at = CURRENT_TIMESTAMP, disabled = 0 WHERE id = ?", programID)
-		if err != nil {
-			return 0, err
-		}
+	row := tx.QueryRowContext(ctx, `
+		INSERT INTO programs(platform, handle, url, first_seen_at, last_seen_at)
+		VALUES(?,?,?,CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(url) DO UPDATE SET
+			platform = excluded.platform,
+			handle = excluded.handle,
+			last_seen_at = CURRENT_TIMESTAMP,
+			disabled = 0
+		RETURNING id
+	`, platform, handle, programURL)
+	if err := row.Scan(&programID); err != nil {
+		return 0, fmt.Errorf("upserting program: %w", err)
 	}
 
 	return programID, tx.Commit()
@@ -351,20 +342,23 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		stmt, err := tx.PrepareContext(ctx, `INSERT INTO targets_raw(program_id, target, category, description, in_scope, is_bbp, first_seen_at, last_seen_at) VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`)
+		stmt, err := tx.PrepareContext(ctx, `
+			INSERT INTO targets_raw(program_id, target, category, description, in_scope, is_bbp, first_seen_at, last_seen_at)
+			VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+			ON CONFLICT(program_id, category, target) DO UPDATE SET
+				description = excluded.description,
+				in_scope = excluded.in_scope,
+				is_bbp = excluded.is_bbp,
+				last_seen_at = CURRENT_TIMESTAMP
+			RETURNING id
+		`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
 		}
 		for _, e := range toAdd {
-			res, err := stmt.ExecContext(ctx, programID, e.TargetRaw, e.Category, nullIfEmpty(e.Description), boolToInt(e.InScope), boolToInt(e.IsBBP))
-			if err != nil {
-				stmt.Close()
-				tx.Rollback()
-				return nil, err
-			}
-			id, err := res.LastInsertId()
-			if err != nil {
+			var id int64
+			if err := stmt.QueryRowContext(ctx, programID, e.TargetRaw, e.Category, nullIfEmpty(e.Description), boolToInt(e.InScope), boolToInt(e.IsBBP)).Scan(&id); err != nil {
 				stmt.Close()
 				tx.Rollback()
 				return nil, err
@@ -604,7 +598,15 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		stmt, err := tx.PrepareContext(ctx, `INSERT INTO targets_ai_enhanced(target_id, target_ai_normalized, category, in_scope, first_seen_at, last_seen_at) VALUES(?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`)
+		stmt, err := tx.PrepareContext(ctx, `
+			INSERT INTO targets_ai_enhanced(target_id, target_ai_normalized, category, in_scope, first_seen_at, last_seen_at)
+			VALUES(?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+			ON CONFLICT(target_id, target_ai_normalized) DO UPDATE SET
+				category = COALESCE(excluded.category, category),
+				in_scope = COALESCE(excluded.in_scope, in_scope),
+				last_seen_at = CURRENT_TIMESTAMP
+			RETURNING id
+		`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
@@ -622,14 +624,8 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 			} else {
 				add.variant.HasInScope = false
 			}
-			res, err := stmt.ExecContext(ctx, add.targetID, add.variant.AINormalized, catVal, inScopeVal)
-			if err != nil {
-				stmt.Close()
-				tx.Rollback()
-				return nil, err
-			}
-			id, err := res.LastInsertId()
-			if err != nil {
+			var id int64
+			if err := stmt.QueryRowContext(ctx, add.targetID, add.variant.AINormalized, catVal, inScopeVal).Scan(&id); err != nil {
 				stmt.Close()
 				tx.Rollback()
 				return nil, err
@@ -1190,46 +1186,28 @@ func (d *DB) AddCustomTarget(ctx context.Context, target, category string) error
 	defer tx.Rollback()
 
 	var programID int64
-	err = tx.QueryRowContext(ctx, "SELECT id FROM programs WHERE url = ?", programURL).Scan(&programID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
+	programRow := tx.QueryRowContext(ctx, `
+		INSERT INTO programs(platform, handle, url, first_seen_at, last_seen_at)
+		VALUES(?,?,?,CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(url) DO UPDATE SET
+			platform = excluded.platform,
+			handle = excluded.handle,
+			last_seen_at = CURRENT_TIMESTAMP,
+			disabled = 0
+		RETURNING id
+	`, platform, handle, programURL)
+	if err := programRow.Scan(&programID); err != nil {
+		return fmt.Errorf("upserting custom program: %w", err)
 	}
 
-	if errors.Is(err, sql.ErrNoRows) {
-		res, err := tx.ExecContext(ctx, "INSERT INTO programs(platform, handle, url, first_seen_at, last_seen_at) VALUES(?,?,?,CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", platform, handle, programURL)
-		if err != nil {
-			return fmt.Errorf("inserting custom program: %w", err)
-		}
-		programID, err = res.LastInsertId()
-		if err != nil {
-			return err
-		}
-	} else {
-		_, err = tx.ExecContext(ctx, "UPDATE programs SET last_seen_at = CURRENT_TIMESTAMP, disabled = 0 WHERE id = ?", programID)
-		if err != nil {
-			return err
-		}
-	}
-
-	var targetID int64
-	err = tx.QueryRowContext(ctx, "SELECT id FROM targets_raw WHERE program_id = ? AND target = ?", programID, target).Scan(&targetID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-
-	if errors.Is(err, sql.ErrNoRows) {
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO targets_raw(program_id, target, category, in_scope, is_bbp, first_seen_at, last_seen_at)
-			VALUES(?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-			programID, target, category, boolToInt(true), boolToInt(false))
-		if err != nil {
-			return fmt.Errorf("inserting custom target: %w", err)
-		}
-	} else {
-		_, err = tx.ExecContext(ctx, "UPDATE targets_raw SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?", targetID)
-		if err != nil {
-			return err
-		}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO targets_raw(program_id, target, category, in_scope, is_bbp, first_seen_at, last_seen_at)
+		VALUES(?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(program_id, category, target) DO UPDATE SET
+			last_seen_at = CURRENT_TIMESTAMP
+	`, programID, target, category, boolToInt(true), boolToInt(false))
+	if err != nil {
+		return fmt.Errorf("upserting custom target: %w", err)
 	}
 
 	return tx.Commit()
