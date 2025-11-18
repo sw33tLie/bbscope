@@ -1335,7 +1335,15 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 			NULL as ai_id,
 			'historical' as source
 		FROM scope_changes c
-		WHERE c.target_normalized LIKE ? OR c.target_ai_normalized LIKE ? OR c.program_url LIKE ?;
+		WHERE (c.target_normalized LIKE ? OR c.target_ai_normalized LIKE ? OR c.program_url LIKE ?)
+		AND NOT EXISTS (
+			SELECT 1 FROM targets_raw t2
+			JOIN programs p2 ON t2.program_id = p2.id
+			WHERE p2.url = c.program_url
+			AND p2.is_ignored = 0
+			AND t2.target = c.target_raw
+			AND t2.category = c.category
+		);
 	`
 
 	rows, err := d.sql.QueryContext(ctx, query,
@@ -1443,9 +1451,11 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 
 		key := fmt.Sprintf("%s|%s|%s|%s", entry.ProgramURL, entry.TargetNormalized, entry.BaseTargetNormalized, entry.Category)
 		if idx, ok := seen[key]; ok {
+			// Always prefer current entries over historical ones
 			if out[idx].IsHistorical && !entry.IsHistorical {
 				out[idx] = entry
 			}
+			// If we already have a current entry, skip adding a historical one
 		} else {
 			out = append(out, entry)
 			seen[key] = len(out) - 1
