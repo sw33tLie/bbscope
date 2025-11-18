@@ -431,9 +431,6 @@ func mergeNormalized(items []storage.TargetItem, baseID int, normalized map[int]
 
 		cloned := original
 		cloned.Variants = nil
-		if result.InScope != nil {
-			cloned.InScope = *result.InScope
-		}
 
 		if len(targets) > 0 {
 			cloned.Variants = make([]storage.TargetVariant, 0, len(targets))

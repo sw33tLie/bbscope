@@ -74,7 +74,7 @@ func TestNormalizerScenarios(t *testing.T) {
 				{
 					URI:      "example.com",
 					Category: "url",
-					InScope:  false,
+					InScope:  true,
 					Variants: []storage.TargetVariant{
 						{Value: "example.com", HasInScope: true, InScope: false},
 					},

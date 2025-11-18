@@ -37,7 +37,7 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 		pd.InScope = []scope.ScopeElement{
 			{Target: "https://loslo.example.com/app", Description: "app v2", Category: "website"},
 			{Target: "new.a.example.com", Description: "new host", Category: "website"},
-			{Target: " this is in scope: funny.a.example.com  and so is *.wow.com", Description: "new host", Category: "website"},
+			{Target: " this is out of scope: funny.a.example.com  and so is *.wow.com", Description: "new host", Category: "website"},
 		}
 
 		pd.OutOfScope = []scope.ScopeElement{
