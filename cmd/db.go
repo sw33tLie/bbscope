@@ -335,6 +335,7 @@ var addCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		target, _ := cmd.Flags().GetString("target")
 		category, _ := cmd.Flags().GetString("category")
+		programURL, _ := cmd.Flags().GetString("program-url")
 		dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
 		if dbPath == "" {
 			dbPath = "bbscope.sqlite"
@@ -354,7 +355,7 @@ var addCmd = &cobra.Command{
 		for _, t := range targets {
 			t = strings.TrimSpace(t)
 			if t != "" {
-				err := db.AddCustomTarget(context.Background(), t, category)
+				err := db.AddCustomTarget(context.Background(), t, category, programURL)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error adding target %s: %v\n", t, err)
 				} else {
@@ -376,6 +377,7 @@ func init() {
 	dbCmd.AddCommand(addCmd)
 	addCmd.Flags().StringP("target", "t", "", "Target to add (can be comma-separated)")
 	addCmd.Flags().StringP("category", "c", "wildcard", "Category of the target")
+	addCmd.Flags().StringP("program-url", "u", "custom", "Program URL (default: 'custom')")
 	changesCmd.Flags().Int("limit", 50, "Number of recent changes to show")
 	printCmd.Flags().String("platform", "all", "Comma-separated platforms (h1,bc,it,ywh,immunefi) or 'all'")
 	printCmd.Flags().String("program", "", "Filter by program handle or full URL")

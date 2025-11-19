@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 
@@ -1172,11 +1171,12 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 }
 
 // AddCustomTarget adds a single target for a custom program.
-func (d *DB) AddCustomTarget(ctx context.Context, target, category string) error {
+func (d *DB) AddCustomTarget(ctx context.Context, target, category, programURL string) error {
 	platform := "custom"
-	// Sanitize target to avoid weird characters in URL
-	safeTarget := url.PathEscape(target)
-	programURL := "custom://" + safeTarget
+	// If programURL is "custom", use "custom" as the program URL (don't append target)
+	if programURL == "custom" {
+		programURL = "custom"
+	}
 	handle := target
 
 	tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
