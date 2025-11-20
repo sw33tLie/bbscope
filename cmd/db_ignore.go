@@ -10,22 +10,38 @@ import (
 
 // ignoreCmd represents the ignore command
 var ignoreCmd = &cobra.Command{
-	Use:   "ignore [program-url-pattern]",
+	Use:   "ignore",
 	Short: "Mark a program as ignored to skip it during polling",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return setIgnoreStatus(cmd.Context(), args[0], true)
+		pattern, err := resolveProgramPattern(cmd)
+		if err != nil {
+			return err
+		}
+		return setIgnoreStatus(cmd.Context(), pattern, true)
 	},
 }
 
 // unignoreCmd represents the unignore command
 var unignoreCmd = &cobra.Command{
-	Use:   "unignore [program-url-pattern]",
+	Use:   "unignore",
 	Short: "Unmark a program as ignored",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return setIgnoreStatus(cmd.Context(), args[0], false)
+		pattern, err := resolveProgramPattern(cmd)
+		if err != nil {
+			return err
+		}
+		return setIgnoreStatus(cmd.Context(), pattern, false)
 	},
+}
+
+func resolveProgramPattern(cmd *cobra.Command) (string, error) {
+	flagValue, _ := cmd.Flags().GetString("program-url")
+	if flagValue == "" {
+		return "", fmt.Errorf("please provide a program URL via --program-url")
+	}
+	return flagValue, nil
 }
 
 func setIgnoreStatus(ctx context.Context, pattern string, ignored bool) error {
@@ -55,4 +71,6 @@ func setIgnoreStatus(ctx context.Context, pattern string, ignored bool) error {
 func init() {
 	dbCmd.AddCommand(ignoreCmd)
 	dbCmd.AddCommand(unignoreCmd)
+	ignoreCmd.Flags().StringP("program-url", "u", "", "Program URL or pattern to ignore")
+	unignoreCmd.Flags().StringP("program-url", "u", "", "Program URL or pattern to unignore")
 }
