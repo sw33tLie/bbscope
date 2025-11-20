@@ -355,11 +355,15 @@ var addCmd = &cobra.Command{
 		for _, t := range targets {
 			t = strings.TrimSpace(t)
 			if t != "" {
-				err := db.AddCustomTarget(context.Background(), t, category, programURL)
+				created, err := db.AddCustomTarget(context.Background(), t, category, programURL)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error adding target %s: %v\n", t, err)
 				} else {
-					fmt.Printf("Successfully added target: %s\n", t)
+					if created {
+						fmt.Printf("Successfully added target: %s\n", t)
+					} else {
+						fmt.Printf("Target already exists, refreshed timestamp: %s\n", t)
+					}
 				}
 			}
 		}

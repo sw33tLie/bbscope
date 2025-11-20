@@ -1171,7 +1171,8 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 }
 
 // AddCustomTarget adds a single target for a custom program.
-func (d *DB) AddCustomTarget(ctx context.Context, target, category, programURL string) error {
+// It returns true if the target was newly created, false if it already existed.
+func (d *DB) AddCustomTarget(ctx context.Context, target, category, programURL string) (bool, error) {
 	platform := "custom"
 	// If programURL is "custom", use "custom" as the program URL (don't append target)
 	if programURL == "custom" {
@@ -1181,7 +1182,7 @@ func (d *DB) AddCustomTarget(ctx context.Context, target, category, programURL s
 
 	tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
 
@@ -1197,7 +1198,19 @@ func (d *DB) AddCustomTarget(ctx context.Context, target, category, programURL s
 		RETURNING id
 	`, platform, handle, programURL)
 	if err := programRow.Scan(&programID); err != nil {
-		return fmt.Errorf("upserting custom program: %w", err)
+		return false, fmt.Errorf("upserting custom program: %w", err)
+	}
+
+	targetExists := false
+	var exists int
+	err = tx.QueryRowContext(ctx, `
+		SELECT 1 FROM targets_raw WHERE program_id = ? AND category = ? AND target = ? LIMIT 1
+	`, programID, category, target).Scan(&exists)
+	if err != nil && err != sql.ErrNoRows {
+		return false, fmt.Errorf("checking existing custom target: %w", err)
+	}
+	if err == nil {
+		targetExists = true
 	}
 
 	_, err = tx.ExecContext(ctx, `
@@ -1207,10 +1220,13 @@ func (d *DB) AddCustomTarget(ctx context.Context, target, category, programURL s
 			last_seen_at = CURRENT_TIMESTAMP
 	`, programID, target, category, boolToInt(true), boolToInt(false))
 	if err != nil {
-		return fmt.Errorf("upserting custom target: %w", err)
+		return false, fmt.Errorf("upserting custom target: %w", err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return !targetExists, nil
 }
 
 // ListRecentChanges returns the most recent N changes across all programs.
