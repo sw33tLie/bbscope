@@ -864,7 +864,7 @@ func getEngagementBriefVersionDocument(handle string, token string) (string, err
 
 func extractScopeFromEngagement(getBriefVersionDocument string, token string, pData *scope.ProgramData) (err error) {
 	if getBriefVersionDocument == ".json" {
-		utils.Log.Warn("Compliance required! Empty Extraction URL (Skipping)...")
+		utils.Log.Warn("Compliance required! Empty Extraction URL (Skipping): ", pData.Url)
 		pData.InScope = append(pData.InScope, scope.ScopeElement{
 			Target:      "2FA_REQUIRED",
 			Description: "Two-Factor Authentication is required to access this program.",
