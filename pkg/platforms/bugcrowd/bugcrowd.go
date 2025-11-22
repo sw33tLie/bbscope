@@ -44,9 +44,10 @@ type rateLimitedRequest struct {
 }
 
 var (
-	rateLimitRequestChan       chan rateLimitedRequest
-	bugcrowdSessionCookieNames = []string{"_crowdcontrol_session_key"}
+	rateLimitRequestChan chan rateLimitedRequest
 )
+
+const bugcrowdSessionCookieName = "_crowdcontrol_session_key"
 
 func init() {
 	// Initialize the rate-limited request channel and start the worker
@@ -197,133 +198,60 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 		utils.Log.Debug(fmt.Sprintf("failed to parse sign_in HTML: %v", docErr))
 	}
 
-	authenticityToken := ""
-	bugcrowdURL, _ := url.Parse("https://bugcrowd.com")
-	allCookies := retryClient.HTTPClient.Jar.Cookies(bugcrowdURL)
-	for _, cookie := range allCookies {
-		cookieName := strings.ToLower(cookie.Name)
-		if cookieName == "csrf-token" || cookieName == "_csrf_token" || cookieName == "csrf_token" ||
-			cookieName == "authenticity_token" || cookieName == "_authenticity_token" {
-			authenticityToken = cookie.Value
-			break
-		}
-	}
-	if authenticityToken == "" {
-		csrfHeader := signInRes.Headers.Get("X-CSRF-Token")
-		if csrfHeader != "" {
-			authenticityToken = csrfHeader
-		}
-	}
-	if authenticityToken == "" {
-		setCookies := signInRes.Headers.Values("Set-Cookie")
-		for _, setCookie := range setCookies {
-			if strings.Contains(strings.ToLower(setCookie), "csrf") || strings.Contains(strings.ToLower(setCookie), "authenticity") {
-				parts := strings.Split(setCookie, ";")
-				if len(parts) > 0 {
-					keyValue := strings.Split(parts[0], "=")
-					if len(keyValue) == 2 {
-						cookieName := strings.ToLower(strings.TrimSpace(keyValue[0]))
-						if cookieName == "csrf-token" || cookieName == "_csrf_token" || cookieName == "csrf_token" ||
-							cookieName == "authenticity_token" || cookieName == "_authenticity_token" {
-							authenticityToken = keyValue[1]
-							break
-						}
-					}
-				}
-			}
-		}
-	}
-	if authenticityToken == "" && csrfTokenFromCookie != "" {
-		authenticityToken = csrfTokenFromCookie
-	}
-	if authenticityToken == "" && docErr == nil && signInDoc != nil {
-		signInDoc.Find("meta").Each(func(i int, s *goquery.Selection) {
-			name, _ := s.Attr("name")
-			content, exists := s.Attr("content")
-			if exists && (name == "csrf-token" || name == "csrf_token" || name == "authenticity-token" || name == "authenticity_token") {
-				authenticityToken = content
-			}
-		})
-		if authenticityToken == "" {
-			signInDoc.Find("input").Each(func(i int, s *goquery.Selection) {
-				inputName, _ := s.Attr("name")
-				if inputName == "authenticity_token" || inputName == "csrf_token" || inputName == "csrf-token" {
-					if value, exists := s.Attr("value"); exists {
-						authenticityToken = value
-					}
-				}
-			})
-		}
-		if authenticityToken == "" {
-			signInDoc.Find("[data-csrf-token], [data-csrf_token], [data-authenticity-token]").Each(func(i int, s *goquery.Selection) {
-				if token, exists := s.Attr("data-csrf-token"); exists && token != "" {
-					authenticityToken = token
-				} else if token, exists := s.Attr("data-csrf_token"); exists && token != "" {
-					authenticityToken = token
-				} else if token, exists := s.Attr("data-authenticity-token"); exists && token != "" {
-					authenticityToken = token
-				}
-			})
-		}
-		if authenticityToken == "" {
-			signInDoc.Find("script").Each(func(i int, s *goquery.Selection) {
-				scriptContent := s.Text()
-				patterns := []string{
-					`csrf[_-]?token["\s:=]+["']([^"']+)["']`,
-					`authenticity[_-]?token["\s:=]+["']([^"']+)["']`,
-					`"csrfToken"\s*:\s*"([^"]+)"`,
-					`'csrfToken'\s*:\s*'([^']+)'`,
-					`csrf[_-]?token\s*=\s*["']([^"']+)["']`,
-				}
-				for _, pattern := range patterns {
-					re := regexp.MustCompile(pattern)
-					matches := re.FindStringSubmatch(scriptContent)
-					if len(matches) > 1 && matches[1] != "" {
-						authenticityToken = matches[1]
-						break
-					}
-				}
-			})
-		}
-	}
-	if authenticityToken == "" {
-		patterns := []string{
-			`<meta\s+name=["']csrf[_-]?token["']\s+content=["']([^"']+)["']`,
-			`<meta\s+content=["']([^"']+)["']\s+name=["']csrf[_-]?token["']`,
-			`<input[^>]*name=["']authenticity[_-]?token["'][^>]*value=["']([^"']+)["']`,
-			`<input[^>]*value=["']([^"']+)["'][^>]*name=["']authenticity[_-]?token["']`,
-			`csrf[_-]?token["\s:=]+["']([^"']+)["']`,
-			`"csrfToken"\s*:\s*"([^"]+)"`,
-		}
-		for _, pattern := range patterns {
-			re := regexp.MustCompile("(?i)" + pattern)
-			matches := re.FindStringSubmatch(signInRes.BodyString)
-			if len(matches) > 1 && matches[1] != "" {
-				authenticityToken = matches[1]
-				break
-			}
-		}
-	}
-	if authenticityToken == "" {
-		htmlSample := signInRes.BodyString
-		if len(htmlSample) > 500 {
-			htmlSample = htmlSample[:500]
-		}
-		return "", fmt.Errorf("authenticity token not found in sign_in page. HTML sample: %s", htmlSample)
-	}
-
-	headers := []whttp.WHTTPHeader{
-		{Name: "User-Agent", Value: USER_AGENT},
-		{Name: "Content-Type", Value: "application/x-www-form-urlencoded"},
-		{Name: "Origin", Value: "https://bugcrowd.com"},
-		{Name: "Referer", Value: signInURL},
-		{Name: "X-Csrf-Token", Value: authenticityToken},
-	}
-
-	formValues := url.Values{}
-	authHackerURL := ""
+	// Parse HTML to find tokens and form values
+	var (
+		authenticityToken string
+		csrfTokenHeader   string
+		authHackerURL     string
+		formValues        = url.Values{}
+	)
 
 	if signInDoc != nil && docErr == nil {
+		// 1. Find authenticity_token from input (for form body)
+		signInDoc.Find("input").Each(func(i int, s *goquery.Selection) {
+			name, _ := s.Attr("name")
+			value, _ := s.Attr("value")
+			if name == "authenticity_token" {
+				authenticityToken = value
+			}
+			if name != "" {
+				formValues.Set(name, value)
+			}
+		})
+
+		// 2. Find csrfToken from SplashScreen data (for X-Csrf-Token header)
+		// <div data-react-class="SplashScreen" data-react-props="{&quot;csrfToken&quot;:&quot;...&quot; ...}">
+		signInDoc.Find("div[data-react-class='SplashScreen']").Each(func(i int, s *goquery.Selection) {
+			props, exists := s.Attr("data-react-props")
+			if exists {
+				csrfTokenHeader = gjson.Get(props, "csrfToken").String()
+			}
+		})
+
+		// Fallback for header if SplashScreen not found: use cookie or input
+		if csrfTokenHeader == "" {
+			// Try cookie from identity.bugcrowd.com (preserved in jar?)
+			// The jar logic was complex, let's stick to what the page provides or fallback to cookie jar lookup if strictly needed.
+			// Current implementation behavior: prefer cookie for header.
+			// Let's check cookies explicitly again if needed.
+			bugcrowdURL, _ := url.Parse("https://bugcrowd.com")
+			for _, cookie := range retryClient.HTTPClient.Jar.Cookies(bugcrowdURL) {
+				if strings.EqualFold(cookie.Name, "csrf-token") {
+					csrfTokenHeader = cookie.Value
+					break
+				}
+			}
+		}
+		// If still empty, fallback to the input token (better than nothing)
+		if csrfTokenHeader == "" {
+			csrfTokenHeader = authenticityToken
+		}
+		// If still empty, fallback to the identity cookie captured earlier
+		if csrfTokenHeader == "" && csrfTokenFromCookie != "" {
+			csrfTokenHeader = csrfTokenFromCookie
+		}
+
+		// 3. Find action URL
 		formSel := signInDoc.Find("form#initiate_oidc_form")
 		if formSel.Length() == 0 {
 			formSel = signInDoc.Find("form[action*='/user/auth/hacker']").First()
@@ -332,21 +260,29 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 			if action, exists := formSel.Attr("action"); exists {
 				authHackerURL = action
 			}
-			formSel.Find("input").Each(func(i int, s *goquery.Selection) {
-				if name, ok := s.Attr("name"); ok && name != "" {
-					if value, exists := s.Attr("value"); exists {
-						formValues.Set(name, value)
-					}
-				}
-			})
 		}
 	}
-	if formValues.Get("authenticity_token") == "" && authenticityToken != "" {
+
+	if authenticityToken == "" {
+		return "", errors.New("authenticity_token not found in sign_in page")
+	}
+
+	// Ensure form values are set
+	if formValues.Get("authenticity_token") == "" {
 		formValues.Set("authenticity_token", authenticityToken)
 	}
 	if formValues.Get("utf8") == "" {
 		formValues.Set("utf8", "✓")
 	}
+
+	headers := []whttp.WHTTPHeader{
+		{Name: "User-Agent", Value: USER_AGENT},
+		{Name: "Content-Type", Value: "application/x-www-form-urlencoded"},
+		{Name: "Origin", Value: "https://bugcrowd.com"},
+		{Name: "Referer", Value: signInURL},
+		{Name: "X-Csrf-Token", Value: csrfTokenHeader},
+	}
+
 	if authHackerURL == "" {
 		authHackerURL = fmt.Sprintf("https://bugcrowd.com/user/auth/hacker?acr_values=phr&login_hint=%s&origin=https%%3A%%2F%%2Fbugcrowd.com%%2Fdashboard&sessionToken=%s",
 			url.QueryEscape(email), url.QueryEscape(sessionToken))
@@ -410,25 +346,22 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		oktaStateTokenFromPage = extractOktaStateToken(oktaAuthorizeRes.BodyString)
-	} else if strings.Contains(authHackerRes.BodyString, "okta-sign-in") ||
-		strings.Contains(authHackerRes.BodyString, "okta-signin-widget") {
-		re := regexp.MustCompile(`https://login\.hackers\.bugcrowd\.com/oauth2/default/v1/authorize[^"'\s]+`)
-		matches := re.FindString(authHackerRes.BodyString)
-		if matches != "" {
-			authorizeURL = matches
-		}
-		if authorizeURL == "" {
-			redirectRe := regexp.MustCompile(`"redirectUri":"([^"]+)"`)
-			redirectMatches := redirectRe.FindStringSubmatch(authHackerRes.BodyString)
-			if len(redirectMatches) > 1 {
-				candidate := decodeOktaEscapes(redirectMatches[1])
-				if candidate != "" {
-					authorizeURL = candidate
-				}
+		if jsonData := extractOktaDataJSON(oktaAuthorizeRes.BodyString); jsonData != "" {
+			oktaStateTokenFromPage = gjson.Get(jsonData, "signIn.stateToken").String()
+			if oktaStateTokenFromPage == "" {
+				oktaStateTokenFromPage = gjson.Get(jsonData, "stateToken").String()
 			}
 		}
-		oktaStateTokenFromPage = extractOktaStateToken(authHackerRes.BodyString)
+	} else if strings.Contains(authHackerRes.BodyString, "okta-sign-in") ||
+		strings.Contains(authHackerRes.BodyString, "okta-signin-widget") {
+
+		if jsonData := extractOktaDataJSON(authHackerRes.BodyString); jsonData != "" {
+			authorizeURL = gjson.Get(jsonData, "redirectUri").String()
+			oktaStateTokenFromPage = gjson.Get(jsonData, "signIn.stateToken").String()
+			if oktaStateTokenFromPage == "" {
+				oktaStateTokenFromPage = gjson.Get(jsonData, "stateToken").String()
+			}
+		}
 	} else {
 		return "", fmt.Errorf("unexpected response from auth/hacker: status %d, expected redirect", authHackerRes.StatusCode)
 	}
@@ -627,6 +560,8 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 	}
 
 	tokenRedirectURL := fmt.Sprintf("https://login.hackers.bugcrowd.com/login/token/redirect?stateToken=%s", url.QueryEscape(newStateToken))
+
+	// This will redirect till we reach /dashboard
 	tokenRedirectRes, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
@@ -643,71 +578,133 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 		return "", errors.New(WAF_BANNED_ERROR)
 	}
 
-	callbackURL := ""
-	if tokenRedirectRes.StatusCode >= 300 && tokenRedirectRes.StatusCode < 400 {
-		callbackURL = tokenRedirectRes.Headers.Get("Location")
-	} else {
-		re := regexp.MustCompile(`https://bugcrowd\.com/user/auth/hacker/callback[^"'\s]+`)
-		matches := re.FindString(tokenRedirectRes.BodyString)
-		if matches != "" {
-			callbackURL = matches
-		}
-	}
+	// Follow redirects until we reach the final page (dashboard)
+	// Note: retryablehttp follows redirects automatically, but we handle additional redirects manually if needed
+	finalRes := tokenRedirectRes
+	currentURL := tokenRedirectURL
+	maxRedirects := 10
+	redirectCount := 0
 
-	if callbackURL != "" {
-		callbackRes, err := rateLimitedSendHTTPRequest(
+	for redirectCount < maxRedirects && (finalRes.StatusCode >= 300 && finalRes.StatusCode < 400) {
+		redirectURL := finalRes.Headers.Get("Location")
+		if redirectURL == "" {
+			break
+		}
+		if !strings.HasPrefix(redirectURL, "http") {
+			baseURL, _ := url.Parse(currentURL)
+			resolvedURL := baseURL.ResolveReference(&url.URL{Path: redirectURL})
+			redirectURL = resolvedURL.String()
+		}
+		prevURL := currentURL
+		currentURL = redirectURL
+
+		finalRes, err = rateLimitedSendHTTPRequest(
 			&whttp.WHTTPReq{
 				Method: "GET",
-				URL:    callbackURL,
+				URL:    redirectURL,
 				Headers: []whttp.WHTTPHeader{
 					{Name: "User-Agent", Value: USER_AGENT},
-					{Name: "Referer", Value: "https://login.hackers.bugcrowd.com/"},
+					{Name: "Referer", Value: prevURL},
 				},
 			}, retryClient)
 		if err != nil {
 			return "", err
 		}
-		if callbackRes.StatusCode == 403 || callbackRes.StatusCode == 406 {
+		if finalRes.StatusCode == 403 || finalRes.StatusCode == 406 {
 			return "", errors.New(WAF_BANNED_ERROR)
 		}
+		redirectCount++
+	}
 
-		dashboardURL := ""
-		if callbackRes.StatusCode >= 300 && callbackRes.StatusCode < 400 {
-			dashboardURL = callbackRes.Headers.Get("Location")
-		} else {
-			re := regexp.MustCompile(`https://bugcrowd\.com/dashboard[^"'\s]*`)
-			matches := re.FindString(callbackRes.BodyString)
-			if matches != "" {
-				dashboardURL = matches
-			}
-		}
-
-		if dashboardURL != "" {
-			dashboardRes, err := rateLimitedSendHTTPRequest(
-				&whttp.WHTTPReq{
-					Method: "GET",
-					URL:    dashboardURL,
-					Headers: []whttp.WHTTPHeader{
-						{Name: "User-Agent", Value: USER_AGENT},
-						{Name: "Referer", Value: callbackURL},
-					},
-				}, retryClient)
-			if err == nil && dashboardRes.StatusCode != 403 && dashboardRes.StatusCode != 406 {
-				if sessionValue, sessionName := findSessionCookie(retryClient.HTTPClient.Jar, "https://bugcrowd.com"); sessionValue != "" {
-					return logSessionSuccess(sessionName, sessionValue)
-				}
-			}
+	// Extract the initial session cookie from the cookie jar
+	bugcrowdURL, _ := url.Parse("https://bugcrowd.com")
+	initialSessionCookie := ""
+	for _, cookie := range retryClient.HTTPClient.Jar.Cookies(bugcrowdURL) {
+		if cookie.Name == bugcrowdSessionCookieName && cookie.Value != "" {
+			initialSessionCookie = cookie.Value
+			break
 		}
 	}
-
-	if sessionValue, sessionName := findSessionCookie(retryClient.HTTPClient.Jar, "https://bugcrowd.com"); sessionValue != "" {
-		return logSessionSuccess(sessionName, sessionValue)
-	}
-	if sessionValue, sessionName := findSessionCookie(retryClient.HTTPClient.Jar, "https://identity.bugcrowd.com"); sessionValue != "" {
-		return logSessionSuccess(sessionName, sessionValue)
+	if initialSessionCookie == "" {
+		return "", errors.New("initial session cookie not found after redirects")
 	}
 
-	return "", errors.New("unable to obtain session cookie after completing login flow")
+	// Parse HTML to find OktaSessionManagement div and extract csrfToken
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(finalRes.BodyString))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse final response HTML: %v", err)
+	}
+
+	var csrfToken string
+	var refreshSessionPath string
+	doc.Find("div[data-react-class='OktaSessionManagement']").Each(func(i int, s *goquery.Selection) {
+		props, exists := s.Attr("data-react-props")
+		if exists {
+			csrfToken = gjson.Get(props, "csrfToken").String()
+			refreshSessionPath = gjson.Get(props, "refreshSessionPath").String()
+		}
+	})
+
+	if csrfToken == "" {
+		return "", errors.New("csrfToken not found in OktaSessionManagement div")
+	}
+	if refreshSessionPath == "" {
+		return "", errors.New("refreshSessionPath not found in OktaSessionManagement div")
+	}
+
+	// Build the oidc_session_management URL
+	oidcURL := "https://bugcrowd.com" + refreshSessionPath
+	if strings.HasPrefix(refreshSessionPath, "http") {
+		oidcURL = refreshSessionPath
+	}
+
+	// Calculate expiry timestamp (current time + 2 hours in milliseconds)
+	expiryTimestamp := time.Now().Add(2 * time.Hour).UnixMilli()
+	oidcBody := map[string]interface{}{
+		"expiry": expiryTimestamp,
+	}
+	oidcBodyJSON, _ := json.Marshal(oidcBody)
+
+	// Send PUT request to oidc_session_management endpoint
+	oidcRes, err := rateLimitedSendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "PUT",
+			URL:    oidcURL,
+			Headers: []whttp.WHTTPHeader{
+				{Name: "User-Agent", Value: USER_AGENT},
+				{Name: "Content-Type", Value: "application/json"},
+				{Name: "X-Csrf-Token", Value: csrfToken},
+				{Name: "Cookie", Value: buildSessionCookieHeader(initialSessionCookie)},
+				{Name: "Referer", Value: currentURL},
+				{Name: "Origin", Value: "https://bugcrowd.com"},
+			},
+			Body: string(oidcBodyJSON),
+		}, retryClient)
+	if err != nil {
+		return "", fmt.Errorf("failed to call oidc_session_management: %v", err)
+	}
+	if oidcRes.StatusCode == 403 || oidcRes.StatusCode == 406 {
+		return "", errors.New(WAF_BANNED_ERROR)
+	}
+	if oidcRes.StatusCode >= 400 {
+		return "", fmt.Errorf("oidc_session_management returned error %d: %s", oidcRes.StatusCode, oidcRes.BodyString)
+	}
+
+	// Extract the final session cookie from the response
+	finalSessionCookie := ""
+	for _, cookie := range retryClient.HTTPClient.Jar.Cookies(bugcrowdURL) {
+		if cookie.Name == bugcrowdSessionCookieName && cookie.Value != "" {
+			finalSessionCookie = cookie.Value
+			break
+		}
+	}
+	if finalSessionCookie == "" {
+		return "", errors.New("final session cookie not found after oidc_session_management call")
+	}
+
+	utils.Log.Info("Login OK. Fetching programs, please wait...")
+	utils.Log.Debug(fmt.Sprintf("Using %s cookie for session", bugcrowdSessionCookieName))
+	return finalSessionCookie, nil
 }
 
 func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool) ([]string, error) {
@@ -1043,33 +1040,6 @@ func buildSessionCookieHeader(token string) string {
 	return fmt.Sprintf("_crowdcontrol_session_key=%s", token)
 }
 
-func findSessionCookie(jar http.CookieJar, rawURL string) (string, string) {
-	if jar == nil {
-		return "", ""
-	}
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return "", ""
-	}
-	cookies := jar.Cookies(parsed)
-	for _, name := range bugcrowdSessionCookieNames {
-		for _, cookie := range cookies {
-			if cookie.Name == name && cookie.Value != "" {
-				return cookie.Value, name
-			}
-		}
-	}
-	return "", ""
-}
-
-func logSessionSuccess(cookieName, cookieValue string) (string, error) {
-	utils.Log.Info("Login OK. Fetching programs, please wait...")
-	if cookieName != "" {
-		utils.Log.Debug(fmt.Sprintf("Using %s cookie for session", cookieName))
-	}
-	return cookieValue, nil
-}
-
 func decodeOktaEscapes(input string) string {
 	if input == "" {
 		return ""
@@ -1085,18 +1055,6 @@ func decodeOktaEscapes(input string) string {
 	}
 
 	return unquoted
-}
-
-func extractOktaStateToken(html string) string {
-	if html == "" {
-		return ""
-	}
-	re := regexp.MustCompile(`"stateToken":"([^"]+)"`)
-	match := re.FindStringSubmatch(html)
-	if len(match) > 1 {
-		return decodeOktaEscapes(match[1])
-	}
-	return ""
 }
 
 func updateOktaState(stateToken, stateHandle *string, body string) {
@@ -1145,4 +1103,32 @@ func authenticatorRequiresPassword(body string) bool {
 	authenticatorType := strings.ToLower(gjson.Get(body, "currentAuthenticatorEnrollment.type").String())
 	authenticatorKey := strings.ToLower(gjson.Get(body, "currentAuthenticatorEnrollment.key").String())
 	return authenticatorType == "password" || authenticatorKey == "password"
+}
+
+func extractOktaDataJSON(html string) string {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return ""
+	}
+	var jsonData string
+	doc.Find("script").Each(func(i int, s *goquery.Selection) {
+		if jsonData != "" {
+			return
+		}
+		text := s.Text()
+		if strings.Contains(text, "var oktaData =") {
+			// Extract the JSON object
+			// var oktaData = { ... };
+			re := regexp.MustCompile(`var oktaData = (\{[\s\S]*?\});`)
+			match := re.FindStringSubmatch(text)
+			if len(match) > 1 {
+				jsonData = match[1]
+				// Fix \x escapes to make it valid JSON for gjson
+				// \x3A -> \u003A
+				hexRe := regexp.MustCompile(`\\x([0-9a-fA-F]{2})`)
+				jsonData = hexRe.ReplaceAllString(jsonData, `\u00$1`)
+			}
+		}
+	})
+	return jsonData
 }
