@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/sw33tLie/bbscope/v2/internal/utils"
+	"github.com/sw33tLie/bbscope/v2/pkg/whttp"
 
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/viper"
@@ -56,6 +57,7 @@ func init() {
 	// Global flags
 	rootCmd.PersistentFlags().StringP("proxy", "", "", "HTTP Proxy (Useful for debugging. Example: http://127.0.0.1:8080)")
 	rootCmd.PersistentFlags().StringP("loglevel", "l", "info", "Set log level. Available: debug, info, warn, error, fatal")
+	rootCmd.PersistentFlags().Bool("debug-http", false, "Debug HTTP requests and responses")
 
 }
 
@@ -108,5 +110,9 @@ func initConfig() {
 	// Init log library
 	levelString, _ := rootCmd.PersistentFlags().GetString("loglevel")
 	utils.SetLogLevel(levelString)
+
+	// Init HTTP debug
+	debugHTTP, _ := rootCmd.PersistentFlags().GetBool("debug-http")
+	whttp.GlobalDebug = debugHTTP
 
 }

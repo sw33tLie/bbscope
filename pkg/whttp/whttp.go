@@ -27,6 +27,7 @@ type WHTTPReq struct {
 	Body       string
 	CustomHost string
 	Headers    []WHTTPHeader
+	Debug      bool
 }
 
 type WHTTPRes struct {
@@ -38,6 +39,7 @@ type WHTTPRes struct {
 }
 
 var retryClient *retryablehttp.Client
+var GlobalDebug bool
 
 func init() {
 	retryClient = retryablehttp.NewClient()
@@ -92,6 +94,21 @@ func SendHTTPRequest(wReq *WHTTPReq, customClient *retryablehttp.Client) (wRes *
 		}
 	}
 
+	if wReq.Debug || GlobalDebug {
+		fmt.Println("********** HTTP REQUEST **********")
+		fmt.Printf("%s %s\n", wReq.Method, wReq.URL)
+		if req.Host != "" {
+			fmt.Printf("Host: %s\n", req.Host)
+		}
+		for k, v := range req.Header {
+			fmt.Printf("%s: %s\n", k, strings.Join(v, ", "))
+		}
+		if wReq.Body != "" {
+			fmt.Printf("\n%s\n", wReq.Body)
+		}
+		fmt.Println("**********************************")
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -110,6 +127,16 @@ func SendHTTPRequest(wReq *WHTTPReq, customClient *retryablehttp.Client) (wRes *
 
 	wRes.BodyString = string(bodyBytes)
 	wRes.StatusCode = resp.StatusCode
+
+	if wReq.Debug || GlobalDebug {
+		fmt.Println("********** HTTP RESPONSE **********")
+		fmt.Printf("Status: %d\n", resp.StatusCode)
+		for k, v := range resp.Header {
+			fmt.Printf("%s: %s\n", k, strings.Join(v, ", "))
+		}
+		fmt.Printf("\n%s\n", wRes.BodyString)
+		fmt.Println("***********************************")
+	}
 
 	if title, ok := getHTMLTitle(wRes.BodyString); ok {
 		wRes.HTTPTitle = strings.ToValidUTF8(strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(title, "\n", ""), "\r", "")), "")
