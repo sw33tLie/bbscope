@@ -24,9 +24,13 @@ func init() {
 }
 
 func runDevCmd(cmd *cobra.Command, args []string) error {
-	dbPath, _ := cmd.Flags().GetString("dbpath")
-	if dbPath == "" {
-		dbPath = "bbscope.sqlite"
+	dbPathRaw, _ := cmd.Flags().GetString("dbpath")
+	if dbPathRaw == "" {
+		dbPathRaw = "bbscope.sqlite"
+	}
+	dbPath, err := expandPath(dbPathRaw)
+	if err != nil {
+		return err
 	}
 	if _, err := os.Stat(dbPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {

@@ -31,7 +31,11 @@ func init() {
 }
 
 func runGetWildcardsCmd(cmd *cobra.Command, args []string) error {
-	dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
+	dbPathRaw, _ := cmd.Parent().Flags().GetString("dbpath")
+	dbPath, err := expandPath(dbPathRaw)
+	if err != nil {
+		return err
+	}
 
 	if _, err := os.Stat(dbPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {

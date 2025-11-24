@@ -132,10 +132,13 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 	categories, _ := cmd.Flags().GetString("category")
 	useDB, _ := cmd.Flags().GetBool("db")
 	useAI, _ := cmd.Flags().GetBool("ai")
-	dbPath, _ := cmd.Flags().GetString("dbpath")
+	dbPathRaw, _ := cmd.Flags().GetString("dbpath")
+	dbPath, err := expandPath(dbPathRaw)
+	if err != nil {
+		return err
+	}
 
 	var db *storage.DB
-	var err error
 	if useDB {
 		db, err = storage.Open(dbPath, storage.DefaultDBTimeout)
 		if err != nil {

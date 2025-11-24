@@ -45,7 +45,11 @@ func resolveProgramPattern(cmd *cobra.Command) (string, error) {
 }
 
 func setIgnoreStatus(ctx context.Context, pattern string, ignored bool) error {
-	dbPath, _ := dbCmd.PersistentFlags().GetString("dbpath")
+	dbPathRaw, _ := dbCmd.PersistentFlags().GetString("dbpath")
+	dbPath, err := expandPath(dbPathRaw)
+	if err != nil {
+		return err
+	}
 
 	db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
 	if err != nil {

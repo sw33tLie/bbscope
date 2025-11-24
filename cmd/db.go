@@ -10,12 +10,25 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/sw33tLie/bbscope/v2/pkg/scope"
 	"github.com/sw33tLie/bbscope/v2/pkg/storage"
 )
 
 var dbPath string
+
+// expandPath expands the tilde (~) in a file path to the user's home directory
+func expandPath(path string) (string, error) {
+	if strings.HasPrefix(path, "~") {
+		expanded, err := homedir.Expand(path)
+		if err != nil {
+			return "", fmt.Errorf("failed to expand path %s: %w", path, err)
+		}
+		return expanded, nil
+	}
+	return path, nil
+}
 
 // dbCmd represents the db command
 var dbCmd = &cobra.Command{
@@ -28,7 +41,11 @@ var shellCmd = &cobra.Command{
 	Use:   "shell",
 	Short: "Start an interactive shell to the database",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
+		dbPathRaw, _ := cmd.Parent().Flags().GetString("dbpath")
+		dbPath, err := expandPath(dbPathRaw)
+		if err != nil {
+			return err
+		}
 
 		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 			return fmt.Errorf("database file not found: %s", dbPath)
@@ -65,7 +82,11 @@ var statsCmd = &cobra.Command{
 	Short: "Prints statistics about the programs and assets in the database.",
 	Long:  "Prints statistics about the programs and assets in the database.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
+		dbPathRaw, _ := cmd.Parent().Flags().GetString("dbpath")
+		dbPath, err := expandPath(dbPathRaw)
+		if err != nil {
+			return err
+		}
 
 		db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
 		if err != nil {
@@ -110,7 +131,11 @@ var changesCmd = &cobra.Command{
 	Use:   "changes",
 	Short: "Show recent scope changes (default 50)",
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
+		dbPathRaw, _ := cmd.Parent().Flags().GetString("dbpath")
+		dbPath, err := expandPath(dbPathRaw)
+		if err != nil {
+			return err
+		}
 		limit, _ := cmd.Flags().GetInt("limit")
 		if _, err := os.Stat(dbPath); err != nil {
 			return fmt.Errorf("database not found: %s", dbPath)
@@ -160,7 +185,11 @@ var printCmd = &cobra.Command{
 		sinceStr, _ := cmd.Flags().GetString("since")
 		format, _ := cmd.Flags().GetString("format")
 		includeIgnored, _ := cmd.Flags().GetBool("include-ignored")
-		dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
+		dbPathRaw, _ := cmd.Parent().Flags().GetString("dbpath")
+		dbPath, err := expandPath(dbPathRaw)
+		if err != nil {
+			return err
+		}
 
 		if _, err := os.Stat(dbPath); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -277,7 +306,11 @@ var findCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		searchTerm := args[0]
-		dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
+		dbPathRaw, _ := cmd.Parent().Flags().GetString("dbpath")
+		dbPath, err := expandPath(dbPathRaw)
+		if err != nil {
+			return err
+		}
 
 		db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
 		if err != nil {
@@ -321,7 +354,11 @@ var addCmd = &cobra.Command{
 		target, _ := cmd.Flags().GetString("target")
 		category, _ := cmd.Flags().GetString("category")
 		programURL, _ := cmd.Flags().GetString("program-url")
-		dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
+		dbPathRaw, _ := cmd.Parent().Flags().GetString("dbpath")
+		dbPath, err := expandPath(dbPathRaw)
+		if err != nil {
+			return err
+		}
 
 		if target == "" {
 			return errors.New("target flag is required")
