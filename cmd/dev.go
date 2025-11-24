@@ -19,7 +19,7 @@ var devCmd = &cobra.Command{
 }
 
 func init() {
-	devCmd.Flags().String("dbpath", "bbscope.sqlite", "Path to the bbscope SQLite database.")
+	devCmd.Flags().String("dbpath", "~/bbscope-data/bbscope.sqlite", "Path to the bbscope SQLite database.")
 	rootCmd.AddCommand(devCmd)
 }
 

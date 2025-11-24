@@ -22,9 +22,6 @@ var getCmd = &cobra.Command{
 
 func getAndPrintTargets(targetType string, aggressive bool) error {
 	dbPath, _ := getCmd.PersistentFlags().GetString("dbpath")
-	if dbPath == "" {
-		dbPath = "bbscope.sqlite"
-	}
 	if _, err := os.Stat(dbPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("database not found: %s", dbPath)

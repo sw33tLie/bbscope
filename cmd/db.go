@@ -29,9 +29,6 @@ var shellCmd = &cobra.Command{
 	Short: "Start an interactive shell to the database",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
-		if dbPath == "" {
-			dbPath = "bbscope.sqlite"
-		}
 
 		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 			return fmt.Errorf("database file not found: %s", dbPath)
@@ -69,9 +66,6 @@ var statsCmd = &cobra.Command{
 	Long:  "Prints statistics about the programs and assets in the database.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
-		if dbPath == "" {
-			dbPath = "bbscope.sqlite"
-		}
 
 		db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
 		if err != nil {
@@ -118,9 +112,6 @@ var changesCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
 		limit, _ := cmd.Flags().GetInt("limit")
-		if dbPath == "" {
-			dbPath = "bbscope.sqlite"
-		}
 		if _, err := os.Stat(dbPath); err != nil {
 			return fmt.Errorf("database not found: %s", dbPath)
 		}
@@ -171,9 +162,6 @@ var printCmd = &cobra.Command{
 		includeIgnored, _ := cmd.Flags().GetBool("include-ignored")
 		dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
 
-		if dbPath == "" {
-			dbPath = "bbscope.sqlite"
-		}
 		if _, err := os.Stat(dbPath); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("database not found: %s", dbPath)
@@ -290,9 +278,6 @@ var findCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		searchTerm := args[0]
 		dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
-		if dbPath == "" {
-			dbPath = "bbscope.sqlite"
-		}
 
 		db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
 		if err != nil {
@@ -337,9 +322,6 @@ var addCmd = &cobra.Command{
 		category, _ := cmd.Flags().GetString("category")
 		programURL, _ := cmd.Flags().GetString("program-url")
 		dbPath, _ := cmd.Parent().Flags().GetString("dbpath")
-		if dbPath == "" {
-			dbPath = "bbscope.sqlite"
-		}
 
 		if target == "" {
 			return errors.New("target flag is required")
@@ -391,5 +373,5 @@ func init() {
 	printCmd.Flags().StringP("delimiter", "d", " ", "Delimiter character to use for txt output format")
 	printCmd.Flags().StringP("output", "o", "tu", "Output flags. Supported: t (target), d (target description), c (category), u (program URL). Can be combined. Example: -o tdu")
 	printCmd.Flags().Bool("include-ignored", false, "Include programs that are marked as ignored")
-	dbCmd.PersistentFlags().StringVar(&dbPath, "dbpath", "bbscope.sqlite", "Path to SQLite DB file")
+	dbCmd.PersistentFlags().StringVar(&dbPath, "dbpath", "~/bbscope-data/bbscope.sqlite", "Path to SQLite DB file")
 }

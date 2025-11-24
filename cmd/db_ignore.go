@@ -46,9 +46,6 @@ func resolveProgramPattern(cmd *cobra.Command) (string, error) {
 
 func setIgnoreStatus(ctx context.Context, pattern string, ignored bool) error {
 	dbPath, _ := dbCmd.PersistentFlags().GetString("dbpath")
-	if dbPath == "" {
-		dbPath = "bbscope.sqlite"
-	}
 
 	db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
 	if err != nil {
