@@ -2,7 +2,7 @@
 # Run with: caddy run
 
 localhost:80 {
-    reverse_proxy localhost:8080
+    reverse_proxy localhost:9999
 }
 
 # For production with automatic SSL:
