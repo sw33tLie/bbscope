@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -87,12 +88,59 @@ func Open(connectionString string) (*DB, error) {
 		return nil, err
 	}
 	if err := db.Ping(); err != nil {
-		return nil, err
+		// Check if database doesn't exist, try to create it
+		if strings.Contains(err.Error(), "does not exist") {
+			if createErr := createDatabase(connectionString); createErr != nil {
+				return nil, fmt.Errorf("database does not exist and failed to create: %w", createErr)
+			}
+			// Retry connection after creating database
+			if err = db.Ping(); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
 	}
 	if _, err := db.Exec(schema); err != nil {
 		return nil, fmt.Errorf("migrating schema: %w", err)
 	}
 	return &DB{sql: db}, nil
+}
+
+// createDatabase connects to the default "postgres" database and creates the target database
+func createDatabase(connectionString string) error {
+	parsed, err := url.Parse(connectionString)
+	if err != nil {
+		return fmt.Errorf("parsing connection string: %w", err)
+	}
+
+	// Extract database name from path (e.g., "/bbscope" -> "bbscope")
+	dbName := strings.TrimPrefix(parsed.Path, "/")
+	if dbName == "" {
+		return errors.New("no database name in connection string")
+	}
+
+	// Create connection string for the default "postgres" database
+	parsed.Path = "/postgres"
+	adminConnStr := parsed.String()
+
+	adminDB, err := sql.Open("postgres", adminConnStr)
+	if err != nil {
+		return fmt.Errorf("connecting to postgres database: %w", err)
+	}
+	defer adminDB.Close()
+
+	if err := adminDB.Ping(); err != nil {
+		return fmt.Errorf("pinging postgres database: %w", err)
+	}
+
+	// Create the database (identifier can't be parameterized, but we validated it came from the URL)
+	_, err = adminDB.Exec(fmt.Sprintf(`CREATE DATABASE %q`, dbName))
+	if err != nil {
+		return fmt.Errorf("creating database %s: %w", dbName, err)
+	}
+
+	return nil
 }
 
 func (d *DB) Close() error {
