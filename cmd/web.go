@@ -14,10 +14,12 @@ var webCmd = &cobra.Command{
 	Short: "Start the bbscope web interface",
 	Long:  `Start a web server to view and manage your scope.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		// DB path
-		dbPath, _ := cmd.Flags().GetString("db")
+		dbURL, err := GetDBConnectionString()
+		if err != nil {
+			log.Fatalf("Failed to get DB config: %v", err)
+		}
 
-		db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
+		db, err := storage.Open(dbURL)
 		if err != nil {
 			log.Fatalf("Failed to open DB: %v", err)
 		}
@@ -41,5 +43,4 @@ func init() {
 	webCmd.Flags().StringP("bind", "b", ":9999", "Address to bind the server to")
 	webCmd.Flags().StringP("username", "u", "", "Username for basic auth (optional)")
 	webCmd.Flags().StringP("password", "p", "", "Password for basic auth (optional)")
-	webCmd.Flags().String("db", "bbscope.sqlite", "Path to the SQLite database")
 }

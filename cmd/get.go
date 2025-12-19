@@ -2,10 +2,8 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -21,19 +19,12 @@ var getCmd = &cobra.Command{
 }
 
 func getAndPrintTargets(targetType string, aggressive bool) error {
-	dbPathRaw, _ := getCmd.PersistentFlags().GetString("dbpath")
-	dbPath, err := expandPath(dbPathRaw)
+	dbURL, err := GetDBConnectionString()
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(dbPath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("database not found: %s", dbPath)
-		}
-		return err
-	}
 
-	db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
+	db, err := storage.Open(dbURL)
 	if err != nil {
 		return err
 	}

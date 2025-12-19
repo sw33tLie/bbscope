@@ -11,12 +11,11 @@ Visit [bbscope.com](https://bbscope.com/) to explore an hourly-updated list of p
 ## ✨ Features
 
 - **Multi-Platform Support**: Aggregates scopes from all major bug bounty platforms.
-- **Local Database**: Stores all scope data in a local SQLite database for fast, offline access.
+- **PostgreSQL Database**: Stores all scope data in a PostgreSQL database for reliable, concurrent access.
 - **Powerful Querying**: Easily print targets by type (URLs, wildcards, mobile, etc.), platform, or program.
 - **Track Changes**: Monitor scope additions and removals over time.
 - **LLM Cleanup (opt-in)**: Let GPT-style models fix messy scope strings in bulk when polling.
 - **Flexible Output**: Get your data in plain text, JSON, or CSV.
-- **Direct DB Access**: Drop into an interactive SQL shell to run complex queries directly on the database.
 
 ---
 
@@ -44,33 +43,29 @@ docker pull ghcr.io/sw33tlie/bbscope:latest
 docker run --rm --pull=always ghcr.io/sw33tlie/bbscope:latest [command] [flags]
 ```
 
-**Important:** To persist your database and configuration across container runs, bind-mount the files Docker needs without hiding the bundled binary:
+**Important:** To persist your configuration across container runs, bind-mount the config file:
 
 ```bash
-# Create directory for persistent data
-mkdir -p ~/bbscope-data
-touch ~/bbscope-data/bbscope.sqlite
-
-# Run with config & DB mounted into their expected paths
+# Run with config mounted
 docker run --rm --pull=always \
-  -v ~/bbscope-data/.bbscope.yaml:/root/.bbscope.yaml \
-  -v ~/bbscope-data/bbscope.sqlite:/root/bbscope.sqlite \
+  -v ~/.bbscope.yaml:/root/.bbscope.yaml \
   ghcr.io/sw33tlie/bbscope:latest poll --db -b -p
 ```
 
-If you prefer keeping the database in a subdirectory, mount that directory (e.g., `/root/data`) and pass `--dbpath /root/data/bbscope.sqlite`.
-
-**Note:** Without these mounts, the SQLite database and configuration will be lost when the container stops. The database file is created automatically at `/root/bbscope.sqlite` inside the container (or wherever you specify with `--dbpath`), and the config file is at `/root/.bbscope.yaml`.
+**Note:** The container connects to your PostgreSQL database using the `db_url` configured in `~/.bbscope.yaml`. Make sure your database is accessible from the container (use `host.docker.internal` for local databases on macOS/Windows, or your database's network address).
 
 ---
 
 ## 🔐 Configuration
 
-`bbscope` requires API credentials for private programs. After running the tool for the first time, it will create a configuration file at `~/.bbscope.yaml`.
+`bbscope` requires API credentials for private programs and a PostgreSQL connection URL. After running the tool for the first time, it will create a configuration file at `~/.bbscope.yaml`.
 
-You'll need to fill in your credentials for each platform you want to use:
+You'll need to fill in your credentials and database URL:
 
 ```yaml
+# PostgreSQL connection URL (required)
+db_url: "postgres://user:password@localhost:5432/bbscope?sslmode=disable"
+
 hackerone:
   username: "" # HackerOne username
   token: "" # https://docs.hackerone.com/en/articles/8410331-api-token
@@ -91,6 +86,20 @@ ai:
   max_batch: 25
   max_concurrency: 10
 ```
+
+**Database Setup:**
+
+bbscope requires a PostgreSQL database. Create one and add the connection URL to your config:
+
+```bash
+# Example: Create database (adjust for your setup)
+createdb bbscope
+
+# Add to ~/.bbscope.yaml
+db_url: "postgres://youruser:yourpassword@localhost:5432/bbscope?sslmode=disable"
+```
+
+Tables are created automatically on first run.
 
 Alternatively, you can provide credentials directly via command-line flags when running a `poll` subcommand. Flags will always override values in the configuration file.
 
@@ -137,7 +146,6 @@ The `poll` command fetches scope data from the platforms. You can poll all platf
 | `-d, --delimiter` | Delimiter for `txt` output when using multiple output flags. | `" "` |
 | `--oos` | Include out-of-scope targets in the output. | `false` |
 | `--concurrency`| Number of concurrent fetches per platform. | `5` |
-| `--dbpath` | Path to the SQLite database file. | `"bbscope.sqlite"`|
 
 #### AI-Assisted Normalization (Experimental)
 
@@ -150,14 +158,14 @@ bbscope poll --db --ai
 - Requires an API key in `~/.bbscope.yaml` under the `ai` section (or the `OPENAI_API_KEY` environment variable).
 - Entries are batched per program to minimize API calls.
 - If the model fails or omits an entry, the original target is used so nothing is lost.
-- When the text explicitly says “out of scope” or similar, the AI pass can flip the entry’s `in_scope` flag for you.
+- When the text explicitly says "out of scope" or similar, the AI pass can flip the entry's `in_scope` flag for you.
 - Tune throughput with `max_batch` (targets per request) and `max_concurrency` (simultaneous requests) in the `ai` config section.
 
 ---
 
 ### `db` - Interacting with the Database
 
-The `db` command lets you query and manage the data stored in your local SQLite database.
+The `db` command lets you query and manage the data stored in your PostgreSQL database.
 
 #### `db print`
 
@@ -194,16 +202,6 @@ Shows the most recent scope changes (additions/removals).
 | Flag | Description | Default |
 | --- | --- | --- |
 | `--limit` | Number of recent changes to show. | `50` |
-
-#### `db shell`
-
-Opens an interactive `sqlite3` shell to the database, allowing you to run any SQL query you want. It prints the database schema upon opening.
-
-**Usage:** `bbscope db shell`
-
-**Persistent Flag for `db`:**
-
-All `db` subcommands accept the `--dbpath` flag to specify the location of the database file.
 
 ---
 

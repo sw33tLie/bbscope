@@ -9,8 +9,8 @@ import (
 func (d *DB) RemoveCustomTarget(ctx context.Context, target, category, programURL string) error {
 	query := `
 		DELETE FROM targets_raw
-		WHERE target = ? AND category = ? AND program_id IN (
-			SELECT id FROM programs WHERE url = ?
+		WHERE target = $1 AND category = $2 AND program_id IN (
+			SELECT id FROM programs WHERE url = $3
 		)
 	`
 	res, err := d.sql.ExecContext(ctx, query, target, category, programURL)

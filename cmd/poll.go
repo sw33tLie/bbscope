@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"errors"
 
@@ -22,8 +21,6 @@ import (
 	"github.com/sw33tLie/bbscope/v2/pkg/scope"
 	"github.com/sw33tLie/bbscope/v2/pkg/storage"
 )
-
-const maxRetries = 15
 
 // pollCmd implements: bbscope poll
 // Flags (from REFACTOR.md):
@@ -116,7 +113,6 @@ func init() {
 	// Make common flags persistent so subcommands inherit them
 	pollCmd.PersistentFlags().String("category", "all", "Scope categories to include (wildcard, url, cidr, apple, android, ai, etc.)")
 	pollCmd.PersistentFlags().Bool("db", false, "Save results to the database and print changes")
-	pollCmd.PersistentFlags().String("dbpath", "~/bbscope-data/bbscope.sqlite", "Path to SQLite DB file (default: bbscope.sqlite in CWD)")
 	pollCmd.PersistentFlags().Int("concurrency", 5, "Number of concurrent program fetches per platform")
 	pollCmd.PersistentFlags().String("since", "", "Only print changes since this RFC3339 timestamp (requires --db)")
 	pollCmd.PersistentFlags().Bool("oos", false, "Include out-of-scope elements")
@@ -132,15 +128,14 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 	categories, _ := cmd.Flags().GetString("category")
 	useDB, _ := cmd.Flags().GetBool("db")
 	useAI, _ := cmd.Flags().GetBool("ai")
-	dbPathRaw, _ := cmd.Flags().GetString("dbpath")
-	dbPath, err := expandPath(dbPathRaw)
-	if err != nil {
-		return err
-	}
 
 	var db *storage.DB
 	if useDB {
-		db, err = storage.Open(dbPath, storage.DefaultDBTimeout)
+		dbURL, err := GetDBConnectionString()
+		if err != nil {
+			return err
+		}
+		db, err = storage.Open(dbURL)
 		if err != nil {
 			return err
 		}
@@ -249,15 +244,7 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 		if useDB {
 			// After processing all programs for a platform, sync the state.
 			// This will mark any programs that were not in the latest poll as disabled.
-			var removedProgramChanges []storage.Change
-			const initialBackoff = 1 * time.Second
-
-			err := executeDBWrite(maxRetries, initialBackoff, func() error {
-				var err error
-				removedProgramChanges, err = db.SyncPlatformPrograms(ctx, p.Name(), polledProgramURLs)
-				return err
-			})
-
+			removedProgramChanges, err := db.SyncPlatformPrograms(ctx, p.Name(), polledProgramURLs)
 			if err != nil {
 				// We can log this as a warning instead of returning a fatal error
 				utils.Log.Warnf("Failed to sync removed programs for platform %s: %v", p.Name(), err)
@@ -395,14 +382,7 @@ func processProgramsConcurrently(ctx context.Context, cmd *cobra.Command, p plat
 					continue
 				}
 
-				const initialBackoff = 1 * time.Second
-
-				var changes []storage.Change
-				err = executeDBWrite(maxRetries, initialBackoff, func() error {
-					var err error
-					changes, err = db.UpsertProgramEntries(ctx, pd.Url, p.Name(), h, entries)
-					return err
-				})
+				changes, err := db.UpsertProgramEntries(ctx, pd.Url, p.Name(), h, entries)
 
 				if err != nil {
 					if errors.Is(err, storage.ErrAbortingScopeWipe) {
@@ -442,32 +422,6 @@ func processProgramsConcurrently(ctx context.Context, cmd *cobra.Command, p plat
 	// Return first error if any occurred, but still return the results
 	// This allows partial success - some programs may have been processed successfully
 	return polledProgramURLs, firstError
-}
-
-// executeDBWrite handles retry logic for database write operations that might fail
-// due to locking. It uses exponential backoff.
-func executeDBWrite(maxRetries int, initialBackoff time.Duration, op func() error) error {
-	var err error
-	backoff := initialBackoff
-	for i := 0; i < maxRetries; i++ {
-		err = op()
-		if err == nil {
-			return nil
-		}
-
-		// Check if the error is a SQLite busy/locked error. This is driver-specific.
-		// For modernc.org/sqlite, the error message contains "database is locked".
-		if strings.Contains(err.Error(), "database is locked") || strings.Contains(err.Error(), "SQLITE_BUSY") {
-			utils.Log.Debugf("Database is locked, retrying in %s... (attempt %d/%d)", backoff, i+1, maxRetries)
-			time.Sleep(backoff)
-			backoff *= 2 // Exponential backoff
-			continue
-		}
-
-		// For other types of errors, don't retry.
-		return err
-	}
-	return fmt.Errorf("database operation failed after %d retries: %w", maxRetries, err)
 }
 
 func printChanges(changes []storage.Change) {

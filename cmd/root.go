@@ -106,6 +106,7 @@ func initConfig() {
 	viper.SetDefault("ai.endpoint", "")
 	viper.SetDefault("ai.max_batch", 25)
 	viper.SetDefault("ai.max_concurrency", 3)
+	viper.SetDefault("db_url", "")
 
 	// Init log library
 	levelString, _ := rootCmd.PersistentFlags().GetString("loglevel")
@@ -115,4 +116,12 @@ func initConfig() {
 	debugHTTP, _ := rootCmd.PersistentFlags().GetBool("debug-http")
 	whttp.GlobalDebug = debugHTTP
 
+}
+
+func GetDBConnectionString() (string, error) {
+	url := viper.GetString("db_url")
+	if url == "" {
+		return "", fmt.Errorf("db_url not set in config. Please set it in ~/.bbscope.yaml")
+	}
+	return url, nil
 }

@@ -5,75 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"text/tabwriter"
 	"time"
 
-	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/sw33tLie/bbscope/v2/pkg/scope"
 	"github.com/sw33tLie/bbscope/v2/pkg/storage"
 )
 
-var dbPath string
-
-// expandPath expands the tilde (~) in a file path to the user's home directory
-func expandPath(path string) (string, error) {
-	if strings.HasPrefix(path, "~") {
-		expanded, err := homedir.Expand(path)
-		if err != nil {
-			return "", fmt.Errorf("failed to expand path %s: %w", path, err)
-		}
-		return expanded, nil
-	}
-	return path, nil
-}
-
 // dbCmd represents the db command
 var dbCmd = &cobra.Command{
 	Use:   "db",
 	Short: "Interact with the bbscope database",
-}
-
-// shellCmd represents the shell command
-var shellCmd = &cobra.Command{
-	Use:   "shell",
-	Short: "Start an interactive shell to the database",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		dbPathRaw, _ := cmd.Parent().Flags().GetString("dbpath")
-		dbPath, err := expandPath(dbPathRaw)
-		if err != nil {
-			return err
-		}
-
-		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-			return fmt.Errorf("database file not found: %s", dbPath)
-		}
-
-		// Check if sqlite3 is in PATH
-		sqlitePath, err := exec.LookPath("sqlite3")
-		if err != nil {
-			return fmt.Errorf("sqlite3 command not found in your PATH. Please install it to use the db shell")
-		}
-
-		// Print schema first
-		fmt.Println("--> Database schema:")
-		schemaCmd := exec.Command(sqlitePath, dbPath, ".schema")
-		schemaCmd.Stdout = os.Stdout
-		schemaCmd.Stderr = os.Stderr
-		if err := schemaCmd.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: couldn't retrieve schema: %v\n", err)
-		}
-		fmt.Println("\n--> Starting interactive shell... (Ctrl+D to exit)")
-
-		c := exec.Command(sqlitePath, dbPath)
-		c.Stdin = os.Stdin
-		c.Stdout = os.Stdout
-		c.Stderr = os.Stderr
-
-		return c.Run()
-	},
 }
 
 // statsCmd represents the stats command
@@ -82,17 +26,13 @@ var statsCmd = &cobra.Command{
 	Short: "Prints statistics about the programs and assets in the database.",
 	Long:  "Prints statistics about the programs and assets in the database.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		dbPathRaw, _ := cmd.Parent().Flags().GetString("dbpath")
-		dbPath, err := expandPath(dbPathRaw)
+		dbURL, err := GetDBConnectionString()
 		if err != nil {
 			return err
 		}
 
-		db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
+		db, err := storage.Open(dbURL)
 		if err != nil {
-			if os.IsNotExist(err) {
-				return fmt.Errorf("database file not found: %s", dbPath)
-			}
 			return err
 		}
 		defer db.Close()
@@ -131,16 +71,13 @@ var changesCmd = &cobra.Command{
 	Use:   "changes",
 	Short: "Show recent scope changes (default 50)",
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		dbPathRaw, _ := cmd.Parent().Flags().GetString("dbpath")
-		dbPath, err := expandPath(dbPathRaw)
+		limit, _ := cmd.Flags().GetInt("limit")
+		dbURL, err := GetDBConnectionString()
 		if err != nil {
 			return err
 		}
-		limit, _ := cmd.Flags().GetInt("limit")
-		if _, err := os.Stat(dbPath); err != nil {
-			return fmt.Errorf("database not found: %s", dbPath)
-		}
-		db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
+
+		db, err := storage.Open(dbURL)
 		if err != nil {
 			return err
 		}
@@ -185,20 +122,12 @@ var printCmd = &cobra.Command{
 		sinceStr, _ := cmd.Flags().GetString("since")
 		format, _ := cmd.Flags().GetString("format")
 		includeIgnored, _ := cmd.Flags().GetBool("include-ignored")
-		dbPathRaw, _ := cmd.Parent().Flags().GetString("dbpath")
-		dbPath, err := expandPath(dbPathRaw)
+		dbURL, err := GetDBConnectionString()
 		if err != nil {
 			return err
 		}
 
-		if _, err := os.Stat(dbPath); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("database not found: %s", dbPath)
-			}
-			return err
-		}
-
-		db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
+		db, err := storage.Open(dbURL)
 		if err != nil {
 			return err
 		}
@@ -306,13 +235,12 @@ var findCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		searchTerm := args[0]
-		dbPathRaw, _ := cmd.Parent().Flags().GetString("dbpath")
-		dbPath, err := expandPath(dbPathRaw)
+		dbURL, err := GetDBConnectionString()
 		if err != nil {
 			return err
 		}
 
-		db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
+		db, err := storage.Open(dbURL)
 		if err != nil {
 			return err
 		}
@@ -354,8 +282,7 @@ var addCmd = &cobra.Command{
 		target, _ := cmd.Flags().GetString("target")
 		category, _ := cmd.Flags().GetString("category")
 		programURL, _ := cmd.Flags().GetString("program-url")
-		dbPathRaw, _ := cmd.Parent().Flags().GetString("dbpath")
-		dbPath, err := expandPath(dbPathRaw)
+		dbURL, err := GetDBConnectionString()
 		if err != nil {
 			return err
 		}
@@ -364,7 +291,7 @@ var addCmd = &cobra.Command{
 			return errors.New("target flag is required")
 		}
 
-		db, err := storage.Open(dbPath, storage.DefaultDBTimeout)
+		db, err := storage.Open(dbURL)
 		if err != nil {
 			return err
 		}
@@ -392,7 +319,6 @@ var addCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(dbCmd)
-	dbCmd.AddCommand(shellCmd)
 	dbCmd.AddCommand(statsCmd)
 	dbCmd.AddCommand(changesCmd)
 	dbCmd.AddCommand(printCmd)
@@ -410,5 +336,4 @@ func init() {
 	printCmd.Flags().StringP("delimiter", "d", " ", "Delimiter character to use for txt output format")
 	printCmd.Flags().StringP("output", "o", "tu", "Output flags. Supported: t (target), d (target description), c (category), u (program URL). Can be combined. Example: -o tdu")
 	printCmd.Flags().Bool("include-ignored", false, "Include programs that are marked as ignored")
-	dbCmd.PersistentFlags().StringVar(&dbPath, "dbpath", "~/bbscope-data/bbscope.sqlite", "Path to SQLite DB file")
 }

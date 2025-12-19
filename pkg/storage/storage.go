@@ -8,18 +8,13 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/sw33tLie/bbscope/v2/pkg/scope"
-	_ "modernc.org/sqlite"
 )
 
 var (
 	// ErrAbortingScopeWipe is returned when an update would wipe all targets from a program.
 	ErrAbortingScopeWipe = errors.New("aborting update to prevent wiping out all targets for a program")
-)
-
-const (
-	// DefaultDBTimeout is the default timeout in milliseconds to wait for DB lock to be released.
-	DefaultDBTimeout = 15000
 )
 
 type DB struct {
@@ -28,12 +23,12 @@ type DB struct {
 
 const schema = `
 CREATE TABLE IF NOT EXISTS programs (
-	id        INTEGER PRIMARY KEY,
+	id        SERIAL PRIMARY KEY,
 	platform  TEXT NOT NULL,
 	handle    TEXT NOT NULL,
 	url       TEXT NOT NULL UNIQUE,
-	first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	first_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	strict    INTEGER NOT NULL DEFAULT 0 CHECK (strict IN (0,1)),
 	disabled  INTEGER NOT NULL DEFAULT 0 CHECK (disabled IN (0,1)),
 	is_ignored INTEGER NOT NULL DEFAULT 0 CHECK (is_ignored IN (0,1))
@@ -41,34 +36,34 @@ CREATE TABLE IF NOT EXISTS programs (
 CREATE INDEX IF NOT EXISTS idx_programs_platform ON programs(platform);
 CREATE INDEX IF NOT EXISTS idx_programs_url ON programs(url);
 CREATE TABLE IF NOT EXISTS targets_raw (
-	id                INTEGER PRIMARY KEY,
+	id                SERIAL PRIMARY KEY,
 	program_id        INTEGER NOT NULL,
 	target            TEXT NOT NULL,
 	category          TEXT NOT NULL,
 	description       TEXT,
 	in_scope          INTEGER NOT NULL CHECK (in_scope IN (0,1)),
 	is_bbp            INTEGER NOT NULL DEFAULT 0 CHECK (is_bbp IN (0,1)),
-	first_seen_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	last_seen_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	first_seen_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	last_seen_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	FOREIGN KEY(program_id) REFERENCES programs(id),
 	UNIQUE(program_id, category, target)
 );
 CREATE INDEX IF NOT EXISTS idx_targets_raw_program_id ON targets_raw(program_id);
 CREATE TABLE IF NOT EXISTS targets_ai_enhanced (
-	id                   INTEGER PRIMARY KEY,
+	id                   SERIAL PRIMARY KEY,
 	target_id            INTEGER NOT NULL,
 	target_ai_normalized TEXT NOT NULL,
 	category             TEXT,
 	in_scope             INTEGER,
-	first_seen_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	last_seen_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	first_seen_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	last_seen_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	FOREIGN KEY(target_id) REFERENCES targets_raw(id) ON DELETE CASCADE,
 	UNIQUE(target_id, target_ai_normalized)
 );
 CREATE INDEX IF NOT EXISTS idx_targets_ai_enhanced_target_id ON targets_ai_enhanced(target_id);
 CREATE TABLE IF NOT EXISTS scope_changes (
-	id                INTEGER PRIMARY KEY,
-	occurred_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	id                SERIAL PRIMARY KEY,
+	occurred_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	program_url       TEXT NOT NULL,
 	platform          TEXT NOT NULL,
 	handle            TEXT NOT NULL,
@@ -84,12 +79,10 @@ CREATE INDEX IF NOT EXISTS idx_changes_time ON scope_changes(occurred_at);
 CREATE INDEX IF NOT EXISTS idx_changes_program ON scope_changes(program_url, occurred_at);
 `
 
-func Open(path string, timeout int) (*DB, error) {
-	if timeout <= 0 {
-		timeout = 5000 // Default to 5 seconds if not specified or invalid
-	}
-	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(%d)&_pragma=journal_mode(WAL)", path, timeout)
-	db, err := sql.Open("sqlite", dsn)
+func Open(connectionString string) (*DB, error) {
+	// connectionString is expected to be a valid Postgres connection URL or DSN
+	// e.g. "postgres://user:password@localhost/dbname?sslmode=disable"
+	db, err := sql.Open("postgres", connectionString)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +90,7 @@ func Open(path string, timeout int) (*DB, error) {
 		return nil, err
 	}
 	if _, err := db.Exec(schema); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("migrating schema: %w", err)
 	}
 	return &DB{sql: db}, nil
 }
@@ -110,7 +103,6 @@ func (d *DB) Close() error {
 }
 
 // getOrCreateProgram handles the atomic retrieval or creation of a program entry.
-// It uses a short-lived transaction to prevent race conditions and minimize lock time.
 func (d *DB) getOrCreateProgram(ctx context.Context, programURL, platform, handle string) (int64, error) {
 	tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
@@ -121,7 +113,7 @@ func (d *DB) getOrCreateProgram(ctx context.Context, programURL, platform, handl
 	var programID int64
 	row := tx.QueryRowContext(ctx, `
 		INSERT INTO programs(platform, handle, url, first_seen_at, last_seen_at)
-		VALUES(?,?,?,CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		VALUES($1,$2,$3,CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		ON CONFLICT(url) DO UPDATE SET
 			platform = excluded.platform,
 			handle = excluded.handle,
@@ -139,7 +131,7 @@ func (d *DB) getOrCreateProgram(ctx context.Context, programURL, platform, handl
 func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, handle string, entries []UpsertEntry) ([]Change, error) {
 	now := time.Now().UTC()
 
-	// 1. Get or create program in its own short transaction to minimize lock time.
+	// 1. Get or create program
 	programID, err := d.getOrCreateProgram(ctx, programURL, platform, handle)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get or create program: %w", err)
@@ -165,7 +157,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 	}
 
 	// 2. Load existing targets for this program
-	rows, err := d.sql.QueryContext(ctx, "SELECT id, target, category, in_scope, description, is_bbp FROM targets_raw WHERE program_id = ?", programID)
+	rows, err := d.sql.QueryContext(ctx, "SELECT id, target, category, in_scope, description, is_bbp FROM targets_raw WHERE program_id = $1", programID)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +197,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		SELECT v.id, v.target_id, v.target_ai_normalized, v.category, v.in_scope
 		FROM targets_ai_enhanced v
 		JOIN targets_raw t ON v.target_id = t.id
-		WHERE t.program_id = ?
+		WHERE t.program_id = $1
 	`, programID)
 	if err != nil {
 		return nil, err
@@ -242,8 +234,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		return nil, err
 	}
 
-	// SAFETY CHECK: If the incoming data has zero entries, but we know in the DB
-	// that this program HAS entries, we abort. This prevents a broken poller from wiping a scope.
+	// SAFETY CHECK
 	if len(entries) == 0 && len(existingMap) > 0 {
 		return nil, ErrAbortingScopeWipe
 	}
@@ -343,7 +334,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		}
 		stmt, err := tx.PrepareContext(ctx, `
 			INSERT INTO targets_raw(program_id, target, category, description, in_scope, is_bbp, first_seen_at, last_seen_at)
-			VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+			VALUES($1,$2,$3,$4,$5,$6,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
 			ON CONFLICT(program_id, category, target) DO UPDATE SET
 				description = excluded.description,
 				in_scope = excluded.in_scope,
@@ -387,7 +378,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		stmt, err := tx.PrepareContext(ctx, `UPDATE targets_raw SET description = ?, in_scope = ?, is_bbp = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
+		stmt, err := tx.PrepareContext(ctx, `UPDATE targets_raw SET description = $1, in_scope = $2, is_bbp = $3, last_seen_at = CURRENT_TIMESTAMP WHERE id = $4`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
@@ -412,7 +403,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		stmt, err := tx.PrepareContext(ctx, `UPDATE targets_raw SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
+		stmt, err := tx.PrepareContext(ctx, `UPDATE targets_raw SET last_seen_at = CURRENT_TIMESTAMP WHERE id = $1`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
@@ -599,7 +590,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		}
 		stmt, err := tx.PrepareContext(ctx, `
 			INSERT INTO targets_ai_enhanced(target_id, target_ai_normalized, category, in_scope, first_seen_at, last_seen_at)
-			VALUES(?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+			VALUES($1,$2,$3,$4,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
 			ON CONFLICT(target_id, target_ai_normalized) DO UPDATE SET
 				category = COALESCE(excluded.category, category),
 				in_scope = COALESCE(excluded.in_scope, in_scope),
@@ -651,7 +642,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		stmt, err := tx.PrepareContext(ctx, `UPDATE targets_ai_enhanced SET target_ai_normalized = ?, category = ?, in_scope = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`)
+		stmt, err := tx.PrepareContext(ctx, `UPDATE targets_ai_enhanced SET target_ai_normalized = $1, category = $2, in_scope = $3, last_seen_at = CURRENT_TIMESTAMP WHERE id = $4`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
@@ -696,7 +687,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		stmt, err := tx.PrepareContext(ctx, `DELETE FROM targets_ai_enhanced WHERE id = ?`)
+		stmt, err := tx.PrepareContext(ctx, `DELETE FROM targets_ai_enhanced WHERE id = $1`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
@@ -723,7 +714,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		delStmt, err := tx.PrepareContext(ctx, `DELETE FROM targets_raw WHERE id = ?`)
+		delStmt, err := tx.PrepareContext(ctx, `DELETE FROM targets_raw WHERE id = $1`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
@@ -747,7 +738,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 
 // SetProgramIgnoredStatus sets the is_ignored flag for a program.
 func (d *DB) SetProgramIgnoredStatus(ctx context.Context, programURL string, ignored bool) error {
-	res, err := d.sql.ExecContext(ctx, "UPDATE programs SET is_ignored = ? WHERE url LIKE ?", boolToInt(ignored), fmt.Sprintf("%%%s%%", programURL))
+	res, err := d.sql.ExecContext(ctx, "UPDATE programs SET is_ignored = $1 WHERE url LIKE $2", boolToInt(ignored), fmt.Sprintf("%%%s%%", programURL))
 	if err != nil {
 		return err
 	}
@@ -763,7 +754,7 @@ func (d *DB) SetProgramIgnoredStatus(ctx context.Context, programURL string, ign
 
 // GetIgnoredPrograms returns a map of program URLs that are marked as ignored for a specific platform.
 func (d *DB) GetIgnoredPrograms(ctx context.Context, platform string) (map[string]bool, error) {
-	rows, err := d.sql.QueryContext(ctx, "SELECT url FROM programs WHERE platform = ? AND is_ignored = 1", platform)
+	rows, err := d.sql.QueryContext(ctx, "SELECT url FROM programs WHERE platform = $1 AND is_ignored = 1", platform)
 	if err != nil {
 		return nil, err
 	}
@@ -783,7 +774,7 @@ func (d *DB) GetIgnoredPrograms(ctx context.Context, platform string) (map[strin
 // GetActiveProgramCount returns the number of active (not disabled, not ignored) programs for a platform.
 func (d *DB) GetActiveProgramCount(ctx context.Context, platform string) (int, error) {
 	var count int
-	err := d.sql.QueryRowContext(ctx, "SELECT COUNT(*) FROM programs WHERE platform = ? AND disabled = 0 AND is_ignored = 0", platform).Scan(&count)
+	err := d.sql.QueryRowContext(ctx, "SELECT COUNT(*) FROM programs WHERE platform = $1 AND disabled = 0 AND is_ignored = 0", platform).Scan(&count)
 	if err != nil {
 		return 0, err
 	}
@@ -806,7 +797,7 @@ func (d *DB) SyncPlatformPrograms(ctx context.Context, platform string, polledPr
 	rows, err := d.sql.QueryContext(ctx, `
 		SELECT p.id, p.url, p.handle
 		FROM programs p
-		WHERE p.platform = ? AND p.disabled = 0 AND p.is_ignored = 0
+		WHERE p.platform = $1 AND p.disabled = 0 AND p.is_ignored = 0
 	`, platform)
 	if err != nil {
 		return nil, fmt.Errorf("querying for active programs: %w", err)
@@ -842,13 +833,13 @@ func (d *DB) SyncPlatformPrograms(ctx context.Context, platform string, polledPr
 		}
 
 		// Mark the program as disabled
-		if _, err := tx.ExecContext(ctx, `UPDATE programs SET disabled = 1 WHERE id = ?`, p.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE programs SET disabled = 1 WHERE id = $1`, p.ID); err != nil {
 			tx.Rollback()
 			return nil, fmt.Errorf("disabling program %d: %w", p.ID, err)
 		}
 
 		// Delete associated targets
-		if _, err := tx.ExecContext(ctx, `DELETE FROM targets_raw WHERE program_id = ?`, p.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM targets_raw WHERE program_id = $1`, p.ID); err != nil {
 			tx.Rollback()
 			return nil, fmt.Errorf("deleting targets for program %d: %w", p.ID, err)
 		}
@@ -887,7 +878,7 @@ func (d *DB) LogChanges(ctx context.Context, changes []Change) error {
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.PrepareContext(ctx, `INSERT INTO scope_changes(occurred_at, program_url, platform, handle, target_normalized, target_raw, target_ai_normalized, category, in_scope, is_bbp, change_type) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO scope_changes(occurred_at, program_url, platform, handle, target_normalized, target_raw, target_ai_normalized, category, in_scope, is_bbp, change_type) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`)
 	if err != nil {
 		return err
 	}
@@ -968,7 +959,7 @@ func (d *DB) ListAIEnhancements(ctx context.Context, programURL string) (map[str
 	}
 
 	var programID int64
-	err := d.sql.QueryRowContext(ctx, "SELECT id FROM programs WHERE url = ?", programURL).Scan(&programID)
+	err := d.sql.QueryRowContext(ctx, "SELECT id FROM programs WHERE url = $1", programURL).Scan(&programID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return result, nil
 	}
@@ -980,7 +971,7 @@ func (d *DB) ListAIEnhancements(ctx context.Context, programURL string) (map[str
 		SELECT t.target, t.category, a.target_ai_normalized, a.in_scope, a.category
 		FROM targets_ai_enhanced a
 		JOIN targets_raw t ON a.target_id = t.id
-		WHERE t.program_id = ?
+		WHERE t.program_id = $1
 	`, programID)
 	if err != nil {
 		return nil, err
@@ -1047,15 +1038,18 @@ type ListOptions struct {
 func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error) {
 	where := "WHERE 1=1"
 	args := []interface{}{}
+	argIdx := 1
 
 	if opts.Platform != "" && opts.Platform != "all" {
-		where += " AND p.platform = ?"
+		where += fmt.Sprintf(" AND p.platform = $%d", argIdx)
 		args = append(args, opts.Platform)
+		argIdx++
 	}
 	if opts.ProgramFilter != "" {
 		filter := fmt.Sprintf("%%%s%%", opts.ProgramFilter)
-		where += " AND p.url LIKE ?"
+		where += fmt.Sprintf(" AND p.url LIKE $%d", argIdx)
 		args = append(args, filter)
+		argIdx++
 	}
 	if !opts.IncludeOOS {
 		where += " AND COALESCE(a.in_scope, t.in_scope) = 1"
@@ -1064,8 +1058,9 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 		where += " AND p.is_ignored = 0"
 	}
 	if !opts.Since.IsZero() {
-		where += " AND COALESCE(a.last_seen_at, t.last_seen_at) >= ?"
+		where += fmt.Sprintf(" AND COALESCE(a.last_seen_at, t.last_seen_at) >= $%d", argIdx)
 		args = append(args, opts.Since.UTC())
+		argIdx++
 	}
 
 	query := fmt.Sprintf(`
@@ -1189,7 +1184,7 @@ func (d *DB) AddCustomTarget(ctx context.Context, target, category, programURL s
 	var programID int64
 	programRow := tx.QueryRowContext(ctx, `
 		INSERT INTO programs(platform, handle, url, first_seen_at, last_seen_at)
-		VALUES(?,?,?,CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		VALUES($1,$2,$3,CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		ON CONFLICT(url) DO UPDATE SET
 			platform = excluded.platform,
 			handle = excluded.handle,
@@ -1204,7 +1199,7 @@ func (d *DB) AddCustomTarget(ctx context.Context, target, category, programURL s
 	targetExists := false
 	var exists int
 	err = tx.QueryRowContext(ctx, `
-		SELECT 1 FROM targets_raw WHERE program_id = ? AND category = ? AND target = ? LIMIT 1
+		SELECT 1 FROM targets_raw WHERE program_id = $1 AND category = $2 AND target = $3 LIMIT 1
 	`, programID, category, target).Scan(&exists)
 	if err != nil && err != sql.ErrNoRows {
 		return false, fmt.Errorf("checking existing custom target: %w", err)
@@ -1215,7 +1210,7 @@ func (d *DB) AddCustomTarget(ctx context.Context, target, category, programURL s
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO targets_raw(program_id, target, category, in_scope, is_bbp, first_seen_at, last_seen_at)
-		VALUES(?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		VALUES($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		ON CONFLICT(program_id, category, target) DO UPDATE SET
 			last_seen_at = CURRENT_TIMESTAMP
 	`, programID, target, category, boolToInt(true), boolToInt(false))
@@ -1234,7 +1229,7 @@ func (d *DB) ListRecentChanges(ctx context.Context, limit int) ([]Change, error)
 	if limit <= 0 {
 		limit = 50
 	}
-	q := "SELECT occurred_at, program_url, platform, handle, target_normalized, target_raw, target_ai_normalized, category, in_scope, is_bbp, change_type FROM scope_changes ORDER BY occurred_at DESC LIMIT ?"
+	q := "SELECT occurred_at, program_url, platform, handle, target_normalized, target_raw, target_ai_normalized, category, in_scope, is_bbp, change_type FROM scope_changes ORDER BY occurred_at DESC LIMIT $1"
 	rows, err := d.sql.QueryContext(ctx, q, limit)
 	if err != nil {
 		return nil, err
@@ -1244,15 +1239,9 @@ func (d *DB) ListRecentChanges(ctx context.Context, limit int) ([]Change, error)
 	changes := []Change{}
 	for rows.Next() {
 		var c Change
-		var occurredAtStr string
 		var inScopeInt, isBBPInt int
-		if err := rows.Scan(&occurredAtStr, &c.ProgramURL, &c.Platform, &c.Handle, &c.TargetNormalized, &c.TargetRaw, &c.TargetAINormalized, &c.Category, &inScopeInt, &isBBPInt, &c.ChangeType); err != nil {
-			return nil, err
-		}
-		if t, perr := time.Parse("2006-01-02 15:04:05", occurredAtStr); perr == nil {
-			c.OccurredAt = t
-		} else if t2, perr2 := time.Parse(time.RFC3339, occurredAtStr); perr2 == nil {
-			c.OccurredAt = t2
+		if err := rows.Scan(&c.OccurredAt, &c.ProgramURL, &c.Platform, &c.Handle, &c.TargetNormalized, &c.TargetRaw, &c.TargetAINormalized, &c.Category, &inScopeInt, &isBBPInt, &c.ChangeType); err != nil {
+			return nil, fmt.Errorf("scanning change row: %w", err)
 		}
 		c.InScope = inScopeInt == 1
 		c.IsBBP = isBBPInt == 1
@@ -1329,9 +1318,9 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 		JOIN programs p ON t.program_id = p.id
 		LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
 		WHERE p.is_ignored = 0 AND (
-			COALESCE(a.target_ai_normalized, t.target) LIKE ? OR
-			t.description LIKE ? OR
-			p.url LIKE ?
+			COALESCE(a.target_ai_normalized, t.target) LIKE $1 OR
+			t.description LIKE $2 OR
+			p.url LIKE $3
 		)
 
 		UNION
@@ -1351,7 +1340,7 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 			NULL as ai_id,
 			'historical' as source
 		FROM scope_changes c
-		WHERE (c.target_normalized LIKE ? OR c.target_ai_normalized LIKE ? OR c.program_url LIKE ?)
+		WHERE (c.target_normalized LIKE $4 OR c.target_ai_normalized LIKE $5 OR c.program_url LIKE $6)
 		AND NOT EXISTS (
 			SELECT 1 FROM targets_raw t2
 			JOIN programs p2 ON t2.program_id = p2.id
