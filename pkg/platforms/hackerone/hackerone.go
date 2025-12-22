@@ -276,6 +276,23 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 
 func HacktivityMonitor(pages int) {
 	for pageID := 0; pageID < pages; pageID++ {
+		body := fmt.Sprintf(`{
+		"operationName": "CompleteHacktivitySearchQuery",
+		"variables": {
+			"userPrompt": null,
+			"queryString": "disclosed:false",
+			"size": 100,
+			"from": %d,
+			"sort": {
+				"field": "latest_disclosable_activity_at",
+				"direction": "DESC"
+			},
+			"product_area": "hacktivity",
+			"product_feature": "overview"
+		},
+		"query":"%s"
+	}`, pageID*100, completeHacktivitySearchQuery)
+
 		res, err := whttp.SendHTTPRequest(
 			&whttp.WHTTPReq{
 				Method: "POST",
@@ -283,7 +300,7 @@ func HacktivityMonitor(pages int) {
 				Headers: []whttp.WHTTPHeader{
 					{Name: "Content-Type", Value: "application/json"},
 				},
-				Body: `{"operationName":"CompleteHacktivitySearchQuery","variables":{"userPrompt":null,"queryString":"disclosed:false","size":100,"from":` + strconv.Itoa(pageID*100) + `,"sort":{"field":"latest_disclosable_activity_at","direction":"DESC"},"product_area":"hacktivity","product_feature":"overview"},"query":"query CompleteHacktivitySearchQuery($queryString: String!, $from: Int, $size: Int, $sort: SortInput!) {\n  me {\n    id\n    __typename\n  }\n  search(\n    index: CompleteHacktivityReportIndexService\n    query_string: $queryString\n    from: $from\n    size: $size\n    sort: $sort\n  ) {\n    __typename\n    total_count\n    nodes {\n      __typename\n      ... on CompleteHacktivityReportDocument {\n        id\n        _id\n        reporter {\n          id\n          name\n          username\n          ...UserLinkWithMiniProfile\n          __typename\n        }\n        cve_ids\n        cwe\n        severity_rating\n        upvoted: upvoted_by_current_user\n        public\n        report {\n          id\n          databaseId: _id\n          title\n          substate\n          url\n          disclosed_at\n          report_generated_content {\n            id\n            hacktivity_summary\n            __typename\n          }\n          __typename\n        }\n        votes\n        team {\n          handle\n          name\n          medium_profile_picture: profile_picture(size: medium)\n          url\n          id\n          currency\n          ...TeamLinkWithMiniProfile\n          __typename\n        }\n        total_awarded_amount\n        latest_disclosable_action\n        latest_disclosable_activity_at\n        submitted_at\n        disclosed\n        has_collaboration\n        __typename\n      }\n    }\n  }\n}\n\nfragment UserLinkWithMiniProfile on User {\n  id\n  username\n  __typename\n}\n\nfragment TeamLinkWithMiniProfile on Team {\n  id\n  handle\n  name\n  __typename\n}\n"}`,
+				Body: body,
 			}, nil)
 
 		if err != nil {
