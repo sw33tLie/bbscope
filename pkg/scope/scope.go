@@ -3,6 +3,7 @@ package scope
 import (
 	"fmt"
 	"log"
+	"os"
 	"strings"
 )
 
@@ -35,20 +36,24 @@ func PrintProgramScope(programScope ProgramData, outputFlags string, delimiter s
 }
 
 func createLine(scopeElement ScopeElement, url, outputFlags, delimiter string) string {
-	var line string
+	var line strings.Builder
 	for _, f := range outputFlags {
 		switch f {
 		case 't':
-			line += scopeElement.Target + delimiter
+			if scopeElement.Target != "NO_IN_SCOPE_TABLE" {
+				line.WriteString(scopeElement.Target + delimiter)
+			} else {
+				fmt.Fprint(os.Stderr, scopeElement.Target)
+			}
 		case 'd':
-			line += scopeElement.Description + delimiter
+			line.WriteString(scopeElement.Description + delimiter)
 		case 'c':
-			line += scopeElement.Category + delimiter
+			line.WriteString(scopeElement.Category + delimiter)
 		case 'u':
-			line += url + delimiter
+			line.WriteString(url + delimiter)
 		default:
 			log.Fatal("Invalid print flag")
 		}
 	}
-	return strings.TrimSuffix(line, delimiter)
+	return strings.TrimSuffix(line.String(), delimiter)
 }
