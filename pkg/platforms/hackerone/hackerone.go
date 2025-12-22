@@ -15,11 +15,17 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func getProgramScope(authorization string, id string, bbpOnly bool, categories []string, includeOOS bool) (pData scope.ProgramData, err error) {
+func getProgramScope(
+	authorization string,
+	id string,
+	bbpOnly bool,
+	categories []string,
+	includeOOS bool,
+) (pData scope.ProgramData, err error) {
+
 	pData.Url = "https://hackerone.com/" + id
 	currentPageURL := "https://api.hackerone.com/v1/hackers/programs/" + id + "/structured_scopes"
 
-	// loop through pages
 	for {
 		var res *whttp.WHTTPRes
 		var err error
@@ -33,14 +39,18 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 					Method: "GET",
 					URL:    currentPageURL,
 					Headers: []whttp.WHTTPHeader{
-						{Name: "Authorization", Value: "Basic " + authorization},
+						{
+							Name:  "Authorization",
+							Value: "Basic " + authorization,
+						},
 					},
-				}, nil)
+				},
+				nil,
+			)
 
-			// retry if there was an http error or we didn't get the JSON we expected
 			if err != nil || !strings.Contains(res.BodyString, "\"data\":") {
 				retries--
-				time.Sleep(2 * time.Second) // wait before retrying
+				time.Sleep(2 * time.Second)
 				continue
 			}
 
@@ -48,17 +58,24 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 		}
 
 		if retries == 0 {
-			return scope.ProgramData{}, fmt.Errorf("failed to retrieve data for id %s after 3 attempts with status %d", id, statusCode)
+			return scope.ProgramData{}, fmt.Errorf(
+				"failed to retrieve data for id %s after 3 attempts with status %d",
+				id,
+				statusCode,
+			)
 		}
 
 		l = int(gjson.Get(res.BodyString, "data.#").Int())
-
 		isDumpAll := categories == nil
-		for i := 0; i < l; i++ {
 
+		for i := 0; i < l; i++ {
 			catFound := false
+
 			if !isDumpAll {
-				assetCategory := gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_type").Str
+				assetCategory := gjson.Get(
+					res.BodyString,
+					"data."+strconv.Itoa(i)+".attributes.asset_type",
+				).Str
 
 				for _, cat := range categories {
 					if cat == assetCategory {
@@ -69,45 +86,88 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 			}
 
 			if catFound || isDumpAll {
-				// If it's in the in-scope table (and not in the OOS one)
+				eligibleForBounty := gjson.Get(
+					res.BodyString,
+					"data."+strconv.Itoa(i)+".attributes.eligible_for_bounty",
+				).Bool()
 
-				eligibleForBounty := gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.eligible_for_bounty").Bool()
-				eligibleForSubmission := gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.eligible_for_submission").Bool()
+				eligibleForSubmission := gjson.Get(
+					res.BodyString,
+					"data."+strconv.Itoa(i)+".attributes.eligible_for_submission",
+				).Bool()
 
 				if eligibleForSubmission {
 					if !bbpOnly || (bbpOnly && eligibleForBounty) {
-						pData.InScope = append(pData.InScope, scope.ScopeElement{
-							Target:      gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_identifier").Str,
-							Description: strings.ReplaceAll(gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.instruction").Str, "\n", "  "),
-							Category:    gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_type").Str,
-						})
+						pData.InScope = append(
+							pData.InScope,
+							scope.ScopeElement{
+								Target: gjson.Get(
+									res.BodyString,
+									"data."+strconv.Itoa(i)+".attributes.asset_identifier",
+								).Str,
+								Description: strings.ReplaceAll(
+									gjson.Get(
+										res.BodyString,
+										"data."+strconv.Itoa(i)+".attributes.instruction",
+									).Str,
+									"\n",
+									"  ",
+								),
+								Category: gjson.Get(
+									res.BodyString,
+									"data."+strconv.Itoa(i)+".attributes.asset_type",
+								).Str,
+							},
+						)
 					}
 				} else {
 					if includeOOS {
-						pData.OutOfScope = append(pData.OutOfScope, scope.ScopeElement{
-							Target:      gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_identifier").Str,
-							Description: strings.ReplaceAll(gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.instruction").Str, "\n", "  "),
-							Category:    gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_type").Str,
-						})
+						pData.OutOfScope = append(
+							pData.OutOfScope,
+							scope.ScopeElement{
+								Target: gjson.Get(
+									res.BodyString,
+									"data."+strconv.Itoa(i)+".attributes.asset_identifier",
+								).Str,
+								Description: strings.ReplaceAll(
+									gjson.Get(
+										res.BodyString,
+										"data."+strconv.Itoa(i)+".attributes.instruction",
+									).Str,
+									"\n",
+									"  ",
+								),
+								Category: gjson.Get(
+									res.BodyString,
+									"data."+strconv.Itoa(i)+".attributes.asset_type",
+								).Str,
+							},
+						)
 					}
 				}
 			}
 		}
 
-		// only print OOS with bbpOnly if at least one in-scope, paid, element was found
 		if bbpOnly && len(pData.InScope) == 0 {
 			pData.OutOfScope = []scope.ScopeElement{}
 		}
 
 		if l == 0 {
-			pData.InScope = append(pData.InScope, scope.ScopeElement{Target: "NO_IN_SCOPE_TABLE", Description: "", Category: ""})
+			pData.InScope = append(
+				pData.InScope,
+				scope.ScopeElement{
+					Target:      "NO_IN_SCOPE_TABLE",
+					Description: "",
+					Category:    "",
+				},
+			)
 		}
 
 		nextPageURL := gjson.Get(res.BodyString, "links.next")
 		if nextPageURL.Exists() {
 			currentPageURL = nextPageURL.String()
 		} else {
-			break // no more pages
+			break
 		}
 	}
 
@@ -115,9 +175,8 @@ func getProgramScope(authorization string, id string, bbpOnly bool, categories [
 }
 
 func getCategories(input string) []string {
-
 	if strings.ToLower(input) == "all" {
-		return nil // isDumpAll
+		return nil
 	}
 
 	categories := map[string][]string{
@@ -134,7 +193,6 @@ func getCategories(input string) []string {
 	}
 
 	selectedCategory, ok := categories[strings.ToLower(input)]
-
 	if !ok {
 		utils.Log.Fatal("Invalid category selected: ", input)
 	}
@@ -142,17 +200,30 @@ func getCategories(input string) []string {
 	return selectedCategory
 }
 
-func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, active bool, bbpOnly bool) (handles []string) {
+func getProgramHandles(
+	authorization string,
+	pvtOnly bool,
+	publicOnly bool,
+	active bool,
+	bbpOnly bool,
+) (handles []string) {
+
 	currentURL := "https://api.hackerone.com/v1/hackers/programs?page%5Bsize%5D=100"
+
 	for {
 		res, err := whttp.SendHTTPRequest(
 			&whttp.WHTTPReq{
 				Method: "GET",
 				URL:    currentURL,
 				Headers: []whttp.WHTTPHeader{
-					{Name: "Authorization", Value: "Basic " + authorization},
+					{
+						Name:  "Authorization",
+						Value: "Basic " + authorization,
+					},
 				},
-			}, nil)
+			},
+			nil,
+		)
 
 		if err != nil {
 			utils.Log.Warn("HTTP request failed: ", err)
@@ -168,11 +239,13 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 			handle := gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.handle")
 
 			if !publicOnly {
-				if !pvtOnly || (pvtOnly && gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.state").Str == "soft_launched") {
+				if !pvtOnly || (pvtOnly &&
+					gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.state").Str == "soft_launched") {
+
 					if active {
 						if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.submission_state").Str == "open" {
 							if bbpOnly {
-								if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.offers_bounties").Bool() == true {
+								if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.offers_bounties").Bool() {
 									handles = append(handles, handle.Str)
 								}
 							} else {
@@ -188,7 +261,7 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 					if active {
 						if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.submission_state").Str == "open" {
 							if bbpOnly {
-								if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.offers_bounties").Bool() == true {
+								if gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.offers_bounties").Bool() {
 									handles = append(handles, handle.Str)
 								}
 							} else {
@@ -203,8 +276,6 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 		}
 
 		currentURL = gjson.Get(res.BodyString, "links.next").Str
-
-		// We reached the end
 		if currentURL == "" {
 			break
 		}
@@ -213,17 +284,36 @@ func getProgramHandles(authorization string, pvtOnly bool, publicOnly bool, acti
 	return handles
 }
 
-func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publicOnly bool, categories string, active bool, concurrency int, printRealTime bool, outputFlags string, delimiter string, includeOOS bool) (programs []scope.ProgramData, err error) {
+func GetAllProgramsScope(
+	authorization string,
+	bbpOnly bool,
+	pvtOnly bool,
+	publicOnly bool,
+	categories string,
+	active bool,
+	concurrency int,
+	printRealTime bool,
+	outputFlags string,
+	delimiter string,
+	includeOOS bool,
+) (programs []scope.ProgramData, err error) {
+
 	utils.Log.Debug("Fetching list of program handles")
-	programHandles := getProgramHandles(authorization, pvtOnly, publicOnly, active, bbpOnly)
+	programHandles := getProgramHandles(
+		authorization,
+		pvtOnly,
+		publicOnly,
+		active,
+		bbpOnly,
+	)
 
 	utils.Log.Debug("Fetching scope of each program. Concurrency: ", concurrency)
+
 	ids := make(chan string, concurrency)
-	errors := make(chan error, concurrency) // Channel to collect errors
+	errors := make(chan error, concurrency)
 	processGroup := new(sync.WaitGroup)
 	processGroup.Add(concurrency)
 
-	// Define a mutex
 	var mu sync.Mutex
 
 	for i := 0; i < concurrency; i++ {
@@ -234,7 +324,13 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 					break
 				}
 
-				programData, err := getProgramScope(authorization, id, bbpOnly, getCategories(categories), includeOOS)
+				programData, err := getProgramScope(
+					authorization,
+					id,
+					bbpOnly,
+					getCategories(categories),
+					includeOOS,
+				)
 
 				if err != nil {
 					utils.Log.Warn("Error fetching program scope: ", err)
@@ -245,9 +341,13 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 				mu.Lock()
 				programs = append(programs, programData)
 
-				// Check if printRealTime is true and print scope
 				if printRealTime {
-					scope.PrintProgramScope(programData, outputFlags, delimiter, includeOOS)
+					scope.PrintProgramScope(
+						programData,
+						outputFlags,
+						delimiter,
+						includeOOS,
+					)
 				}
 
 				mu.Unlock()
@@ -262,9 +362,8 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 
 	close(ids)
 	processGroup.Wait()
-	close(errors) // Close the errors channel after all goroutines are done
+	close(errors)
 
-	// Check if there were any errors
 	for err := range errors {
 		if err != nil {
 			return nil, err
@@ -276,7 +375,8 @@ func GetAllProgramsScope(authorization string, bbpOnly bool, pvtOnly bool, publi
 
 func HacktivityMonitor(pages int) {
 	for pageID := 0; pageID < pages; pageID++ {
-		body := fmt.Sprintf(`{
+		body := fmt.Sprintf(
+			`{
 		"operationName": "CompleteHacktivitySearchQuery",
 		"variables": {
 			"userPrompt": null,
@@ -291,17 +391,25 @@ func HacktivityMonitor(pages int) {
 			"product_feature": "overview"
 		},
 		"query":"%s"
-	}`, pageID*100, completeHacktivitySearchQuery)
+	}`,
+			pageID*100,
+			completeHacktivitySearchQuery,
+		)
 
 		res, err := whttp.SendHTTPRequest(
 			&whttp.WHTTPReq{
 				Method: "POST",
 				URL:    "https://hackerone.com/graphql",
 				Headers: []whttp.WHTTPHeader{
-					{Name: "Content-Type", Value: "application/json"},
+					{
+						Name:  "Content-Type",
+						Value: "application/json",
+					},
 				},
 				Body: body,
-			}, nil)
+			},
+			nil,
+		)
 
 		if err != nil {
 			utils.Log.Warn("HTTP request failed: ", err)
@@ -311,48 +419,54 @@ func HacktivityMonitor(pages int) {
 			utils.Log.Fatal("Wrong status code. Got: ", res.StatusCode)
 		}
 
-		// Parse and iterate over each element in the nodes array
-		// Parse and iterate over each element in the nodes array
-		gjson.Get(res.BodyString, "data.search.nodes").ForEach(func(key, value gjson.Result) bool {
-			// Extract the fields you are interested in
-			rawReportID := value.Get("id").String()
-			programHandle := value.Get("team.handle").String()
-			reporterUsername := value.Get("reporter.username").String()
-			latestAction := value.Get("latest_disclosable_action").String()
-			latestActivityAt := value.Get("latest_disclosable_activity_at").String()
-			submittedAt := value.Get("submitted_at").String()
+		gjson.Get(res.BodyString, "data.search.nodes").ForEach(
+			func(key, value gjson.Result) bool {
 
-			// Decode the report ID
-			decodedBytes, err := base64.StdEncoding.DecodeString(rawReportID)
-			if err != nil {
-				log.Fatalf("Failed to decode base64 string: %v", err)
-			}
-			decodedStr := string(decodedBytes)
-			parts := strings.Split(decodedStr, "/")
-			if len(parts) == 0 {
-				log.Fatal("No '/' found in decoded string")
-			}
-			reportID := parts[len(parts)-1]
+				rawReportID := value.Get("id").String()
+				programHandle := value.Get("team.handle").String()
+				reporterUsername := value.Get("reporter.username").String()
+				latestAction := value.Get("latest_disclosable_action").String()
+				latestActivityAt := value.Get("latest_disclosable_activity_at").String()
+				submittedAt := value.Get("submitted_at").String()
 
-			// Convert date strings to human-friendly format
-			latestActivityAtFormatted := formatDate(latestActivityAt)
-			submittedAtFormatted := formatDate(submittedAt)
+				decodedBytes, err := base64.StdEncoding.DecodeString(rawReportID)
+				if err != nil {
+					log.Fatalf("Failed to decode base64 string: %v", err)
+				}
 
-			// Print the extracted data
-			fmt.Printf("ID: %s, program: %s, reporter: %s, latest_action: %s, latest_activity: %s, submitted: %s\n",
-				reportID, programHandle, reporterUsername, latestAction, latestActivityAtFormatted, submittedAtFormatted)
+				decodedStr := string(decodedBytes)
+				parts := strings.Split(decodedStr, "/")
+				if len(parts) == 0 {
+					log.Fatal("No '/' found in decoded string")
+				}
 
-			return true // Continue iterating
-		})
+				reportID := parts[len(parts)-1]
+
+				latestActivityAtFormatted := formatDate(latestActivityAt)
+				submittedAtFormatted := formatDate(submittedAt)
+
+				fmt.Printf(
+					"ID: %s, program: %s, reporter: %s, latest_action: %s, latest_activity: %s, submitted: %s\n",
+					reportID,
+					programHandle,
+					reporterUsername,
+					latestAction,
+					latestActivityAtFormatted,
+					submittedAtFormatted,
+				)
+
+				return true
+			},
+		)
 	}
 }
 
 func formatDate(dateStr string) string {
-	layout := "2006-01-02T15:04:05.000Z" // ISO 8601 format
+	layout := "2006-01-02T15:04:05.000Z"
 	t, err := time.Parse(layout, dateStr)
 	if err != nil {
 		log.Printf("Error parsing date: %v", err)
-		return dateStr // Return original string if parsing fails
+		return dateStr
 	}
-	return t.Format("02/01/2006 15:04:05") // Format as dd/mm/yyyy h:m:s
+	return t.Format("02/01/2006 15:04:05")
 }
