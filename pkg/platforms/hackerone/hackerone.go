@@ -17,7 +17,7 @@ import (
 
 func getProgramScope(authorization string, id string, bbpOnly bool, categories []string, includeOOS bool) (pData scope.ProgramData, err error) {
 	pData.Url = "https://hackerone.com/" + id
-	currentPageURL := "https://api.hackerone.com/v1/hackers/programs/" + id + "/structured_scopes?page%5Bnumber%5D=1&page%5Bsize%5D=100"
+	currentPageURL := "https://api.hackerone.com/v1/hackers/programs/" + id + "/structured_scopes"
 
 	// loop through pages
 	for {
