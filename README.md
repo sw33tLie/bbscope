@@ -35,7 +35,7 @@ Each supported platform requires specific authentication:
   **Note:** The `-u <username>` flag is mandatory.
 - **Bugcrowd:** You have two options:
   - **Option 1:** Supply your email, password, and OTP generation command. This allows bbscope to log in programmatically and obtain a valid token.
-  - **Option 2:** Manually log in through your browser and then provide the `_crowdcontrol_session_key` cookie value via the `-t <YOUR_TOKEN>` flag.
+  - **Option 2:** Manually log in through your browser and then provide the `_bugcrowd_session` cookie value via the `-t <YOUR_TOKEN>` flag.
   *(Both methods require 2FA; see below for additional details.)*
 - **Intigriti:** Generate a personal access token from [Intigriti Personal Access Tokens](https://app.intigriti.com/researcher/personal-access-tokens).
 - **YesWeHack:** Use a bearer token collected from API requests. *(Requires 2FA, see below)*
@@ -122,7 +122,7 @@ List targets from private Bugcrowd programs that offer rewards, with automatic l
 bbscope bc -E <YOUR_EMAIL> -P "<YOUR_PASSWORD>" -b -p -o t --otpcommand "2fa bugcrowd"
 ```
 
-Similarly, you can use the `-t <YOUR_TOKEN>` flag to manually log in and supply the `_crowdcontrol_session_key` cookie value:
+Similarly, you can use the `-t <YOUR_TOKEN>` flag to manually log in and supply the `_bugcrowd_session` cookie value:
 
 ```bash
 bbscope bc -t <YOUR_TOKEN> -b -p -o t
