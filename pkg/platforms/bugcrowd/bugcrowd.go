@@ -2,7 +2,6 @@ package bugcrowd
 
 import (
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +9,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -43,11 +41,7 @@ type rateLimitedRequest struct {
 	resultChan chan rateLimitedResult
 }
 
-var (
-	rateLimitRequestChan chan rateLimitedRequest
-)
-
-const bugcrowdSessionCookieName = "_crowdcontrol_session_key"
+var rateLimitRequestChan chan rateLimitedRequest
 
 func init() {
 	// Initialize the rate-limited request channel and start the worker
@@ -77,24 +71,29 @@ func rateLimitedSendHTTPRequest(req *whttp.WHTTPReq, client *retryablehttp.Clien
 	return result.res, result.err
 }
 
-// Automated email + password login with Okta MFA flow.
+// Automated email + password login. 2FA needs to be disabled
 func Login(email, password, otpSecret, proxy string) (string, error) {
+	// Create a cookie jar
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return "", err
 	}
 
+	// Create a retryablehttp client
 	retryClient := retryablehttp.NewClient()
 	retryClient.Logger = log.New(io.Discard, "", 0)
-	retryClient.RetryMax = 5
+	retryClient.RetryMax = 5 // Set your retry policy
 	retryClient.HTTPClient.Jar = jar
 
+	// Set proxy for custom client
 	if proxy != "" {
+		// Parse the proxy URL
 		proxyURL, err := url.Parse(proxy)
 		if err != nil {
 			return "", fmt.Errorf("invalid proxy URL: %v", err)
 		}
 
+		// Apply proxy settings directly to this client
 		retryClient.HTTPClient.Transport = &http.Transport{
 			Proxy: http.ProxyURL(proxyURL),
 			TLSClientConfig: &tls.Config{
@@ -108,603 +107,134 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 				MaxVersion:               tls.VersionTLS11,
 			},
 		}
+
+		// Also update the global client for other requests
 		whttp.SetupProxy(proxy)
 	}
 
 	firstRes, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
-			URL:    "https://identity.bugcrowd.com/login?user_hint=researcher&returnTo=https%3A%2F%2Fbugcrowd.com%2Fdashboard",
+			URL:    "https://identity.bugcrowd.com/login?user_hint=researcher&returnTo=/dashboard",
 			Headers: []whttp.WHTTPHeader{
 				{Name: "User-Agent", Value: USER_AGENT},
 			},
 		}, retryClient)
+
 	if err != nil {
 		return "", err
 	}
+
 	if firstRes.StatusCode == 403 || firstRes.StatusCode == 406 {
 		return "", errors.New(WAF_BANNED_ERROR)
 	}
 
-	identityURL, _ := url.Parse("https://identity.bugcrowd.com")
-	csrfTokenFromCookie := ""
-	for _, cookie := range retryClient.HTTPClient.Jar.Cookies(identityURL) {
+	identityUrl, _ := url.Parse("https://identity.bugcrowd.com")
+	csrfToken := ""
+	for _, cookie := range retryClient.HTTPClient.Jar.Cookies(identityUrl) {
 		if cookie.Name == "csrf-token" {
-			csrfTokenFromCookie = cookie.Value
+			csrfToken = cookie.Value
 			break
 		}
 	}
-	if csrfTokenFromCookie == "" {
-		return "", errors.New("csrf-token not found in identity.bugcrowd.com cookies")
-	}
 
+	// Step 1: Initial login with username/password (without OTP)
 	firstLoginRes, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "POST",
 			URL:    "https://identity.bugcrowd.com/login",
 			Headers: []whttp.WHTTPHeader{
 				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "X-Csrf-Token", Value: csrfTokenFromCookie},
+				{Name: "X-Csrf-Token", Value: csrfToken},
 				{Name: "Content-Type", Value: "application/x-www-form-urlencoded; charset=UTF-8"},
 				{Name: "Origin", Value: "https://identity.bugcrowd.com"},
-				{Name: "Referer", Value: "https://identity.bugcrowd.com/login?user_hint=researcher&returnTo=https%3A%2F%2Fbugcrowd.com%2Fdashboard"},
 			},
 			Body: "username=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(password) + "&otp_code=&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
 		}, retryClient)
+
 	if err != nil {
 		return "", err
 	}
+
 	if firstLoginRes.StatusCode == 403 || firstLoginRes.StatusCode == 406 {
 		return "", errors.New(WAF_BANNED_ERROR)
 	}
 
-	redirectTo := gjson.Get(firstLoginRes.BodyString, "redirect_to").String()
-	if redirectTo == "" {
-		return "", errors.New("redirect_to not found in login response")
-	}
-
-	redirectURL, err := url.Parse(redirectTo)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse redirect_to URL: %v", err)
-	}
-	sessionToken := redirectURL.Query().Get("sessionToken")
-	if sessionToken == "" {
-		return "", errors.New("sessionToken not found in redirect_to URL")
-	}
-
-	signInURL := redirectTo
-	signInRes, err := rateLimitedSendHTTPRequest(
-		&whttp.WHTTPReq{
-			Method: "GET",
-			URL:    signInURL,
-			Headers: []whttp.WHTTPHeader{
-				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "Referer", Value: "https://identity.bugcrowd.com/login"},
-			},
-		}, retryClient)
-	if err != nil {
-		return "", err
-	}
-	if signInRes.StatusCode == 403 || signInRes.StatusCode == 406 {
-		return "", errors.New(WAF_BANNED_ERROR)
-	}
-
-	var (
-		signInDoc *goquery.Document
-		docErr    error
-	)
-	signInDoc, docErr = goquery.NewDocumentFromReader(strings.NewReader(signInRes.BodyString))
-	if docErr != nil {
-		utils.Log.Debug(fmt.Sprintf("failed to parse sign_in HTML: %v", docErr))
-	}
-
-	// Parse HTML to find tokens and form values
-	var (
-		authenticityToken string
-		csrfTokenHeader   string
-		authHackerURL     string
-		formValues        = url.Values{}
-	)
-
-	if signInDoc != nil && docErr == nil {
-		// 1. Find authenticity_token from input (for form body)
-		signInDoc.Find("input").Each(func(i int, s *goquery.Selection) {
-			name, _ := s.Attr("name")
-			value, _ := s.Attr("value")
-			if name == "authenticity_token" {
-				authenticityToken = value
-			}
-			if name != "" {
-				formValues.Set(name, value)
-			}
-		})
-
-		// 2. Find csrfToken from SplashScreen data (for X-Csrf-Token header)
-		// <div data-react-class="SplashScreen" data-react-props="{&quot;csrfToken&quot;:&quot;...&quot; ...}">
-		signInDoc.Find("div[data-react-class='SplashScreen']").Each(func(i int, s *goquery.Selection) {
-			props, exists := s.Attr("data-react-props")
-			if exists {
-				csrfTokenHeader = gjson.Get(props, "csrfToken").String()
-			}
-		})
-
-		// Fallback for header if SplashScreen not found: use cookie or input
-		if csrfTokenHeader == "" {
-			// Try cookie from identity.bugcrowd.com (preserved in jar?)
-			// The jar logic was complex, let's stick to what the page provides or fallback to cookie jar lookup if strictly needed.
-			// Current implementation behavior: prefer cookie for header.
-			// Let's check cookies explicitly again if needed.
-			bugcrowdURL, _ := url.Parse("https://bugcrowd.com")
-			for _, cookie := range retryClient.HTTPClient.Jar.Cookies(bugcrowdURL) {
-				if strings.EqualFold(cookie.Name, "csrf-token") {
-					csrfTokenHeader = cookie.Value
-					break
-				}
-			}
-		}
-		// If still empty, fallback to the input token (better than nothing)
-		if csrfTokenHeader == "" {
-			csrfTokenHeader = authenticityToken
-		}
-		// If still empty, fallback to the identity cookie captured earlier
-		if csrfTokenHeader == "" && csrfTokenFromCookie != "" {
-			csrfTokenHeader = csrfTokenFromCookie
-		}
-
-		// 3. Find action URL
-		formSel := signInDoc.Find("form#initiate_oidc_form")
-		if formSel.Length() == 0 {
-			formSel = signInDoc.Find("form[action*='/user/auth/hacker']").First()
-		}
-		if formSel.Length() > 0 {
-			if action, exists := formSel.Attr("action"); exists {
-				authHackerURL = action
-			}
-		}
-	}
-
-	if authenticityToken == "" {
-		return "", errors.New("authenticity_token not found in sign_in page")
-	}
-
-	// Ensure form values are set
-	if formValues.Get("authenticity_token") == "" {
-		formValues.Set("authenticity_token", authenticityToken)
-	}
-	if formValues.Get("utf8") == "" {
-		formValues.Set("utf8", "✓")
-	}
-
-	headers := []whttp.WHTTPHeader{
-		{Name: "User-Agent", Value: USER_AGENT},
-		{Name: "Content-Type", Value: "application/x-www-form-urlencoded"},
-		{Name: "Origin", Value: "https://bugcrowd.com"},
-		{Name: "Referer", Value: signInURL},
-		{Name: "X-Csrf-Token", Value: csrfTokenHeader},
-	}
-
-	if authHackerURL == "" {
-		authHackerURL = fmt.Sprintf("https://bugcrowd.com/user/auth/hacker?acr_values=phr&login_hint=%s&origin=https%%3A%%2F%%2Fbugcrowd.com%%2Fdashboard&sessionToken=%s",
-			url.QueryEscape(email), url.QueryEscape(sessionToken))
-	}
-	if strings.HasPrefix(authHackerURL, "/") {
-		authHackerURL = "https://bugcrowd.com" + authHackerURL
-	}
-
-	authHackerRes, err := rateLimitedSendHTTPRequest(
-		&whttp.WHTTPReq{
-			Method:  "POST",
-			URL:     authHackerURL,
-			Headers: headers,
-			Body:    formValues.Encode(),
-		}, retryClient)
-	if err != nil {
-		return "", err
-	}
-	if authHackerRes.StatusCode == 403 || authHackerRes.StatusCode == 406 {
-		return "", errors.New(WAF_BANNED_ERROR)
-	}
-	if authHackerRes.StatusCode >= 400 {
-		errorPreview := authHackerRes.BodyString
-		if len(errorPreview) > 1000 {
-			errorPreview = errorPreview[:1000]
-		}
-		return "", fmt.Errorf("auth/hacker endpoint returned error %d: %s", authHackerRes.StatusCode, errorPreview)
-	}
-	if strings.Contains(authHackerRes.BodyString, "auth/failure") || strings.Contains(authHackerRes.BodyString, "InvalidAuthenticityToken") {
-		return "", fmt.Errorf("authentication failed: %s", authHackerRes.BodyString)
-	}
-
-	authorizeURL := ""
-	oktaStateTokenFromPage := ""
-	oktaAuthorizeRes := authHackerRes
-
-	if authHackerRes.StatusCode >= 300 && authHackerRes.StatusCode < 400 {
-		authorizeURL = authHackerRes.Headers.Get("Location")
-		if authorizeURL == "" {
-			return "", errors.New("redirect Location header not found in auth/hacker response")
-		}
-		if !strings.HasPrefix(authorizeURL, "http") {
-			baseURL, _ := url.Parse("https://bugcrowd.com")
-			resolvedURL := baseURL.ResolveReference(&url.URL{Path: authorizeURL})
-			authorizeURL = resolvedURL.String()
-		}
-		oktaAuthorizeRes, err = rateLimitedSendHTTPRequest(
-			&whttp.WHTTPReq{
-				Method: "GET",
-				URL:    authorizeURL,
-				Headers: []whttp.WHTTPHeader{
-					{Name: "User-Agent", Value: USER_AGENT},
-					{Name: "Referer", Value: "https://bugcrowd.com/"},
-					{Name: "Accept", Value: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
-					{Name: "Accept-Language", Value: "en-GB,en;q=0.9"},
-					{Name: "Sec-Fetch-Site", Value: "same-site"},
-					{Name: "Sec-Fetch-Mode", Value: "navigate"},
-					{Name: "Sec-Fetch-Dest", Value: "document"},
-				},
-			}, retryClient)
-		if err != nil {
-			return "", err
-		}
-		if jsonData := extractOktaDataJSON(oktaAuthorizeRes.BodyString); jsonData != "" {
-			oktaStateTokenFromPage = gjson.Get(jsonData, "signIn.stateToken").String()
-			if oktaStateTokenFromPage == "" {
-				oktaStateTokenFromPage = gjson.Get(jsonData, "stateToken").String()
-			}
-		}
-	} else if strings.Contains(authHackerRes.BodyString, "okta-sign-in") ||
-		strings.Contains(authHackerRes.BodyString, "okta-signin-widget") {
-
-		if jsonData := extractOktaDataJSON(authHackerRes.BodyString); jsonData != "" {
-			authorizeURL = gjson.Get(jsonData, "redirectUri").String()
-			oktaStateTokenFromPage = gjson.Get(jsonData, "signIn.stateToken").String()
-			if oktaStateTokenFromPage == "" {
-				oktaStateTokenFromPage = gjson.Get(jsonData, "stateToken").String()
-			}
-		}
-	} else {
-		return "", fmt.Errorf("unexpected response from auth/hacker: status %d, expected redirect", authHackerRes.StatusCode)
-	}
-
-	if authorizeURL == "" {
-		return "", errors.New("authorize URL not found in auth/hacker response")
-	}
-
-	if oktaAuthorizeRes.StatusCode == 403 || oktaAuthorizeRes.StatusCode == 406 {
-		return "", errors.New(WAF_BANNED_ERROR)
-	}
-	if oktaAuthorizeRes.StatusCode >= 400 {
-		if strings.Contains(oktaAuthorizeRes.Headers.Get("Content-Type"), "application/json") {
-			errorMsg := gjson.Get(oktaAuthorizeRes.BodyString, "error").String()
-			errorDescription := gjson.Get(oktaAuthorizeRes.BodyString, "error_description").String()
-			if errorMsg != "" || errorDescription != "" {
-				return "", fmt.Errorf("okta error: %s - %s", errorMsg, errorDescription)
-			}
-		}
-		errorPreview := oktaAuthorizeRes.BodyString
-		if len(errorPreview) > 500 {
-			errorPreview = errorPreview[:500]
-		}
-		return "", fmt.Errorf("okta authorize endpoint returned error %d: %s", oktaAuthorizeRes.StatusCode, errorPreview)
-	}
-	if oktaAuthorizeRes.StatusCode != 200 {
-		if strings.Contains(oktaAuthorizeRes.BodyString, "unexpected internal error") ||
-			strings.Contains(oktaAuthorizeRes.BodyString, "Something went wrong") {
-			errorPreview := oktaAuthorizeRes.BodyString
-			if len(errorPreview) > 500 {
-				errorPreview = errorPreview[:500]
-			}
-			return "", fmt.Errorf("okta returned an error: %s", errorPreview)
-		}
-	}
-
-	stateToken := ""
-	stateHandle := ""
-
-	introspectReqBody := map[string]interface{}{}
-	if oktaStateTokenFromPage != "" {
-		introspectReqBody["stateToken"] = oktaStateTokenFromPage
-	}
-	introspectBodyJSON, _ := json.Marshal(introspectReqBody)
-
-	introspectRes, err := rateLimitedSendHTTPRequest(
-		&whttp.WHTTPReq{
-			Method: "POST",
-			URL:    "https://login.hackers.bugcrowd.com/idp/idx/introspect",
-			Headers: []whttp.WHTTPHeader{
-				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "Content-Type", Value: "application/json"},
-				{Name: "Accept", Value: "application/json"},
-				{Name: "X-Requested-With", Value: "XMLHttpRequest"},
-				{Name: "Origin", Value: "https://login.hackers.bugcrowd.com"},
-				{Name: "Referer", Value: authorizeURL},
-			},
-			Body: string(introspectBodyJSON),
-		}, retryClient)
-	if err != nil {
-		return "", err
-	}
-	if introspectRes.StatusCode == 403 || introspectRes.StatusCode == 406 {
-		return "", errors.New(WAF_BANNED_ERROR)
-	}
-
-	updateOktaState(&stateToken, &stateHandle, introspectRes.BodyString)
-	if stateHandle == "" && stateToken == "" {
-		return "", errors.New("state token/handle not found in Okta introspect response")
-	}
-
-	requiresPasswordChallenge := authenticatorRequiresPassword(introspectRes.BodyString)
-
-	if remediationExists(introspectRes.BodyString, "identify") {
-		identifyBody := map[string]interface{}{
-			"identifier": email,
-		}
-		addStateFields(identifyBody, stateHandle, stateToken)
-		identifyBodyJSON, _ := json.Marshal(identifyBody)
-
-		identifyRes, err := rateLimitedSendHTTPRequest(
-			&whttp.WHTTPReq{
-				Method: "POST",
-				URL:    "https://login.hackers.bugcrowd.com/idp/idx/identify",
-				Headers: []whttp.WHTTPHeader{
-					{Name: "User-Agent", Value: USER_AGENT},
-					{Name: "Content-Type", Value: "application/json"},
-					{Name: "Accept", Value: "application/json"},
-					{Name: "X-Requested-With", Value: "XMLHttpRequest"},
-					{Name: "Origin", Value: "https://login.hackers.bugcrowd.com"},
-					{Name: "Referer", Value: authorizeURL},
-				},
-				Body: string(identifyBodyJSON),
-			}, retryClient)
-		if err != nil {
-			return "", err
-		}
-		if identifyRes.StatusCode == 403 || identifyRes.StatusCode == 406 {
-			return "", errors.New(WAF_BANNED_ERROR)
-		}
-		updateOktaState(&stateToken, &stateHandle, identifyRes.BodyString)
-		if stateHandle == "" && stateToken == "" {
-			return "", errors.New("state token/handle not found in Okta identify response")
-		}
-		requiresPasswordChallenge = authenticatorRequiresPassword(identifyRes.BodyString)
-	}
-
-	if requiresPasswordChallenge {
-		passwordChallengeBody := map[string]interface{}{
-			"credentials": map[string]interface{}{
-				"passcode": password,
-			},
-		}
-		addStateFields(passwordChallengeBody, stateHandle, stateToken)
-		passwordChallengeBodyJSON, _ := json.Marshal(passwordChallengeBody)
-
-		passwordChallengeRes, err := rateLimitedSendHTTPRequest(
-			&whttp.WHTTPReq{
-				Method: "POST",
-				URL:    "https://login.hackers.bugcrowd.com/idp/idx/challenge/answer",
-				Headers: []whttp.WHTTPHeader{
-					{Name: "User-Agent", Value: USER_AGENT},
-					{Name: "Content-Type", Value: "application/json"},
-					{Name: "Accept", Value: "application/json"},
-					{Name: "X-Requested-With", Value: "XMLHttpRequest"},
-					{Name: "Origin", Value: "https://login.hackers.bugcrowd.com"},
-					{Name: "Referer", Value: authorizeURL},
-				},
-				Body: string(passwordChallengeBodyJSON),
-			}, retryClient)
-		if err != nil {
-			return "", err
-		}
-		if passwordChallengeRes.StatusCode == 403 || passwordChallengeRes.StatusCode == 406 {
-			return "", errors.New(WAF_BANNED_ERROR)
-		}
-		if gjson.Get(passwordChallengeRes.BodyString, "errorSummary").String() != "" {
-			errorSummary := gjson.Get(passwordChallengeRes.BodyString, "errorSummary").String()
-			return "", fmt.Errorf("password verification failed: %s", errorSummary)
-		}
-		updateOktaState(&stateToken, &stateHandle, passwordChallengeRes.BodyString)
-		if stateHandle == "" && stateToken == "" {
-			return "", errors.New("state token/handle not found in Okta password challenge response")
-		}
+	needsMfa := gjson.Get(firstLoginRes.BodyString, "needsMfa").Bool()
+	if !needsMfa {
+		return "", errors.New("unexpected response: MFA should be required")
 	}
 
 	otpCode, err := otp.GenerateTOTP(otpSecret, time.Now())
 	if err != nil {
 		return "", fmt.Errorf("failed to generate TOTP: %v", err)
 	}
+
 	if otpCode == "" {
 		return "", fmt.Errorf("2FA code is empty")
 	}
 
-	challengeAnswerBody := map[string]interface{}{
-		"credentials": map[string]interface{}{
-			"passcode": otpCode,
-		},
-	}
-	addStateFields(challengeAnswerBody, stateHandle, stateToken)
-	challengeAnswerBodyJSON, _ := json.Marshal(challengeAnswerBody)
-
-	challengeRes, err := rateLimitedSendHTTPRequest(
+	// Step 2: Submit OTP
+	otpRes, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "POST",
-			URL:    "https://login.hackers.bugcrowd.com/idp/idx/challenge/answer",
+			URL:    "https://identity.bugcrowd.com/auth/otp-challenge",
 			Headers: []whttp.WHTTPHeader{
 				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "Content-Type", Value: "application/json"},
-				{Name: "Accept", Value: "application/json"},
-				{Name: "X-Requested-With", Value: "XMLHttpRequest"},
-				{Name: "Origin", Value: "https://login.hackers.bugcrowd.com"},
-				{Name: "Referer", Value: authorizeURL},
+				{Name: "X-Csrf-Token", Value: csrfToken},
+				{Name: "Content-Type", Value: "application/x-www-form-urlencoded; charset=UTF-8"},
+				{Name: "Origin", Value: "https://identity.bugcrowd.com"},
 			},
-			Body: string(challengeAnswerBodyJSON),
+			Body: "username=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(password) + "&otp_code=" + otpCode + "&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
 		}, retryClient)
+
 	if err != nil {
 		return "", err
 	}
-	if challengeRes.StatusCode == 403 || challengeRes.StatusCode == 406 {
+
+	if otpRes.StatusCode == 403 || otpRes.StatusCode == 406 {
 		return "", errors.New(WAF_BANNED_ERROR)
 	}
-	if gjson.Get(challengeRes.BodyString, "errorSummary").String() != "" {
-		errorSummary := gjson.Get(challengeRes.BodyString, "errorSummary").String()
-		return "", fmt.Errorf("OTP verification failed: %s", errorSummary)
+
+	// Check if OTP failed
+	needsMfa = gjson.Get(otpRes.BodyString, "needsMfa").Bool()
+	message := gjson.Get(otpRes.BodyString, "message").String()
+	if needsMfa {
+		return "", fmt.Errorf("2FA verification failed: %s", message)
 	}
 
-	updateOktaState(&stateToken, &stateHandle, challengeRes.BodyString)
-	newStateToken := gjson.Get(challengeRes.BodyString, "sessionToken").String()
-	if newStateToken == "" {
-		if stateHandle != "" {
-			newStateToken = stateHandle
-		} else {
-			newStateToken = stateToken
-		}
+	redirectUrl := gjson.Get(otpRes.BodyString, "redirect_to").String()
+	if redirectUrl == "" {
+		return "", errors.New("no redirect URL found in response")
 	}
 
-	tokenRedirectURL := fmt.Sprintf("https://login.hackers.bugcrowd.com/login/token/redirect?stateToken=%s", url.QueryEscape(newStateToken))
-
-	// This will redirect till we reach /dashboard
-	tokenRedirectRes, err := rateLimitedSendHTTPRequest(
+	redirectRes, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
-			URL:    tokenRedirectURL,
+			URL:    redirectUrl,
 			Headers: []whttp.WHTTPHeader{
 				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "Referer", Value: authorizeURL},
+				{Name: "Origin", Value: "https://identity.bugcrowd.com"},
 			},
 		}, retryClient)
+
 	if err != nil {
 		return "", err
 	}
-	if tokenRedirectRes.StatusCode == 403 || tokenRedirectRes.StatusCode == 406 {
+
+	if redirectRes.StatusCode == 403 || redirectRes.StatusCode == 406 {
 		return "", errors.New(WAF_BANNED_ERROR)
 	}
 
-	// Follow redirects until we reach the final page (dashboard)
-	// Note: retryablehttp follows redirects automatically, but we handle additional redirects manually if needed
-	finalRes := tokenRedirectRes
-	currentURL := tokenRedirectURL
-	maxRedirects := 10
-	redirectCount := 0
-
-	for redirectCount < maxRedirects && (finalRes.StatusCode >= 300 && finalRes.StatusCode < 400) {
-		redirectURL := finalRes.Headers.Get("Location")
-		if redirectURL == "" {
-			break
-		}
-		if !strings.HasPrefix(redirectURL, "http") {
-			baseURL, _ := url.Parse(currentURL)
-			resolvedURL := baseURL.ResolveReference(&url.URL{Path: redirectURL})
-			redirectURL = resolvedURL.String()
-		}
-		prevURL := currentURL
-		currentURL = redirectURL
-
-		finalRes, err = rateLimitedSendHTTPRequest(
-			&whttp.WHTTPReq{
-				Method: "GET",
-				URL:    redirectURL,
-				Headers: []whttp.WHTTPHeader{
-					{Name: "User-Agent", Value: USER_AGENT},
-					{Name: "Referer", Value: prevURL},
-				},
-			}, retryClient)
-		if err != nil {
-			return "", err
-		}
-		if finalRes.StatusCode == 403 || finalRes.StatusCode == 406 {
-			return "", errors.New(WAF_BANNED_ERROR)
-		}
-		redirectCount++
-	}
-
-	// Extract the initial session cookie from the cookie jar
-	bugcrowdURL, _ := url.Parse("https://bugcrowd.com")
-	initialSessionCookie := ""
-	for _, cookie := range retryClient.HTTPClient.Jar.Cookies(bugcrowdURL) {
-		if cookie.Name == bugcrowdSessionCookieName && cookie.Value != "" {
-			initialSessionCookie = cookie.Value
-			break
+	for _, cookie := range retryClient.HTTPClient.Jar.Cookies(identityUrl) {
+		if cookie.Name == "_bugcrowd_session" {
+			utils.Log.Info("Login OK. Fetching programs, please wait...")
+			utils.Log.Debug("SESSION: ", cookie.Value)
+			return cookie.Value, nil
 		}
 	}
-	if initialSessionCookie == "" {
-		return "", errors.New("initial session cookie not found after redirects")
-	}
 
-	// Parse HTML to find OktaSessionManagement div and extract csrfToken
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(finalRes.BodyString))
-	if err != nil {
-		return "", fmt.Errorf("failed to parse final response HTML: %v", err)
-	}
-
-	var csrfToken string
-	var refreshSessionPath string
-	doc.Find("div[data-react-class='OktaSessionManagement']").Each(func(i int, s *goquery.Selection) {
-		props, exists := s.Attr("data-react-props")
-		if exists {
-			csrfToken = gjson.Get(props, "csrfToken").String()
-			refreshSessionPath = gjson.Get(props, "refreshSessionPath").String()
-		}
-	})
-
-	if csrfToken == "" {
-		return "", errors.New("csrfToken not found in OktaSessionManagement div")
-	}
-	if refreshSessionPath == "" {
-		return "", errors.New("refreshSessionPath not found in OktaSessionManagement div")
-	}
-
-	// Build the oidc_session_management URL
-	oidcURL := "https://bugcrowd.com" + refreshSessionPath
-	if strings.HasPrefix(refreshSessionPath, "http") {
-		oidcURL = refreshSessionPath
-	}
-
-	// Calculate expiry timestamp (current time + 2 hours in milliseconds)
-	expiryTimestamp := time.Now().Add(2 * time.Hour).UnixMilli()
-	oidcBody := map[string]interface{}{
-		"expiry": expiryTimestamp,
-	}
-	oidcBodyJSON, _ := json.Marshal(oidcBody)
-
-	// Send PUT request to oidc_session_management endpoint
-	oidcRes, err := rateLimitedSendHTTPRequest(
-		&whttp.WHTTPReq{
-			Method: "PUT",
-			URL:    oidcURL,
-			Headers: []whttp.WHTTPHeader{
-				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "Content-Type", Value: "application/json"},
-				{Name: "X-Csrf-Token", Value: csrfToken},
-				{Name: "Cookie", Value: buildSessionCookieHeader(initialSessionCookie)},
-				{Name: "Referer", Value: currentURL},
-				{Name: "Origin", Value: "https://bugcrowd.com"},
-			},
-			Body: string(oidcBodyJSON),
-		}, retryClient)
-	if err != nil {
-		return "", fmt.Errorf("failed to call oidc_session_management: %v", err)
-	}
-	if oidcRes.StatusCode == 403 || oidcRes.StatusCode == 406 {
-		return "", errors.New(WAF_BANNED_ERROR)
-	}
-	if oidcRes.StatusCode >= 400 {
-		return "", fmt.Errorf("oidc_session_management returned error %d: %s", oidcRes.StatusCode, oidcRes.BodyString)
-	}
-
-	// Extract the final session cookie from the response
-	finalSessionCookie := ""
-	for _, cookie := range retryClient.HTTPClient.Jar.Cookies(bugcrowdURL) {
-		if cookie.Name == bugcrowdSessionCookieName && cookie.Value != "" {
-			finalSessionCookie = cookie.Value
-			break
-		}
-	}
-	if finalSessionCookie == "" {
-		return "", errors.New("final session cookie not found after oidc_session_management call")
-	}
-
-	utils.Log.Info("Login OK. Fetching programs, please wait...")
-	utils.Log.Debug(fmt.Sprintf("Using %s cookie for session", bugcrowdSessionCookieName))
-	return finalSessionCookie, nil
+	return "", errors.New("unable to obtain session cookie")
 }
 
 func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool) ([]string, error) {
@@ -725,7 +255,7 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 				Method: "GET",
 				URL:    listEndpointURL + strconv.Itoa(pageIndex),
 				Headers: []whttp.WHTTPHeader{
-					{Name: "Cookie", Value: buildSessionCookieHeader(sessionToken)},
+					{Name: "Cookie", Value: "_bugcrowd_session=" + sessionToken},
 					{Name: "User-Agent", Value: USER_AGENT},
 				},
 			}, nil)
@@ -818,7 +348,7 @@ func getEngagementBriefVersionDocument(handle string, token string) (string, err
 			Method: "GET",
 			URL:    "https://bugcrowd.com" + handle,
 			Headers: []whttp.WHTTPHeader{
-				{Name: "Cookie", Value: buildSessionCookieHeader(token)},
+				{Name: "Cookie", Value: "_bugcrowd_session=" + token},
 				{Name: "User-Agent", Value: USER_AGENT},
 				{Name: "Accept", Value: "*/*"},
 			},
@@ -861,7 +391,7 @@ func getEngagementBriefVersionDocument(handle string, token string) (string, err
 
 func extractScopeFromEngagement(getBriefVersionDocument string, token string, pData *scope.ProgramData) (err error) {
 	if getBriefVersionDocument == ".json" {
-		utils.Log.Warn("Compliance required! Empty Extraction URL (Skipping): ", pData.Url)
+		utils.Log.Warn("Compliance required! Empty Extraction URL (Skipping)...")
 		pData.InScope = append(pData.InScope, scope.ScopeElement{
 			Target:      "2FA_REQUIRED",
 			Description: "Two-Factor Authentication is required to access this program.",
@@ -873,7 +403,7 @@ func extractScopeFromEngagement(getBriefVersionDocument string, token string, pD
 			Method: "GET",
 			URL:    "https://bugcrowd.com" + getBriefVersionDocument,
 			Headers: []whttp.WHTTPHeader{
-				{Name: "Cookie", Value: buildSessionCookieHeader(token)},
+				{Name: "Cookie", Value: "_bugcrowd_session=" + token},
 				{Name: "User-Agent", Value: USER_AGENT},
 				{Name: "Accept", Value: "*/*"},
 			},
@@ -931,7 +461,7 @@ func extractScopeFromTargetGroups(url string, categories string, token string, p
 			Method: "GET",
 			URL:    url + "/target_groups",
 			Headers: []whttp.WHTTPHeader{
-				{Name: "Cookie", Value: buildSessionCookieHeader(token)},
+				{Name: "Cookie", Value: "_bugcrowd_session=" + token},
 				{Name: "User-Agent", Value: USER_AGENT},
 				{Name: "Accept", Value: "*/*"},
 			},
@@ -973,7 +503,7 @@ func extractScopeFromTargetTable(scopeTableURL string, categories string, token 
 			Method: "GET",
 			URL:    "https://bugcrowd.com" + scopeTableURL,
 			Headers: []whttp.WHTTPHeader{
-				{Name: "Cookie", Value: buildSessionCookieHeader(token)},
+				{Name: "Cookie", Value: "_bugcrowd_session=" + token},
 				{Name: "User-Agent", Value: USER_AGENT},
 				{Name: "Accept", Value: "*/*"},
 			},
@@ -1034,101 +564,4 @@ func extractScopeFromTargetTable(scopeTableURL string, categories string, token 
 	}
 
 	return nil
-}
-
-func buildSessionCookieHeader(token string) string {
-	return fmt.Sprintf("_crowdcontrol_session_key=%s", token)
-}
-
-func decodeOktaEscapes(input string) string {
-	if input == "" {
-		return ""
-	}
-
-	hexRe := regexp.MustCompile(`\\x([0-9a-fA-F]{2})`)
-	withUnicode := hexRe.ReplaceAllString(input, `\\u00$1`)
-	withUnicode = strings.ReplaceAll(withUnicode, `\\u`, `\u`)
-
-	unquoted, err := strconv.Unquote(`"` + withUnicode + `"`)
-	if err != nil {
-		return input
-	}
-
-	return unquoted
-}
-
-func updateOktaState(stateToken, stateHandle *string, body string) {
-	if stateHandle == nil || stateToken == nil {
-		return
-	}
-
-	if newHandle := gjson.Get(body, "stateHandle").String(); newHandle != "" {
-		*stateHandle = decodeOktaEscapes(newHandle)
-	}
-	if newToken := gjson.Get(body, "stateToken").String(); newToken != "" {
-		*stateToken = decodeOktaEscapes(newToken)
-	}
-	if *stateToken == "" {
-		if token := gjson.Get(body, "token").String(); token != "" {
-			*stateToken = decodeOktaEscapes(token)
-		}
-	}
-}
-
-func addStateFields(body map[string]interface{}, stateHandle, stateToken string) {
-	if body == nil {
-		return
-	}
-	if stateHandle != "" {
-		body["stateHandle"] = stateHandle
-	}
-	if stateToken != "" {
-		body["stateToken"] = stateToken
-	}
-}
-
-func remediationExists(body, name string) bool {
-	found := false
-	gjson.Get(body, "remediation.value").ForEach(func(_, value gjson.Result) bool {
-		if strings.EqualFold(value.Get("name").String(), name) {
-			found = true
-			return false
-		}
-		return true
-	})
-	return found
-}
-
-func authenticatorRequiresPassword(body string) bool {
-	authenticatorType := strings.ToLower(gjson.Get(body, "currentAuthenticatorEnrollment.type").String())
-	authenticatorKey := strings.ToLower(gjson.Get(body, "currentAuthenticatorEnrollment.key").String())
-	return authenticatorType == "password" || authenticatorKey == "password"
-}
-
-func extractOktaDataJSON(html string) string {
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
-	if err != nil {
-		return ""
-	}
-	var jsonData string
-	doc.Find("script").Each(func(i int, s *goquery.Selection) {
-		if jsonData != "" {
-			return
-		}
-		text := s.Text()
-		if strings.Contains(text, "var oktaData =") {
-			// Extract the JSON object
-			// var oktaData = { ... };
-			re := regexp.MustCompile(`var oktaData = (\{[\s\S]*?\});`)
-			match := re.FindStringSubmatch(text)
-			if len(match) > 1 {
-				jsonData = match[1]
-				// Fix \x escapes to make it valid JSON for gjson
-				// \x3A -> \u003A
-				hexRe := regexp.MustCompile(`\\x([0-9a-fA-F]{2})`)
-				jsonData = hexRe.ReplaceAllString(jsonData, `\u00$1`)
-			}
-		}
-	})
-	return jsonData
 }

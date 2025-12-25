@@ -10,7 +10,7 @@ import (
 
 type Poller struct{ token string }
 
-// NewPollerFromToken uses an existing _crowdcontrol_session_key cookie value.
+// NewPollerFromToken uses an existing _bugcrowd_session token.
 func NewPollerFromToken(token string) *Poller { return &Poller{token: token} }
 
 // NewPollerWithLogin logs in using email/password and OTP secret to obtain a session token.
