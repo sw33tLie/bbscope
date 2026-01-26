@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -275,6 +276,36 @@ var findCmd = &cobra.Command{
 	},
 }
 
+var shellCmd = &cobra.Command{
+	Use:   "shell",
+	Short: "Open a psql shell to the database",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		dbURL, err := GetDBConnectionString()
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("Connecting to %s...\n", dbURL)
+		fmt.Println("bbscope database schema:")
+		fmt.Println("  programs      (id, platform, handle, url, disabled, is_ignored, last_seen_at)")
+		fmt.Println("  targets_raw   (id, program_id, target, category, in_scope, is_bbp, description, last_seen_at)")
+		fmt.Println("  scope_changes (id, program_url, platform, change_type, target_raw, target_normalized, category, is_bbp, occurred_at)")
+		fmt.Println("  targets_ai_enhanced (id, target_id, target_ai_normalized, category, in_scope)")
+		fmt.Println("")
+
+		pgCmd := exec.Command("psql", dbURL)
+		pgCmd.Stdin = os.Stdin
+		pgCmd.Stdout = os.Stdout
+		pgCmd.Stderr = os.Stderr
+
+		if err := pgCmd.Run(); err != nil {
+			return fmt.Errorf("psql exited with error: %w", err)
+		}
+
+		return nil
+	},
+}
+
 var addCmd = &cobra.Command{
 	Use:   "add",
 	Short: "Add a custom target to the database",
@@ -324,6 +355,7 @@ func init() {
 	dbCmd.AddCommand(printCmd)
 	dbCmd.AddCommand(findCmd)
 	dbCmd.AddCommand(addCmd)
+	dbCmd.AddCommand(shellCmd)
 	addCmd.Flags().StringP("target", "t", "", "Target to add (can be comma-separated)")
 	addCmd.Flags().StringP("category", "c", "wildcard", "Category of the target")
 	addCmd.Flags().StringP("program-url", "u", "custom", "Program URL (default: 'custom')")

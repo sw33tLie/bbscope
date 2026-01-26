@@ -222,6 +222,14 @@ Search for a string in current and historical scopes.
 
 **Usage:** `bbscope db find [query]`
 
+#### `db shell`
+
+Open a `psql` shell connected to your database.
+
+**Usage:** `bbscope db shell`
+
+The bbscope DB schema will also be printed to stdout for ease of reference.
+
 #### `db add`
 
 Add a custom target to the database manually.
