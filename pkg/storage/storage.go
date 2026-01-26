@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/sw33tLie/bbscope/v2/pkg/scope"
 )
 
@@ -376,48 +376,65 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 
 	// 4. Start a transaction for all the batched write operations
 	if len(toAdd) > 0 {
-		tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
-		if err != nil {
-			return nil, err
+		// Prepare arrays for bulk insert using UNNEST
+		targets := make([]string, len(toAdd))
+		categories := make([]string, len(toAdd))
+		descriptions := make([]sql.NullString, len(toAdd))
+		inScopes := make([]int, len(toAdd))
+		isBBPs := make([]int, len(toAdd))
+
+		// Build a lookup map for matching returned rows
+		addEntryByKey := make(map[string]UpsertEntry, len(toAdd))
+		for i, e := range toAdd {
+			targets[i] = e.TargetRaw
+			categories[i] = e.Category
+			if e.Description != "" {
+				descriptions[i] = sql.NullString{String: e.Description, Valid: true}
+			}
+			inScopes[i] = boolToInt(e.InScope)
+			isBBPs[i] = boolToInt(e.IsBBP)
+			addEntryByKey[identityKey(e.TargetRaw, e.Category)] = e
 		}
-		stmt, err := tx.PrepareContext(ctx, `
+
+		// Bulk insert using UNNEST - returns id, target, category to match back
+		rows, err := d.sql.QueryContext(ctx, `
 			INSERT INTO targets_raw(program_id, target, category, description, in_scope, is_bbp, first_seen_at, last_seen_at)
-			VALUES($1,$2,$3,$4,$5,$6,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+			SELECT $1, t.target, t.category, t.description, t.in_scope, t.is_bbp, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+			FROM UNNEST($2::text[], $3::text[], $4::text[], $5::int[], $6::int[]) AS t(target, category, description, in_scope, is_bbp)
 			ON CONFLICT(program_id, category, target) DO UPDATE SET
 				description = excluded.description,
 				in_scope = excluded.in_scope,
 				is_bbp = excluded.is_bbp,
 				last_seen_at = CURRENT_TIMESTAMP
-			RETURNING id
-		`)
+			RETURNING id, target, category
+		`, programID, pq.Array(targets), pq.Array(categories), pq.Array(descriptions), pq.Array(inScopes), pq.Array(isBBPs))
 		if err != nil {
-			tx.Rollback()
-			return nil, err
+			return nil, fmt.Errorf("bulk inserting targets: %w", err)
 		}
-		for _, e := range toAdd {
+
+		for rows.Next() {
 			var id int64
-			if err := stmt.QueryRowContext(ctx, programID, e.TargetRaw, e.Category, nullIfEmpty(e.Description), boolToInt(e.InScope), boolToInt(e.IsBBP)).Scan(&id); err != nil {
-				stmt.Close()
-				tx.Rollback()
+			var target, category string
+			if err := rows.Scan(&id, &target, &category); err != nil {
+				rows.Close()
 				return nil, err
 			}
-			key := identityKey(e.TargetRaw, e.Category)
+			key := identityKey(target, category)
 			targetIDs[key] = id
-			ex := &existingTarget{
-				ID:       id,
-				Raw:      e.TargetRaw,
-				Cat:      e.Category,
-				Desc:     e.Description,
-				InScope:  e.InScope,
-				IsBBP:    e.IsBBP,
-				Variants: make(map[string]existingVariant),
+			if e, ok := addEntryByKey[key]; ok {
+				ex := &existingTarget{
+					ID:       id,
+					Raw:      e.TargetRaw,
+					Cat:      e.Category,
+					Desc:     e.Description,
+					InScope:  e.InScope,
+					IsBBP:    e.IsBBP,
+					Variants: make(map[string]existingVariant),
+				}
+				existingMap[key] = ex
 			}
-			existingMap[key] = ex
 		}
-		stmt.Close()
-		if err := tx.Commit(); err != nil {
-			return nil, err
-		}
+		rows.Close()
 	}
 
 	// Batch Updates
@@ -445,28 +462,11 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		}
 	}
 
-	// Batch Touches (update last_seen_at)
+	// Batch Touches (update last_seen_at) - single query using ANY
 	if len(toTouch) > 0 {
-		tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
+		_, err := d.sql.ExecContext(ctx, `UPDATE targets_raw SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ANY($1::bigint[])`, pq.Array(toTouch))
 		if err != nil {
-			return nil, err
-		}
-		stmt, err := tx.PrepareContext(ctx, `UPDATE targets_raw SET last_seen_at = CURRENT_TIMESTAMP WHERE id = $1`)
-		if err != nil {
-			tx.Rollback()
-			return nil, err
-		}
-		for _, id := range toTouch {
-			_, err := stmt.ExecContext(ctx, id)
-			if err != nil {
-				stmt.Close()
-				tx.Rollback()
-				return nil, err
-			}
-		}
-		stmt.Close()
-		if err := tx.Commit(); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("batch touching targets: %w", err)
 		}
 	}
 
@@ -756,28 +756,15 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		}
 	}
 
-	// Batch Deletes and log changes
+	// Batch Deletes - single query using ANY
 	if len(toRemove) > 0 {
-		tx, err := d.sql.BeginTx(ctx, &sql.TxOptions{})
+		ids := make([]int64, len(toRemove))
+		for i, ex := range toRemove {
+			ids[i] = ex.ID
+		}
+		_, err := d.sql.ExecContext(ctx, `DELETE FROM targets_raw WHERE id = ANY($1::bigint[])`, pq.Array(ids))
 		if err != nil {
-			return nil, err
-		}
-		delStmt, err := tx.PrepareContext(ctx, `DELETE FROM targets_raw WHERE id = $1`)
-		if err != nil {
-			tx.Rollback()
-			return nil, err
-		}
-
-		for _, ex := range toRemove {
-			if _, err := delStmt.ExecContext(ctx, ex.ID); err != nil {
-				delStmt.Close()
-				tx.Rollback()
-				return nil, err
-			}
-		}
-		delStmt.Close()
-		if err := tx.Commit(); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("batch deleting targets: %w", err)
 		}
 	}
 
