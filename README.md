@@ -13,7 +13,7 @@
 > *   **New:** `bbscope poll h1` (and similarly for `bc`, `it`, `ywh`, etc.)
 > 
 > **New Features in v2:**
-> *   **PostgreSQL Support**: Store targets in a DB for persistence and querying.
+> *   **PostgreSQL Support (Optional)**: Store targets in a DB for persistence and querying.
 > *   **Changes Monitoring**: Track new and removed targets over time (requires DB).
 > *   **AI Scope Normalization**: Use LLMs to clean up messy scope strings.
 > *   **Docker Image**: Ready-to-use image on GHCR.
