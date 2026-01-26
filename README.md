@@ -104,6 +104,19 @@ ai:
   max_concurrency: 10
 ```
 
+Alternatively, you can provide credentials directly via command-line flags when running a `poll` subcommand. Flags will always override values in the configuration file.
+
+**Authentication Flags for `poll` Subcommands:**
+
+| Command | Flag | Description |
+| --- | --- | --- |
+| `poll h1` | `--user`, `--token` | Your HackerOne username and API token. |
+| `poll bc` | `--token` | A live `_crowdcontrol_session_key` cookie. Use as an alternative to email/pass/otp. |
+| | `--email`, `--password`, `--otp-secret` | Your Bugcrowd login credentials. |
+| `poll it` | `--token` | Your Intigriti authorization token (Bearer). |
+| `poll ywh` | `--token` | A live YesWeHack bearer token. Use as an alternative to email/pass/otp. |
+| | `--email`, `--password`, `--otp-secret`| Your YesWeHack login credentials. |
+
 **Database Configuration (Optional):**
 
 To use bbscope's database features (like tracking changes or querying targets), you need a PostgreSQL database.
@@ -137,19 +150,6 @@ db_url: "postgres://bbscope:<YOUR_SECURE_PASSWORD>@localhost:5432/bbscope?sslmod
 ```
 
 Tables are automatically created on the first run.
-
-Alternatively, you can provide credentials directly via command-line flags when running a `poll` subcommand. Flags will always override values in the configuration file.
-
-**Authentication Flags for `poll` Subcommands:**
-
-| Command | Flag | Description |
-| --- | --- | --- |
-| `poll h1` | `--user`, `--token` | Your HackerOne username and API token. |
-| `poll bc` | `--token` | A live `_crowdcontrol_session_key` cookie. Use as an alternative to email/pass/otp. |
-| | `--email`, `--password`, `--otp-secret` | Your Bugcrowd login credentials. |
-| `poll it` | `--token` | Your Intigriti authorization token (Bearer). |
-| `poll ywh` | `--token` | A live YesWeHack bearer token. Use as an alternative to email/pass/otp. |
-| | `--email`, `--password`, `--otp-secret`| Your YesWeHack login credentials. |
 
 ---
 
