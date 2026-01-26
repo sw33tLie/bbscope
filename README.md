@@ -2,6 +2,23 @@
   <img src="logo.svg" alt="bbscope-logo-white" width="500">
 </p>
 
+> [!IMPORTANT]  
+> **This is bbscope v2!**  
+> 
+> Major changes include a new command structure and powerful new features.
+> 
+> **Breaking Change:**
+> Subcommands have changed!
+> *   Old: `bbscope h1`
+> *   **New:** `bbscope poll h1` (and similarly for `bc`, `it`, `ywh`, etc.)
+> 
+> **New Features in v2:**
+> *   **PostgreSQL Support**: Store targets in a DB for persistence and querying.
+> *   **Changes Monitoring**: Track new and removed targets over time (requires DB).
+> *   **AI Scope Normalization**: Use LLMs to clean up messy scope strings.
+> *   **Docker Image**: Ready-to-use image on GHCR.
+> *   **Centralized Polling**: Poll multiple platforms in one go.
+
 **bbscope** is a powerful scope aggregation tool for bug bounty hunters, designed to fetch, store, and manage program scopes from HackerOne, Bugcrowd, Intigriti, YesWeHack, and Immunefi right from your command line.
 
 Visit [bbscope.com](https://bbscope.com/) to explore an hourly-updated list of public scopes from all supported platforms, stats, and more!
@@ -87,19 +104,17 @@ ai:
   max_concurrency: 10
 ```
 
-**Database Setup:**
+**Database Configuration (Optional):**
 
-bbscope requires a PostgreSQL database. Create one and add the connection URL to your config:
+To use bbscope's database features (like tracking changes or querying targets), you need a PostgreSQL database.
 
-```bash
-# Example: Create database (adjust for your setup)
-createdb bbscope
+Add your connection string to `~/.bbscope.yaml`:
 
-# Add to ~/.bbscope.yaml
-db_url: "postgres://youruser:yourpassword@localhost:5432/bbscope?sslmode=disable"
+```yaml
+db_url: "postgres://user:password@localhost:5432/bbscope?sslmode=disable"
 ```
 
-Tables are created automatically on first run.
+Tables are automatically created on the first run.
 
 Alternatively, you can provide credentials directly via command-line flags when running a `poll` subcommand. Flags will always override values in the configuration file.
 
