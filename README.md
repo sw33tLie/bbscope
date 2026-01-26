@@ -330,14 +330,14 @@ bbscope poll h1 --proxy "http://127.0.0.1:8080"
 **7. HackerOne Polling (with Auth)**
 
 ```bash
-# Using flags (overrides config)
+# Using flags (overrides config file)
 bbscope poll h1 --user "your_user" --token "your_token"
 ```
 
 **8. Bugcrowd Polling**
 
 ```bash
-# Using session token (recommended)
+# Using session token
 bbscope poll bc --token "your_crowdcontrol_session_key"
 
 # Using credentials
