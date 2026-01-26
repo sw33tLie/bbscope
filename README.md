@@ -170,6 +170,8 @@ The `poll` command fetches scope data from the platforms. You can poll all platf
 - `bbscope poll ywh`: Polls YesWeHack.
 - `bbscope poll immunefi`: Polls Immunefi (no authentication required).
 
+
+
 **Flags for `poll`:**
 
 | Flag | Description | Default |
@@ -206,23 +208,38 @@ The `db` command lets you query and manage the data stored in your PostgreSQL da
 
 #### `db print`
 
-Prints scope data from the database.
+Prints raw scope data from the database. This is best for inspecting what's currently stored or for exporting data to other formats (JSON/CSV).
 
-**Usage:** `bbscope db print [type]`
+**Usage:** `bbscope db print [flags]`
 
--   **`type`** (optional): Filter by target type. Can be `urls`, `wildcards`, `apis`, or `mobile`. If omitted, prints all types.
+#### `db get`
 
-**Flags for `db print`:**
+Extracts specific types of targets from the database. This command is designed for piping into other tools (like `subfinder`, `httpx`, etc.).
+
+**Usage:** `bbscope db get [subcommand] [flags]`
+
+**Subcommands:**
+
+- `wildcards`: Get all wildcard domains (e.g., `*.example.com`).
+- `domains`: Get all domains (including wildcards).
+- `urls`: Get all full URLs (http/https).
+- `cidrs`: Get all CIDR ranges.
+- `ips`: Get all IP addresses.
+
+**Flags for `db get wildcards`:**
 
 | Flag | Description | Default |
 | --- | --- | --- |
-| `--platform` | Comma-separated platforms to filter by (e.g., `h1,bc`), or `all`. | `"all"` |
-| `--program` | Filter by a specific program handle or URL. | |
-| `--format` | Output format: `txt`, `json`, or `csv`. | `"txt"` |
-| `-o, --output` | Output flags for `txt` format (`t`=target, `d`=description, `c`=category, `u`=program URL). | `"tu"` |
-| `-d, --delimiter` | Delimiter for `txt` output. | `" "` |
-| `--oos` | Include out-of-scope targets. | `false` |
-| `--since` | Show targets added since a given RFC3339 timestamp (e.g., `2023-10-27T10:00:00Z`). | |
+| `--platform` | Filter by platform. | `"all"` |
+| `-a, --aggressive` | aggressive mode: extract root domains from URLs and include them too. | `false` |
+| `-o, --output` | Output flags (`t`=target, `u`=program URL). | `"t"` |
+| `-d, --delimiter` | Delimiter for output. | `" "` |
+
+**Example:**
+```bash
+# Get all wildcards and pipe to another tool
+bbscope db get wildcards --aggressive | subfinder
+```
 
 #### `db stats`
 
@@ -300,4 +317,46 @@ bbscope db changes --limit 10
 
 ```bash
 bbscope db print --platform it --output u | sort -u
+```
+
+**6. Poll with a Proxy**
+
+```bash
+# Great for debugging when a platform changes their API 
+bbscope poll h1 --proxy "http://127.0.0.1:8080"
+```
+
+**7. HackerOne Polling (with Auth)**
+
+```bash
+# Using flags (overrides config)
+bbscope poll h1 --user "your_user" --token "your_token"
+```
+
+**8. Bugcrowd Polling**
+
+```bash
+# Using session token (recommended)
+bbscope poll bc --token "your_crowdcontrol_session_key"
+
+# Using credentials
+bbscope poll bc --email "..." --password "..." --otp-secret "..."
+```
+
+**9. Intigriti Polling**
+
+```bash
+bbscope poll it --token "your_api_token"
+```
+
+**10. YesWeHack Polling**
+
+```bash
+bbscope poll ywh --token "your_jwt_token"
+```
+
+**11. Immunefi Polling**
+
+```bash
+bbscope poll immunefi
 ```
