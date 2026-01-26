@@ -1,5 +1,21 @@
 # bbscope
 
+# ⚠️ LEGACY BRANCH
+
+> [!WARNING]  
+> **This is the legacy version of bbscope (v1).**
+> 
+> Development has moved to the `main` branch, which hosts **bbscope v2**.
+> v2 includes major improvements like PostgreSQL support, changes monitoring, AI normalization, and more.
+> 
+> Please switch to the new version:
+> - **Repo**: [github.com/sw33tLie/bbscope](https://github.com/sw33tLie/bbscope)
+> - **Install**: `go install github.com/sw33tLie/bbscope/v2@latest`
+> 
+> This branch is kept for historical purposes and will not receive updates.
+
+---
+
 <p align="center">
   <img src="logo.svg" alt="bbscope-logo-white" width="500">
 </p>
