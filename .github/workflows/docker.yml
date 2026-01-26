@@ -5,8 +5,14 @@ on:
     branches: [ "main", "refactor/v2" ]
     tags:
       - 'v*'
+    paths-ignore:
+      - 'README.md'
+      - '*.md'
   pull_request:
     branches: [ "main", "refactor/v2" ]
+    paths-ignore:
+      - 'README.md'
+      - '*.md'
 
 jobs:
 
