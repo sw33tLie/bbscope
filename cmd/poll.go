@@ -252,8 +252,10 @@ func runPollWithPollers(cmd *cobra.Command, pollers []platforms.PlatformPoller) 
 			if !isFirstRunForPlatform {
 				printChanges(removedProgramChanges)
 			}
-			if err := db.LogChanges(ctx, removedProgramChanges); err != nil {
-				utils.Log.Warnf("Could not log removed program changes for platform %s: %v", p.Name(), err)
+			if !isFirstRunForPlatform {
+				if err := db.LogChanges(ctx, removedProgramChanges); err != nil {
+					utils.Log.Warnf("Could not log removed program changes for platform %s: %v", p.Name(), err)
+				}
 			}
 		}
 	}
@@ -403,8 +405,10 @@ func processProgramsConcurrently(ctx context.Context, cmd *cobra.Command, p plat
 				if !isFirstRunForPlatform {
 					printChanges(changes)
 				}
-				if err := db.LogChanges(ctx, changes); err != nil {
-					utils.Log.Warnf("Could not log changes for program %s: %v", pd.Url, err)
+				if !isFirstRunForPlatform {
+					if err := db.LogChanges(ctx, changes); err != nil {
+						utils.Log.Warnf("Could not log changes for program %s: %v", pd.Url, err)
+					}
 				}
 			}
 		}()
