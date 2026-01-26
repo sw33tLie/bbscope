@@ -296,10 +296,10 @@ This is a great first command to run to populate your database.
 bbscope poll --db -b -p
 ```
 
-**2. Get all wildcard targets from HackerOne and Bugcrowd**
+**2. Get all wildcards from all platforms, aggressive extraction
 
 ```bash
-bbscope db get wildcards --platform h1,bc
+bbscope db get wildcards -a
 ```
 
 **3. Get all URLs and pipe to httpx**
