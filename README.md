@@ -18,6 +18,7 @@
 > *   **AI Scope Normalization**: Use LLMs to clean up messy scope strings.
 > *   **Docker Image**: Ready-to-use image on GHCR.
 > *   **Centralized Polling**: Poll multiple platforms in one go.
+> *   **Smart Scope Extraction**: Use `db get` to fetch normalized targets by category (wildcards, cidrs, etc.).
 
 **bbscope** is a powerful scope aggregation tool for bug bounty hunters, designed to fetch, store, and manage program scopes from HackerOne, Bugcrowd, Intigriti, YesWeHack, and Immunefi right from your command line.
 
@@ -295,16 +296,16 @@ This is a great first command to run to populate your database.
 bbscope poll --db -b -p
 ```
 
-**2. Print all wildcard targets from HackerOne and Bugcrowd**
+**2. Get all wildcard targets from HackerOne and Bugcrowd**
 
 ```bash
-bbscope db print wildcards --platform h1,bc
+bbscope db get wildcards --platform h1,bc
 ```
 
-**3. Get all targets for a specific program in JSON format**
+**3. Get all URLs and pipe to httpx**
 
 ```bash
-bbscope db print --program "hackerone" --format json
+bbscope db get urls | httpx 
 ```
 
 **4. Show the 10 most recent scope changes**
@@ -313,10 +314,10 @@ bbscope db print --program "hackerone" --format json
 bbscope db changes --limit 10
 ```
 
-**5. Get a unique list of program URLs from Intigriti that have bounties**
+**5. Get all CIDRs from all platforms**
 
 ```bash
-bbscope db print --platform it --output u | sort -u
+bbscope db get cidrs
 ```
 
 **6. Poll with a Proxy**
