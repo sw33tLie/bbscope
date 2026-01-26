@@ -40,14 +40,16 @@ docker pull ghcr.io/sw33tlie/bbscope:latest
 
 **Run bbscope with Docker:**
 ```bash
-docker run --rm --pull=always ghcr.io/sw33tlie/bbscope:latest [command] [flags]
+docker run --rm ghcr.io/sw33tlie/bbscope:latest [command] [flags]
 ```
+
+**Tip:** Add `--pull=always` to the command if you want to automatically always use the latest bbscope version.
 
 **Important:** To persist your configuration across container runs, bind-mount the config file:
 
 ```bash
 # Run with config mounted
-docker run --rm --pull=always \
+docker run --rm \
   -v ~/.bbscope.yaml:/root/.bbscope.yaml \
   ghcr.io/sw33tlie/bbscope:latest poll --db -b -p
 ```
@@ -199,9 +201,27 @@ Shows the most recent scope changes (additions/removals).
 
 **Usage:** `bbscope db changes`
 
+| `--limit` | Number of recent changes to show. | `50` |
+
+#### `db find`
+
+Search for a string in current and historical scopes.
+
+**Usage:** `bbscope db find [query]`
+
+#### `db add`
+
+Add a custom target to the database manually.
+
+**Usage:** `bbscope db add --target <target> [flags]`
+
+**Flags for `db add`:**
+
 | Flag | Description | Default |
 | --- | --- | --- |
-| `--limit` | Number of recent changes to show. | `50` |
+| `-t, --target` | Target to add (can be comma-separated). | |
+| `-c, --category` | Category of the target (e.g., `wildcard`, `url`). | `"wildcard"` |
+| `-u, --program-url` | Program URL to associate with the target. | `"custom"` |
 
 ---
 
