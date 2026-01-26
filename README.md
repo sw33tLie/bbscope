@@ -80,7 +80,7 @@ docker run --rm \
 You'll need to fill in your credentials and database URL:
 
 ```yaml
-# PostgreSQL connection URL (required)
+# PostgreSQL connection URL
 db_url: "postgres://user:password@localhost:5432/bbscope?sslmode=disable"
 
 hackerone:
@@ -108,10 +108,32 @@ ai:
 
 To use bbscope's database features (like tracking changes or querying targets), you need a PostgreSQL database.
 
+**Option 1: Use an existing PostgreSQL instance**
+
 Add your connection string to `~/.bbscope.yaml`:
 
 ```yaml
 db_url: "postgres://user:password@localhost:5432/bbscope?sslmode=disable"
+```
+
+**Option 2: Quick setup with Docker**
+
+> [!IMPORTANT]
+> Replace `<YOUR_SECURE_PASSWORD>` with a strong, unique password.
+
+```bash
+docker run --name bbscope-db \
+  -e POSTGRES_USER=bbscope \
+  -e POSTGRES_PASSWORD=<YOUR_SECURE_PASSWORD> \
+  -e POSTGRES_DB=bbscope \
+  -p 5432:5432 \
+  -d postgres:alpine
+```
+
+Then add to your `~/.bbscope.yaml`:
+
+```yaml
+db_url: "postgres://bbscope:<YOUR_SECURE_PASSWORD>@localhost:5432/bbscope?sslmode=disable"
 ```
 
 Tables are automatically created on the first run.
