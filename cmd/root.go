@@ -40,7 +40,24 @@ Visit https://bbscope.com for an hourly-updated list of public scopes!`,
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
+// Execute adds all child commands to the root command and sets flags appropriately.
+// This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
+	// Legacy support: redirect "bbscope h1" -> "bbscope poll h1" (and others)
+	if len(os.Args) > 1 {
+		legacyCmds := map[string]bool{
+			"h1": true, "bc": true, "it": true, "ywh": true, "immunefi": true,
+		}
+		if legacyCmds[os.Args[1]] {
+			utils.Log.Warnf("The '%s' command is deprecated. We are automatically executing 'poll %s' for you.", os.Args[1], os.Args[1])
+			utils.Log.Warnf("Please switch to 'poll %s' as flags may change in future versions.", os.Args[1])
+
+			// Inject "poll" before the subcommand
+			newArgs := append([]string{"poll"}, os.Args[1:]...)
+			rootCmd.SetArgs(newArgs)
+		}
+	}
+
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
