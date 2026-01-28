@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -207,15 +208,31 @@ var printCmd = &cobra.Command{
 				scope.PrintProgramScope(pd, output, delimiter, oos)
 			}
 		case "json":
-			// Minimal JSON; keep it simple for now
-			fmt.Print("[")
-			for i, e := range filtered {
-				if i > 0 {
-					fmt.Print(",")
-				}
-				fmt.Printf("{\"program_url\":\"%s\",\"platform\":\"%s\",\"handle\":\"%s\",\"target\":\"%s\",\"category\":\"%s\",\"description\":\"%s\",\"in_scope\":%t}", e.ProgramURL, e.Platform, e.Handle, e.TargetNormalized, e.Category, strings.ReplaceAll(e.Description, "\"", "\\\""), e.InScope)
+			out := make([]interface{}, 0)
+			for _, e := range filtered {
+				out = append(out, struct {
+					ProgramURL  string `json:"program_url"`
+					Platform    string `json:"platform"`
+					Handle      string `json:"handle"`
+					Target      string `json:"target"`
+					Category    string `json:"category"`
+					Description string `json:"description"`
+					InScope     bool   `json:"in_scope"`
+				}{
+					ProgramURL:  e.ProgramURL,
+					Platform:    e.Platform,
+					Handle:      e.Handle,
+					Target:      e.TargetNormalized,
+					Category:    e.Category,
+					Description: e.Description,
+					InScope:     e.InScope,
+				})
 			}
-			fmt.Println("]")
+			bytes, err := json.Marshal(out)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(bytes))
 		case "csv":
 			fmt.Println("program_url,platform,handle,target,category,description,in_scope")
 			for _, e := range filtered {
