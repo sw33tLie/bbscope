@@ -93,7 +93,7 @@ func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOpti
 	jsonPrograms := gjson.Parse(bountyJSON)
 
 	for _, program := range jsonPrograms.Array() {
-		programID := gjson.Get(program.Raw, "id").String()
+		programID := gjson.Get(program.Raw, "slug").String()
 		inviteOnly := gjson.Get(program.Raw, "inviteOnly").Bool()
 
 		if programID != "" && !inviteOnly {
