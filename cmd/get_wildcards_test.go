@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/sw33tLie/bbscope/v2/pkg/storage"
-	"github.com/sw33tLie/bbscope/v2/pkg/wildcards"
+	"github.com/sw33tLie/bbscope/v2/pkg/targets"
 )
 
 func TestCollectWildcards_NonAggressiveExplicitOnly(t *testing.T) {
@@ -31,7 +31,7 @@ func TestCollectWildcards_NonAggressiveExplicitOnly(t *testing.T) {
 		},
 	}
 
-	got := wildcards.Collect(entries, wildcards.Options{Aggressive: false})
+	got := targets.CollectWildcards(entries, targets.WildcardOptions{Aggressive: false})
 	if len(got) != 1 {
 		t.Fatalf("expected 1 domain, got %d", len(got))
 	}
@@ -62,7 +62,7 @@ func TestCollectWildcardsAggressiveSkipsIPs(t *testing.T) {
 		},
 	}
 
-	got := wildcards.Collect(entries, wildcards.Options{Aggressive: true})
+	got := targets.CollectWildcards(entries, targets.WildcardOptions{Aggressive: true})
 	if len(got) != 1 {
 		t.Fatalf("expected 1 domain, got %d", len(got))
 	}
@@ -93,7 +93,7 @@ func TestCollectWildcardsAggressiveRespectsOutOfScope(t *testing.T) {
 		},
 	}
 
-	got := wildcards.Collect(entries, wildcards.Options{Aggressive: true})
+	got := targets.CollectWildcards(entries, targets.WildcardOptions{Aggressive: true})
 	if len(got) != 0 {
 		t.Fatalf("expected no domains when OOS wildcard blocks them, got %#v", got)
 	}
@@ -111,7 +111,7 @@ func TestCollectWildcardsSkipsBlacklistedSuffixes(t *testing.T) {
 		},
 	}
 
-	if got := wildcards.Collect(entries, wildcards.Options{Aggressive: false}); len(got) != 0 {
+	if got := targets.CollectWildcards(entries, targets.WildcardOptions{Aggressive: false}); len(got) != 0 {
 		t.Fatalf("expected cloudfront.net to be filtered but got %#v", got)
 	}
 }
@@ -128,7 +128,7 @@ func TestCollectWildcardsAggressiveSkipsNonDomainCategories(t *testing.T) {
 		},
 	}
 
-	got := wildcards.Collect(entries, wildcards.Options{Aggressive: true})
+	got := targets.CollectWildcards(entries, targets.WildcardOptions{Aggressive: true})
 	if len(got) != 0 {
 		t.Fatalf("android entries should be ignored in aggressive mode, got %#v", got)
 	}
@@ -158,7 +158,7 @@ func TestCollectWildcardsDeduplicatesAndSorts(t *testing.T) {
 		},
 	}
 
-	got := wildcards.Collect(entries, wildcards.Options{Aggressive: true})
+	got := targets.CollectWildcards(entries, targets.WildcardOptions{Aggressive: true})
 	programs, ok := got["example.com"]
 	if !ok || len(got) != 1 {
 		t.Fatalf("expected only example.com domain, got %#v", got)

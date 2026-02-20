@@ -1,4 +1,4 @@
-package wildcards
+package targets
 
 import (
 	"testing"
@@ -6,7 +6,7 @@ import (
 	"github.com/sw33tLie/bbscope/v2/pkg/storage"
 )
 
-func TestCollectOOS_PartialWildcards(t *testing.T) {
+func TestCollectOOSWildcards_PartialWildcards(t *testing.T) {
 	entries := []storage.Entry{
 		{
 			ProgramURL:       "https://hackerone.com/example",
@@ -22,7 +22,7 @@ func TestCollectOOS_PartialWildcards(t *testing.T) {
 		},
 	}
 
-	got := CollectOOS(entries)
+	got := CollectOOSWildcards(entries)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 OOS wildcard, got %d: %#v", len(got), got)
 	}
@@ -31,7 +31,7 @@ func TestCollectOOS_PartialWildcards(t *testing.T) {
 	}
 }
 
-func TestCollectOOS_MultiplePrograms(t *testing.T) {
+func TestCollectOOSWildcards_MultiplePrograms(t *testing.T) {
 	entries := []storage.Entry{
 		{
 			ProgramURL:       "https://hackerone.com/prog1",
@@ -47,7 +47,7 @@ func TestCollectOOS_MultiplePrograms(t *testing.T) {
 		},
 	}
 
-	got := CollectOOS(entries)
+	got := CollectOOSWildcards(entries)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 domain, got %d", len(got))
 	}
@@ -57,7 +57,7 @@ func TestCollectOOS_MultiplePrograms(t *testing.T) {
 	}
 }
 
-func TestCollectOOS_SkipsInScope(t *testing.T) {
+func TestCollectOOSWildcards_SkipsInScope(t *testing.T) {
 	entries := []storage.Entry{
 		{
 			ProgramURL:       "https://hackerone.com/example",
@@ -67,13 +67,13 @@ func TestCollectOOS_SkipsInScope(t *testing.T) {
 		},
 	}
 
-	got := CollectOOS(entries)
+	got := CollectOOSWildcards(entries)
 	if len(got) != 0 {
 		t.Fatalf("expected 0 OOS wildcards for in-scope entry, got %d", len(got))
 	}
 }
 
-func TestCollectOOS_SkipsNonWildcards(t *testing.T) {
+func TestCollectOOSWildcards_SkipsNonWildcards(t *testing.T) {
 	entries := []storage.Entry{
 		{
 			ProgramURL:       "https://hackerone.com/example",
@@ -83,13 +83,13 @@ func TestCollectOOS_SkipsNonWildcards(t *testing.T) {
 		},
 	}
 
-	got := CollectOOS(entries)
+	got := CollectOOSWildcards(entries)
 	if len(got) != 0 {
 		t.Fatalf("expected 0 OOS wildcards for non-wildcard entry, got %d", len(got))
 	}
 }
 
-func TestCollectOOS_SkipsWildcardsWithPath(t *testing.T) {
+func TestCollectOOSWildcards_SkipsWildcardsWithPath(t *testing.T) {
 	entries := []storage.Entry{
 		{
 			ProgramURL:       "https://hackerone.com/example",
@@ -99,13 +99,13 @@ func TestCollectOOS_SkipsWildcardsWithPath(t *testing.T) {
 		},
 	}
 
-	got := CollectOOS(entries)
+	got := CollectOOSWildcards(entries)
 	if len(got) != 0 {
 		t.Fatalf("expected 0 OOS wildcards for wildcard with path, got %d", len(got))
 	}
 }
 
-func TestCollectOOS_RootWildcard(t *testing.T) {
+func TestCollectOOSWildcards_RootWildcard(t *testing.T) {
 	entries := []storage.Entry{
 		{
 			ProgramURL:       "https://hackerone.com/example",
@@ -115,7 +115,7 @@ func TestCollectOOS_RootWildcard(t *testing.T) {
 		},
 	}
 
-	got := CollectOOS(entries)
+	got := CollectOOSWildcards(entries)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 OOS wildcard, got %d", len(got))
 	}
@@ -124,7 +124,7 @@ func TestCollectOOS_RootWildcard(t *testing.T) {
 	}
 }
 
-func TestCollectOOSSorted(t *testing.T) {
+func TestCollectOOSWildcardsSorted(t *testing.T) {
 	entries := []storage.Entry{
 		{
 			ProgramURL:       "https://hackerone.com/prog1",
@@ -146,7 +146,7 @@ func TestCollectOOSSorted(t *testing.T) {
 		},
 	}
 
-	results := CollectOOSSorted(entries)
+	results := CollectOOSWildcardsSorted(entries)
 	if len(results) != 3 {
 		t.Fatalf("expected 3 results, got %d", len(results))
 	}
