@@ -1,3 +1,4 @@
 bbscope
 bbscope*
 *.sqlite
+website/.env

@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bbscope
+      POSTGRES_USER: bbscope
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bbscope"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  bbscope-web:
+    build:
+      context: ..
+      dockerfile: website/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: postgres://bbscope:${POSTGRES_PASSWORD}@postgres:5432/bbscope?sslmode=disable
+      H1_USERNAME: ${H1_USERNAME:-}
+      H1_TOKEN: ${H1_TOKEN:-}
+      BC_EMAIL: ${BC_EMAIL:-}
+      BC_PASSWORD: ${BC_PASSWORD:-}
+      BC_OTP: ${BC_OTP:-}
+      IT_TOKEN: ${IT_TOKEN:-}
+      YWH_EMAIL: ${YWH_EMAIL:-}
+      YWH_PASSWORD: ${YWH_PASSWORD:-}
+      YWH_OTP: ${YWH_OTP:-}
+    command: ["serve", "--poll-interval", "${POLL_INTERVAL:-6}", "--domain", "${DOMAIN:-bbscope.com}"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - bbscope-web
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

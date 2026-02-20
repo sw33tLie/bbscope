@@ -1,0 +1,3 @@
+{$DOMAIN:bbscope.com} {
+    reverse_proxy bbscope-web:8080
+}
