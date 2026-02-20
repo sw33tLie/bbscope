@@ -196,6 +196,74 @@ func CollectSorted(entries []storage.Entry, opts Options) []Result {
 	return results
 }
 
+// OOSResult represents an out-of-scope wildcard domain with its associated programs.
+type OOSResult struct {
+	// Domain is the normalized wildcard pattern (e.g. "something.test.com"
+	// from "*.something.test.com"). This is NOT reduced to the root domain.
+	Domain      string
+	ProgramURLs []string
+}
+
+// CollectOOS extracts out-of-scope wildcard patterns from entries.
+// Unlike Collect, this preserves partial wildcards: "*.sub.example.com"
+// becomes "sub.example.com", NOT "example.com".
+func CollectOOS(entries []storage.Entry) map[string]map[string]struct{} {
+	result := make(map[string]map[string]struct{})
+
+	for _, e := range entries {
+		if e.InScope {
+			continue
+		}
+		if !strings.Contains(e.TargetNormalized, "*") {
+			continue
+		}
+		if WildcardHasPath(e.TargetNormalized) {
+			continue
+		}
+
+		normalized := NormalizeForSubdomainTools(e.TargetNormalized)
+		if normalized == "" {
+			continue
+		}
+
+		if _, exists := result[normalized]; !exists {
+			result[normalized] = make(map[string]struct{})
+		}
+		result[normalized][e.ProgramURL] = struct{}{}
+	}
+
+	return result
+}
+
+// CollectOOSSorted is a convenience function that returns sorted OOSResults
+// instead of a raw map.
+func CollectOOSSorted(entries []storage.Entry) []OOSResult {
+	domainPrograms := CollectOOS(entries)
+
+	domains := make([]string, 0, len(domainPrograms))
+	for domain := range domainPrograms {
+		domains = append(domains, domain)
+	}
+	sort.Strings(domains)
+
+	results := make([]OOSResult, 0, len(domains))
+	for _, domain := range domains {
+		programs := domainPrograms[domain]
+		programList := make([]string, 0, len(programs))
+		for programURL := range programs {
+			programList = append(programList, programURL)
+		}
+		sort.Strings(programList)
+
+		results = append(results, OOSResult{
+			Domain:      domain,
+			ProgramURLs: programList,
+		})
+	}
+
+	return results
+}
+
 // WildcardHasPath returns true if the target contains a path after the host.
 func WildcardHasPath(target string) bool {
 	schemeStripped := target
