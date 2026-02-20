@@ -16,6 +16,7 @@ import (
 	"github.com/sw33tLie/bbscope/v2/pkg/platforms"
 	bcplatform "github.com/sw33tLie/bbscope/v2/pkg/platforms/bugcrowd"
 	h1platform "github.com/sw33tLie/bbscope/v2/pkg/platforms/hackerone"
+	immunefiplatform "github.com/sw33tLie/bbscope/v2/pkg/platforms/immunefi"
 	itplatform "github.com/sw33tLie/bbscope/v2/pkg/platforms/intigriti"
 	ywhplatform "github.com/sw33tLie/bbscope/v2/pkg/platforms/yeswehack"
 	"github.com/sw33tLie/bbscope/v2/pkg/scope"
@@ -96,6 +97,15 @@ var pollCmd = &cobra.Command{
 			}
 		} else {
 			utils.Log.Info("Skipping YesWeHack: email, password, or otpsecret not found in config.")
+		}
+
+		// Immunefi
+		immunefiPoller := &immunefiplatform.Poller{}
+		authCfg := platforms.AuthConfig{}
+		if err := immunefiPoller.Authenticate(cmd.Context(), authCfg); err != nil {
+			utils.Log.Errorf("Immunefi auth failed: %v", err)
+		} else {
+			pollers = append(pollers, immunefiPoller)
 		}
 
 		if len(pollers) == 0 {
