@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sw33tLie/bbscope/v2/pkg/ai"
 	"github.com/sw33tLie/bbscope/v2/pkg/platforms"
 	bcplatform "github.com/sw33tLie/bbscope/v2/pkg/platforms/bugcrowd"
 	h1platform "github.com/sw33tLie/bbscope/v2/pkg/platforms/hackerone"
@@ -30,6 +31,7 @@ type PollerStatus struct {
 var (
 	pollerStatuses   = make(map[string]*PollerStatus)
 	pollerStatusesMu sync.RWMutex
+	aiEnabled        bool
 )
 
 func setPollerStatus(s *PollerStatus) {
@@ -54,14 +56,32 @@ func GetPollerStatuses() map[string]*PollerStatus {
 func startBackgroundPoller(cfg ServerConfig) {
 	log.Printf("Starting background poller (interval: %d hours)", cfg.PollInterval)
 
+	// Create AI normalizer if API key is configured
+	var aiNormalizer ai.Normalizer
+	if cfg.OpenAIAPIKey != "" {
+		n, err := ai.NewNormalizer(ai.Config{
+			APIKey: cfg.OpenAIAPIKey,
+			Model:  cfg.OpenAIModel,
+		})
+		if err != nil {
+			log.Printf("Poller: Failed to create AI normalizer: %v (continuing without AI)", err)
+		} else {
+			aiNormalizer = n
+			aiEnabled = true
+			log.Println("Poller: AI normalization enabled")
+		}
+	} else {
+		log.Println("Poller: AI normalization disabled (OPENAI_API_KEY not set)")
+	}
+
 	// Run immediately on startup
-	runPollCycle()
+	runPollCycle(aiNormalizer)
 
 	ticker := time.NewTicker(time.Duration(cfg.PollInterval) * time.Hour)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		runPollCycle()
+		runPollCycle(aiNormalizer)
 	}
 }
 
@@ -135,7 +155,7 @@ func buildPollers() []platforms.PlatformPoller {
 }
 
 // runPollCycle runs one complete poll cycle across all configured platforms.
-func runPollCycle() {
+func runPollCycle(aiNormalizer ai.Normalizer) {
 	log.Println("Starting poll cycle...")
 	start := time.Now()
 
@@ -150,7 +170,7 @@ func runPollCycle() {
 
 	for _, p := range pollers {
 		pStart := time.Now()
-		err := pollPlatform(ctx, p, opts)
+		err := pollPlatform(ctx, p, opts, aiNormalizer)
 		setPollerStatus(&PollerStatus{
 			Platform:  p.Name(),
 			StartedAt: pStart,
@@ -167,7 +187,7 @@ func runPollCycle() {
 }
 
 // pollPlatform polls a single platform: lists handles, fetches scopes, upserts to DB.
-func pollPlatform(ctx context.Context, p platforms.PlatformPoller, opts platforms.PollOptions) error {
+func pollPlatform(ctx context.Context, p platforms.PlatformPoller, opts platforms.PollOptions, aiNormalizer ai.Normalizer) error {
 	log.Printf("Poller: Fetching scope from %s...", p.Name())
 
 	isFirstRun := false
@@ -202,7 +222,7 @@ func pollPlatform(ctx context.Context, p platforms.PlatformPoller, opts platform
 	}
 
 	// Process programs concurrently
-	polledProgramURLs := processProgramsConcurrently(ctx, p, handles, opts, ignoredPrograms, isFirstRun)
+	polledProgramURLs := processProgramsConcurrently(ctx, p, handles, opts, ignoredPrograms, isFirstRun, aiNormalizer)
 
 	// Sync platform programs (mark missing programs as disabled)
 	removedProgramChanges, err := db.SyncPlatformPrograms(ctx, p.Name(), polledProgramURLs)
@@ -220,7 +240,7 @@ func pollPlatform(ctx context.Context, p platforms.PlatformPoller, opts platform
 }
 
 // processProgramsConcurrently fetches and processes programs using a worker pool.
-func processProgramsConcurrently(ctx context.Context, p platforms.PlatformPoller, handles []string, opts platforms.PollOptions, ignoredPrograms map[string]bool, isFirstRun bool) []string {
+func processProgramsConcurrently(ctx context.Context, p platforms.PlatformPoller, handles []string, opts platforms.PollOptions, ignoredPrograms map[string]bool, isFirstRun bool, aiNormalizer ai.Normalizer) []string {
 	if len(handles) == 0 {
 		return []string{}
 	}
@@ -249,7 +269,7 @@ func processProgramsConcurrently(ctx context.Context, p platforms.PlatformPoller
 				polledProgramURLs = append(polledProgramURLs, pd.Url)
 				mu.Unlock()
 
-				// Build storage items (no AI normalization in background poller)
+				// Build storage items
 				var allItems []storage.TargetItem
 				for _, s := range pd.InScope {
 					allItems = append(allItems, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: true, IsBBP: s.IsBBP})
@@ -258,7 +278,13 @@ func processProgramsConcurrently(ctx context.Context, p platforms.PlatformPoller
 					allItems = append(allItems, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: false, IsBBP: s.IsBBP})
 				}
 
-				entries, err := storage.BuildEntries(pd.Url, p.Name(), h, allItems)
+				// Apply AI normalization if available
+				processedItems := allItems
+				if aiNormalizer != nil && len(allItems) > 0 {
+					processedItems = applyAINormalization(ctx, aiNormalizer, pd.Url, p.Name(), h, allItems)
+				}
+
+				entries, err := storage.BuildEntries(pd.Url, p.Name(), h, processedItems)
 				if err != nil {
 					log.Printf("Poller: Failed to build entries for %s: %v", pd.Url, err)
 					continue
@@ -290,4 +316,54 @@ func processProgramsConcurrently(ctx context.Context, p platforms.PlatformPoller
 	wg.Wait()
 
 	return polledProgramURLs
+}
+
+// applyAINormalization runs AI normalization on items, reusing existing AI enhancements
+// from the database to avoid redundant API calls.
+func applyAINormalization(ctx context.Context, normalizer ai.Normalizer, programURL, platform, handle string, allItems []storage.TargetItem) []storage.TargetItem {
+	// Load existing AI enhancements to avoid re-processing unchanged targets
+	aiEnhancements, err := db.ListAIEnhancements(ctx, programURL)
+	if err != nil {
+		log.Printf("Poller: Failed to load AI enhancements for %s: %v", programURL, err)
+		aiEnhancements = nil
+	}
+
+	var processedItems []storage.TargetItem
+	var aiCandidates []storage.TargetItem
+
+	// Separate items with existing AI data from those needing normalization
+	for _, item := range allItems {
+		key := storage.BuildTargetCategoryKey(item.URI, item.Category)
+		if variants, ok := aiEnhancements[key]; ok && len(variants) > 0 {
+			clone := item
+			clone.Variants = append([]storage.TargetVariant(nil), variants...)
+			processedItems = append(processedItems, clone)
+			continue
+		}
+		aiCandidates = append(aiCandidates, item)
+	}
+
+	// Normalize only new/changed targets
+	if len(aiCandidates) > 0 {
+		normalized, err := normalizer.NormalizeTargets(ctx, ai.ProgramInfo{
+			ProgramURL: programURL,
+			Platform:   platform,
+			Handle:     handle,
+		}, aiCandidates)
+		if err != nil {
+			log.Printf("Poller: AI normalization failed for %s: %v", programURL, err)
+			processedItems = append(processedItems, aiCandidates...)
+		} else if len(normalized) > 0 {
+			processedItems = append(processedItems, normalized...)
+		} else {
+			processedItems = append(processedItems, aiCandidates...)
+		}
+	}
+
+	// Fallback: if nothing was processed, return raw items
+	if len(processedItems) == 0 {
+		return allItems
+	}
+
+	return processedItems
 }

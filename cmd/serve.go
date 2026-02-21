@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+
 	"github.com/spf13/cobra"
 	"github.com/sw33tLie/bbscope/v2/website/pkg/core"
 )
@@ -24,6 +26,8 @@ var serveCmd = &cobra.Command{
 			PollInterval: pollInterval,
 			ListenAddr:   listenAddr,
 			Domain:       domain,
+			OpenAIAPIKey: os.Getenv("OPENAI_API_KEY"),
+			OpenAIModel:  os.Getenv("OPENAI_MODEL"),
 		})
 	},
 }

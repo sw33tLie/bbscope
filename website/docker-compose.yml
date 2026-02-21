@@ -33,6 +33,8 @@ services:
       YWH_EMAIL: ${YWH_EMAIL:-}
       YWH_PASSWORD: ${YWH_PASSWORD:-}
       YWH_OTP: ${YWH_OTP:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
     command: ["serve", "--poll-interval", "${POLL_INTERVAL:-6}", "--domain", "${DOMAIN:-bbscope.com}"]
 
   caddy:

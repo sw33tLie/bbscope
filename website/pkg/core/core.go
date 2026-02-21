@@ -24,6 +24,8 @@ type ServerConfig struct {
 	PollInterval int
 	ListenAddr   string
 	Domain       string
+	OpenAIAPIKey string
+	OpenAIModel  string
 }
 
 var db *storage.DB
