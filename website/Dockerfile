@@ -14,7 +14,8 @@ RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 COPY --from=builder /bbscope .
-COPY --chmod=644 website/static ./website/static
+COPY website/static ./website/static
+RUN chmod -R a+rX ./website/static
 
 EXPOSE 8080
 

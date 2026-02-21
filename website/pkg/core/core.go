@@ -398,8 +398,7 @@ func FooterEl() g.Node {
 						Class("text-slate-500 hover:text-slate-300 transition-colors duration-200 text-sm"),
 						g.Text("GitHub"),
 					),
-					A(Href("#privacy"), Class("text-slate-500 hover:text-slate-300 transition-colors duration-200 text-sm"), g.Text("Privacy")),
-					A(Href("#terms"), Class("text-slate-500 hover:text-slate-300 transition-colors duration-200 text-sm"), g.Text("Terms")),
+
 				),
 			),
 		),
