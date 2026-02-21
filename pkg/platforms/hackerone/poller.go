@@ -52,6 +52,9 @@ func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOpti
 			continue
 		}
 
+		if res.StatusCode == 400 && strings.Contains(res.BodyString, "\"Invalid Parameter\"") {
+			break // API pagination limit reached, return what we have
+		}
 		if res.StatusCode != 200 {
 			return nil, fmt.Errorf("fetching failed. Got status Code: %d", res.StatusCode)
 		}
