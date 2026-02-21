@@ -42,6 +42,7 @@ type UpdateEntry struct {
 	Asset            UpdateEntryAsset
 	ProgramURL       string
 	Platform         string
+	Handle           string
 	Timestamp        time.Time
 	AssociatedAssets []UpdateEntryAsset // Populated during processing for program_added/removed
 }
@@ -92,6 +93,7 @@ func loadUpdatesFromDB() ([]UpdateEntry, error) {
 			Asset:      UpdateEntryAsset{Category: category, Value: target},
 			ProgramURL: programURL,
 			Platform:   c.Platform,
+			Handle:     c.Handle,
 			Timestamp:  c.OccurredAt,
 		})
 	}
@@ -974,23 +976,6 @@ func robotsTxtHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Sitemap: https://%s/sitemap.xml\n", serverDomain)
 }
 
-// Helper to make change type more readable for display
-func formatDisplayChangeType(changeType string) string {
-	switch changeType {
-	case "program_added":
-		return "Program Added"
-	case "program_removed":
-		return "Program Removed"
-	case "asset_added":
-		return "Asset Added"
-	case "asset_removed":
-		return "Asset Removed"
-	default:
-		return strings.ReplaceAll(strings.Title(strings.ReplaceAll(changeType, "_", " ")), " ", "")
-	}
-}
-
-
 // truncateMiddle shortens a string by replacing the middle part with ellipsis
 // if it exceeds maxLength.
 func truncateMiddle(s string, maxLength int) string {
@@ -1060,6 +1045,43 @@ func Run(cfg ServerConfig) error {
 	return http.ListenAndServe(listenAddr, nil)
 }
 
+// changeTypeBadge renders a colored badge for the change type.
+func changeTypeBadge(changeType string) g.Node {
+	var label, colors string
+	switch changeType {
+	case "program_added":
+		label = "Program Added"
+		colors = "bg-emerald-900/50 text-emerald-300 border border-emerald-800"
+	case "program_removed":
+		label = "Program Removed"
+		colors = "bg-red-900/50 text-red-300 border border-red-800"
+	case "asset_added":
+		label = "Added"
+		colors = "bg-emerald-900/50 text-emerald-300 border border-emerald-800"
+	case "asset_removed":
+		label = "Removed"
+		colors = "bg-red-900/50 text-red-300 border border-red-800"
+	default:
+		label = changeType
+		colors = "bg-slate-700 text-slate-300"
+	}
+	return Span(Class("inline-block px-2 py-0.5 text-xs font-medium rounded "+colors), g.Text(label))
+}
+
+// scopeBadge renders an in-scope or out-of-scope badge.
+func scopeBadge(scopeType string) g.Node {
+	if scopeType == "" {
+		return Span(Class("text-slate-500 text-xs"), g.Text("—"))
+	}
+	colors := "bg-slate-700 text-slate-400 border border-slate-600"
+	if scopeType == "In Scope" {
+		colors = "bg-emerald-900/30 text-emerald-400 border border-emerald-800"
+	} else if scopeType == "Out of Scope" {
+		colors = "bg-slate-800 text-slate-400 border border-slate-700"
+	}
+	return Span(Class("inline-block px-2 py-0.5 text-xs font-medium rounded "+colors), g.Text(scopeType))
+}
+
 // UpdatesContent renders the main content for the /updates page.
 func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentPerPage int, currentSearch string, isGoogleBot bool, currentPlatform string) g.Node {
 	pageContent := []g.Node{
@@ -1069,19 +1091,17 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 	}
 
 	// Search controls
-	// Original Form class was: "flex flex-col sm:flex-row justify-between items-center mb-4 gap-4"
-	// We'll adopt classes similar to the /scope page's search form for better responsive behavior.
-	controlsHeader := Form(Method("GET"), Action("/updates"), Class("flex flex-col sm:flex-row gap-2 items-stretch sm:items-center mb-4"), // MODIFIED CLASS
+	controlsHeader := Form(Method("GET"), Action("/updates"), Class("flex flex-col sm:flex-row gap-2 items-stretch sm:items-center mb-6"),
 		Input(
 			Type("text"),
 			Name("search"),
 			Placeholder("Search updates..."),
 			Value(currentSearch),
-			Class("flex-1 px-4 py-2 border border-slate-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent shadow-sm bg-slate-800 text-slate-200 placeholder-slate-500"), // flex-1 allows input to grow in flex-row
+			Class("flex-1 px-4 py-2 border border-slate-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent shadow-sm bg-slate-800 text-slate-200 placeholder-slate-500"),
 		),
 		Button(
 			Type("submit"),
-			Class("px-6 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-500 transition-colors shadow-sm"), // items-stretch on Form will handle width on mobile
+			Class("px-6 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-500 transition-colors shadow-sm"),
 			g.Text("Search"),
 		),
 		Input(Type("hidden"), Name("perPage"), Value(strconv.Itoa(currentPerPage))),
@@ -1093,129 +1113,174 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 	if len(updates) == 0 {
 		noResultsMsg := "No updates to display."
 		if currentSearch != "" {
-			noResultsMsg = fmt.Sprintf("No updates found for search '%s'.", currentSearch) // Updated message
+			noResultsMsg = fmt.Sprintf("No updates found for search '%s'.", currentSearch)
 		}
 		tableRows = append(tableRows,
-			Tr(Td(ColSpan("6"), Class("text-center py-10 text-slate-400"), g.Text(noResultsMsg))),
+			Tr(Td(ColSpan("7"), Class("text-center py-10 text-slate-400"), g.Text(noResultsMsg))),
 		)
 	} else {
 		for i, entry := range updates {
-			rowID := fmt.Sprintf("update-row-%d-%d", currentPage, i)
 			detailsID := fmt.Sprintf("update-details-%d-%d", currentPage, i)
 			iconID := fmt.Sprintf("update-icon-%d-%d", currentPage, i)
 
 			isProgramLevelChange := entry.Type == "program_added" || entry.Type == "program_removed"
 
-			var assetDisplay g.Node
-			var firstCell g.Node
+			rowClasses := "border-b border-slate-700/50 hover:bg-slate-800/70 transition-colors"
+			if i%2 == 1 {
+				rowClasses += " bg-slate-800/30"
+			}
+
+			// Build program link — link to internal program page if handle is available
+			var programCell g.Node
+			if entry.Handle != "" {
+				internalURL := fmt.Sprintf("/program/%s/%s",
+					url.PathEscape(strings.ToLower(entry.Platform)),
+					url.PathEscape(entry.Handle),
+				)
+				programCell = Td(Class("px-4 py-3 text-sm"),
+					Div(Class("flex items-center gap-2"),
+						A(Href(entry.ProgramURL), Target("_blank"), Rel("noopener noreferrer"),
+							Class("text-slate-500 hover:text-cyan-400 transition-colors flex-shrink-0"),
+							g.Attr("title", "Open on "+capitalizedPlatform(entry.Platform)),
+							g.If(isProgramLevelChange, g.Attr("onclick", "event.stopPropagation();")),
+							g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>`),
+						),
+						A(Href(internalURL),
+							Class("text-cyan-400 hover:text-cyan-300 hover:underline transition-colors"),
+							g.If(isProgramLevelChange, g.Attr("onclick", "event.stopPropagation();")),
+							g.Text(entry.Handle),
+						),
+					),
+				)
+			} else {
+				programCell = Td(Class("px-4 py-3 text-sm"),
+					A(Href(entry.ProgramURL), Target("_blank"), Rel("noopener noreferrer"),
+						Class("text-cyan-400 hover:text-cyan-300 hover:underline transition-colors"),
+						g.Attr("title", entry.ProgramURL),
+						g.If(isProgramLevelChange, g.Attr("onclick", "event.stopPropagation();")),
+						g.Text(truncateMiddle(entry.ProgramURL, 40)),
+					),
+				)
+			}
 
 			if isProgramLevelChange {
 				expanderIcon := "+"
 				if isGoogleBot {
 					expanderIcon = "-"
 				}
-				// For program_added/removed, show a summary and make it expandable
-				firstCell = Td(Class("px-2 py-3 text-center"),
-					Span(ID(iconID), Class("expand-icon font-mono text-lg text-cyan-400 hover:text-cyan-300"), g.Text(expanderIcon)),
-				)
-				assetDisplay = g.Text(formatDisplayChangeType(entry.Type)) // "Program Added" or "Program Removed"
-			} else {
-				// For asset_added/removed, show the asset directly with type prefix
-				firstCell = Td(Class("px-2 py-3")) // Empty cell for alignment
-
-				changeTypeDisplay := formatDisplayChangeType(entry.Type) // "Asset Added" or "Asset Removed"
-				assetCategory := entry.Asset.Category
-				if assetCategory == "" {
-					assetCategory = "N/A"
-				}
-				// Construct the display string: "Asset Added: CATEGORY: VALUE"
-				assetDisplay = Div(
-					Strong(Class("text-slate-300"), g.Text(changeTypeDisplay+": "+strings.ToUpper(assetCategory)+": ")),
-					Span(Class("text-slate-200 break-all"), g.Text(entry.Asset.Value)),
-				)
-			}
-
-			rowClasses := "border-b border-slate-700/50 hover:bg-slate-800/70 transition-colors"
-			if i%2 == 1 {
-				rowClasses += " bg-slate-800/30"
-			}
-			var rowOnClick g.Node // Changed from g.AttrBuilder
-			if isProgramLevelChange {
 				rowClasses += " cursor-pointer"
-				rowOnClick = g.Attr("onclick", fmt.Sprintf("toggleScopeDetails('%s', '%s')", detailsID, iconID))
-			}
 
-			tableRows = append(tableRows,
-				Tr(Class(rowClasses), rowOnClick, ID(rowID),
-					firstCell, // Expander or empty cell
-					Td(Class("px-4 py-3 text-sm"), assetDisplay),
-					Td(Class("px-4 py-3 text-sm text-slate-300"), g.Text(entry.ScopeType)),
-					Td(Class("px-4 py-3 text-sm"),
-						A(Href(entry.ProgramURL), Target("_blank"), Rel("noopener noreferrer"),
-							Class("text-cyan-400 hover:text-cyan-300 hover:underline"),
-							g.Attr("title", entry.ProgramURL),
-							g.If(isProgramLevelChange, g.Attr("onclick", "event.stopPropagation();")),
-							g.Text(truncateMiddle(entry.ProgramURL, 50)),
+				tableRows = append(tableRows,
+					Tr(Class(rowClasses),
+						g.Attr("onclick", fmt.Sprintf("toggleScopeDetails('%s', '%s')", detailsID, iconID)),
+						// Change type
+						Td(Class("px-4 py-3 text-sm"),
+							Div(Class("flex items-center gap-2"),
+								Span(ID(iconID), Class("font-mono text-sm text-cyan-400 hover:text-cyan-300 flex-shrink-0"), g.Text(expanderIcon)),
+								changeTypeBadge(entry.Type),
+							),
 						),
+						// Asset (empty for program-level)
+						Td(Class("px-4 py-3 text-sm text-slate-500"), g.Text("—")),
+						// Category (empty for program-level)
+						Td(Class("px-4 py-3 text-sm text-slate-500"), g.Text("—")),
+						// Scope (empty for program-level)
+						Td(Class("px-4 py-3 text-sm text-slate-500"), g.Text("—")),
+						// Program
+						programCell,
+						// Platform
+						Td(Class("px-4 py-3 text-sm"), platformBadge(entry.Platform)),
+						// Time
+						Td(Class("px-4 py-3 text-sm text-slate-400 whitespace-nowrap"), g.Text(entry.Timestamp.Format("2006-01-02 15:04"))),
 					),
-					Td(Class("px-4 py-3 text-sm text-slate-300"), g.Text(entry.Platform)),
-					Td(Class("px-4 py-3 text-sm text-slate-300"), g.Text(entry.Timestamp.Format("2006-01-02 15:04"))),
-				),
-			)
+				)
 
-			if isProgramLevelChange {
+				// Expandable details row
 				detailsRowClass := "hidden bg-slate-800/50"
 				if isGoogleBot {
-					detailsRowClass = "bg-slate-800/50" // Not hidden
+					detailsRowClass = "bg-slate-800/50"
 				}
 
 				var detailsRowContent g.Node
 				if len(entry.AssociatedAssets) > 0 {
-					detailsContentNodes := []g.Node{}
-					detailsContentNodes = append(detailsContentNodes, H4(Class("font-semibold text-slate-300 mb-1 text-base pt-2"), g.Text("Associated Assets:")))
-					assetListItems := []g.Node{}
+					var assetItems []g.Node
 					for _, asset := range entry.AssociatedAssets {
-						assetText := asset.Value
-						if asset.Category != "" {
-							assetText = fmt.Sprintf("%s: %s", strings.ToUpper(asset.Category), asset.Value)
+						cat := strings.ToUpper(asset.Category)
+						if cat == "" {
+							cat = "OTHER"
 						}
-						assetListItems = append(assetListItems, Li(Class("ml-4 text-sm text-slate-400 py-0.5"), g.Text(assetText)))
+						assetItems = append(assetItems,
+							Div(Class("flex items-center gap-2 py-1"),
+								categoryBadge(cat),
+								Span(Class("text-sm text-slate-300 break-all"), g.Text(asset.Value)),
+							),
+						)
 					}
-					detailsContentNodes = append(detailsContentNodes, Ul(Class("list-disc list-inside mb-2"), g.Group(assetListItems)))
-					detailsRowContent = g.Group(detailsContentNodes)
+					detailsRowContent = Div(
+						H4(Class("font-semibold text-slate-300 text-sm mb-2"), g.Text("Associated Assets:")),
+						Div(Class("space-y-0.5"), g.Group(assetItems)),
+					)
 				} else {
-					// Case where a program was added/removed but somehow no assets were logged with it (edge case)
 					detailsRowContent = P(Class("text-sm text-slate-400 py-2"), g.Text("No specific asset details were logged for this program change."))
 				}
 
-				detailsRow := Tr(
-					ID(detailsID),
-					Class(detailsRowClass), // Use computed class
-					Td(
-						ColSpan("6"), // Span all 6 columns
-						Class("p-0"),
-						Div(Class("p-3 border-t border-b border-slate-700"),
-							Div(Class("p-2 rounded bg-slate-900 shadow-inner"),
-								detailsRowContent,
+				tableRows = append(tableRows,
+					Tr(ID(detailsID), Class(detailsRowClass),
+						Td(ColSpan("7"), Class("p-0"),
+							Div(Class("p-3 border-t border-b border-slate-700"),
+								Div(Class("p-3 rounded bg-slate-900/80 shadow-inner"),
+									detailsRowContent,
+								),
 							),
 						),
 					),
 				)
-				tableRows = append(tableRows, detailsRow)
+			} else {
+				// Asset-level change row
+				assetCategory := entry.Asset.Category
+				if assetCategory == "" {
+					assetCategory = "OTHER"
+				}
+
+				tableRows = append(tableRows,
+					Tr(Class(rowClasses),
+						// Change type
+						Td(Class("px-4 py-3 text-sm"),
+							changeTypeBadge(entry.Type),
+						),
+						// Asset
+						Td(Class("px-4 py-3 text-sm text-slate-200 break-all"), g.Text(entry.Asset.Value)),
+						// Category
+						Td(Class("px-4 py-3 text-sm"),
+							categoryBadge(assetCategory),
+						),
+						// Scope
+						Td(Class("px-4 py-3 text-sm"),
+							scopeBadge(entry.ScopeType),
+						),
+						// Program
+						programCell,
+						// Platform
+						Td(Class("px-4 py-3 text-sm"), platformBadge(entry.Platform)),
+						// Time
+						Td(Class("px-4 py-3 text-sm text-slate-400 whitespace-nowrap"), g.Text(entry.Timestamp.Format("2006-01-02 15:04"))),
+					),
+				)
 			}
 		}
 	}
 
-	table := Div(Class("overflow-x-auto shadow-lg shadow-slate-950/50 rounded-lg mt-0 border border-slate-700"),
-		Table(Class("min-w-full divide-y divide-slate-700 table-fixed"),
+	table := Div(Class("overflow-x-auto shadow-lg shadow-slate-950/50 rounded-lg border border-slate-700"),
+		Table(Class("min-w-full divide-y divide-slate-700"),
 			THead(Class("bg-slate-800"),
 				Tr(
-					Th(Class("px-2 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-10")), // Expander column
-					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-2/6"), g.Text("Asset / Change")),
-					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-1/12"), g.Text("Scope Type")),
-					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-2/6"), g.Text("Program URL")),
-					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-1/12"), g.Text("Platform")),
-					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-1/6"), g.Text("Timestamp")),
+					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider"), g.Text("Change")),
+					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider"), g.Text("Asset")),
+					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-28"), g.Text("Category")),
+					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-28"), g.Text("Scope")),
+					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider"), g.Text("Program")),
+					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-28"), g.Text("Platform")),
+					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-36"), g.Text("Time")),
 				),
 			),
 			TBody(Class("bg-slate-900 divide-y divide-slate-700"),

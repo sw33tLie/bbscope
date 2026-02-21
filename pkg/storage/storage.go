@@ -1310,7 +1310,7 @@ func (d *DB) GetStats(ctx context.Context) ([]PlatformStats, error) {
 		FROM
 			programs p JOIN effective_targets et ON p.id = et.program_id
 		WHERE
-			p.is_ignored = 0
+			p.is_ignored = 0 AND p.disabled = 0
 		GROUP BY
 			p.platform
 		ORDER BY
