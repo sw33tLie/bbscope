@@ -74,12 +74,13 @@ type ProgramListOptions struct {
 
 // ProgramListEntry is a program with aggregated target counts.
 type ProgramListEntry struct {
-	Platform        string
-	Handle          string
-	URL             string
-	InScopeCount    int
-	OutOfScopeCount int
-	IsBBP           bool
+	Platform        string   `json:"platform"`
+	Handle          string   `json:"handle"`
+	URL             string   `json:"url"`
+	InScopeCount    int      `json:"in_scope_count"`
+	OutOfScopeCount int      `json:"out_of_scope_count"`
+	IsBBP           bool     `json:"is_bbp"`
+	Targets         []string `json:"targets,omitempty"` // target display names for search
 }
 
 // ProgramListResult holds paginated results.
@@ -93,18 +94,117 @@ type ProgramListResult struct {
 
 // ProgramTarget represents a single target within a program detail view.
 type ProgramTarget struct {
-	TargetDisplay string // AI-normalized if available, else raw
-	TargetRaw     string
-	Category      string
-	Description   string
-	InScope       bool
-	IsBBP         bool
+	TargetDisplay string `json:"target"`     // AI-normalized if available, else raw
+	TargetRaw     string `json:"target_raw"`
+	Category      string `json:"category"`
+	Description   string `json:"description"`
+	InScope       bool   `json:"in_scope"`
+	IsBBP         bool   `json:"is_bbp"`
 }
 
 // ProgramSlug holds the platform and handle for URL generation.
 type ProgramSlug struct {
 	Platform string
 	Handle   string
+}
+
+// ListAllProgramsFlat returns all active, non-ignored programs with aggregated target counts
+// and target display names. When rawMode is true, AI enhancements are ignored and only raw
+// target data is used for names, counts, and scope status.
+func (d *DB) ListAllProgramsFlat(ctx context.Context, rawMode bool) ([]ProgramListEntry, error) {
+	var query string
+	if rawMode {
+		query = `
+			SELECT p.id, p.platform, p.handle, p.url,
+				COALESCE(SUM(CASE WHEN t.in_scope = 1 THEN 1 ELSE 0 END), 0) AS in_scope_count,
+				COALESCE(SUM(CASE WHEN t.in_scope = 0 THEN 1 ELSE 0 END), 0) AS out_of_scope_count,
+				COALESCE(MAX(t.is_bbp), 0) AS has_bbp
+			FROM programs p
+			LEFT JOIN targets_raw t ON t.program_id = p.id
+			WHERE p.disabled = 0 AND p.is_ignored = 0
+			GROUP BY p.id, p.platform, p.handle, p.url
+			ORDER BY LOWER(p.handle) ASC
+		`
+	} else {
+		query = `
+			SELECT p.id, p.platform, p.handle, p.url,
+				COALESCE(SUM(CASE WHEN COALESCE(a.in_scope, t.in_scope) = 1 THEN 1 ELSE 0 END), 0) AS in_scope_count,
+				COALESCE(SUM(CASE WHEN COALESCE(a.in_scope, t.in_scope) = 0 THEN 1 ELSE 0 END), 0) AS out_of_scope_count,
+				COALESCE(MAX(t.is_bbp), 0) AS has_bbp
+			FROM programs p
+			LEFT JOIN targets_raw t ON t.program_id = p.id
+			LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
+			WHERE p.disabled = 0 AND p.is_ignored = 0
+			GROUP BY p.id, p.platform, p.handle, p.url
+			ORDER BY LOWER(p.handle) ASC
+		`
+	}
+
+	rows, err := d.sql.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("listing all programs flat: %w", err)
+	}
+	defer rows.Close()
+
+	var programs []ProgramListEntry
+	idToIdx := make(map[int64]int) // program DB id -> index in programs slice
+	for rows.Next() {
+		var p ProgramListEntry
+		var id int64
+		var hasBBP int
+		if err := rows.Scan(&id, &p.Platform, &p.Handle, &p.URL, &p.InScopeCount, &p.OutOfScopeCount, &hasBBP); err != nil {
+			return nil, err
+		}
+		p.IsBBP = hasBBP == 1
+		idToIdx[id] = len(programs)
+		programs = append(programs, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Fetch all target display names for active programs
+	var targetQuery string
+	if rawMode {
+		targetQuery = `
+			SELECT t.program_id, t.target AS target_display
+			FROM targets_raw t
+			JOIN programs p ON t.program_id = p.id
+			WHERE p.disabled = 0 AND p.is_ignored = 0
+			ORDER BY t.program_id
+		`
+	} else {
+		targetQuery = `
+			SELECT t.program_id,
+				COALESCE(NULLIF(a.target_ai_normalized, ''), t.target) AS target_display
+			FROM targets_raw t
+			JOIN programs p ON t.program_id = p.id
+			LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
+			WHERE p.disabled = 0 AND p.is_ignored = 0
+			ORDER BY t.program_id
+		`
+	}
+	tRows, err := d.sql.QueryContext(ctx, targetQuery)
+	if err != nil {
+		return nil, fmt.Errorf("listing target names: %w", err)
+	}
+	defer tRows.Close()
+
+	for tRows.Next() {
+		var programID int64
+		var targetDisplay string
+		if err := tRows.Scan(&programID, &targetDisplay); err != nil {
+			return nil, err
+		}
+		if idx, ok := idToIdx[programID]; ok {
+			programs[idx].Targets = append(programs[idx].Targets, targetDisplay)
+		}
+	}
+	if err := tRows.Err(); err != nil {
+		return nil, err
+	}
+
+	return programs, nil
 }
 
 // ListProgramsPaginated returns a paginated list of programs with aggregated target counts.
@@ -268,22 +368,39 @@ func (d *DB) GetProgramByPlatformHandle(ctx context.Context, platform, handle st
 	return &p, nil
 }
 
-// ListProgramTargets returns all targets for a specific program, with AI enhancements applied.
-func (d *DB) ListProgramTargets(ctx context.Context, programID int64) ([]ProgramTarget, error) {
-	query := `
-		SELECT
-			COALESCE(NULLIF(a.target_ai_normalized, ''), t.target) AS target_display,
-			t.target AS target_raw,
-			COALESCE(NULLIF(a.category, ''), t.category) AS category,
-			COALESCE(t.description, '') AS description,
-			COALESCE(a.in_scope, t.in_scope) AS in_scope,
-			t.is_bbp
-		FROM targets_raw t
-		LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
-		WHERE t.program_id = $1
-		ORDER BY COALESCE(a.in_scope, t.in_scope) DESC,
-			COALESCE(NULLIF(a.target_ai_normalized, ''), t.target)
-	`
+// ListProgramTargets returns all targets for a specific program.
+// When rawMode is true, AI enhancements are ignored.
+func (d *DB) ListProgramTargets(ctx context.Context, programID int64, rawMode bool) ([]ProgramTarget, error) {
+	var query string
+	if rawMode {
+		query = `
+			SELECT
+				t.target AS target_display,
+				t.target AS target_raw,
+				t.category,
+				COALESCE(t.description, '') AS description,
+				t.in_scope,
+				t.is_bbp
+			FROM targets_raw t
+			WHERE t.program_id = $1
+			ORDER BY t.in_scope DESC, t.target
+		`
+	} else {
+		query = `
+			SELECT
+				COALESCE(NULLIF(a.target_ai_normalized, ''), t.target) AS target_display,
+				t.target AS target_raw,
+				COALESCE(NULLIF(a.category, ''), t.category) AS category,
+				COALESCE(t.description, '') AS description,
+				COALESCE(a.in_scope, t.in_scope) AS in_scope,
+				t.is_bbp
+			FROM targets_raw t
+			LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
+			WHERE t.program_id = $1
+			ORDER BY COALESCE(a.in_scope, t.in_scope) DESC,
+				COALESCE(NULLIF(a.target_ai_normalized, ''), t.target)
+		`
+	}
 
 	rows, err := d.sql.QueryContext(ctx, query, programID)
 	if err != nil {

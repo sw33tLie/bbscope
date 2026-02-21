@@ -406,218 +406,47 @@ func FooterEl() g.Node {
 	)
 }
 
-// ScopeContent renders the full /scope page content (used for non-HTMX requests).
-func ScopeContent(result *storage.ProgramListResult, loadErr error, search, sortBy, sortOrder string, perPage int, platform, programType string) g.Node {
-	pageContent := []g.Node{
-		Div(Class("flex flex-col md:flex-row md:items-center gap-3 mb-4"),
-			Div(Class("flex items-center gap-3"),
-				H1(Class("text-2xl md:text-3xl font-bold text-white"), g.Text("Scope Data")),
-				scopePlatformFilterDropdown(platform, perPage, programType),
-			),
-			Div(Class("flex-1"),
-				scopeSearchBar(search, sortBy, sortOrder, perPage, platform, programType),
-			),
-		),
-		scopeProgramTypeFilter(programType, perPage, platform),
-	}
+// ScopeContent renders the /scope page shell with client-side controls and an empty container
+// that gets populated by scope-table.js via the /api/v1/programs JSON API.
+func ScopeContent() g.Node {
+	// Build the platform filter dropdown (server-rendered, managed by JS)
+	platformDropdown := scopePlatformFilterDropdown()
 
-	if loadErr != nil {
-		pageContent = append(pageContent,
-			Div(Class("bg-red-900/20 border border-red-800/50 text-red-400 px-4 py-3 rounded-lg mb-6"),
-				Strong(g.Text("Error: ")),
-				g.Text("Could not load scope data. "+loadErr.Error()),
-			),
-		)
-	}
+	// Build the search bar (server-rendered, managed by JS)
+	searchBar := scopeSearchBar()
 
-	pageContent = append(pageContent,
-		Div(ID("scope-table-container"),
-			scopeTableInner(result, loadErr, search, sortBy, sortOrder, perPage, platform, programType),
-		),
-	)
+	// Build program type pills (server-rendered, managed by JS)
+	typePills := scopeProgramTypeFilter()
 
 	return Main(Class("container mx-auto mt-10 mb-20 px-0 sm:px-4"),
 		Section(Class("sm:bg-zinc-900/30 sm:border sm:border-zinc-800/50 sm:rounded-2xl sm:shadow-xl sm:shadow-black/10 px-2 py-4 sm:p-6 md:p-8 lg:p-12"),
-			g.Group(pageContent),
-		),
-	)
-}
-
-// ScopeTableFragment renders just the table container content for HTMX partial responses.
-func ScopeTableFragment(result *storage.ProgramListResult, loadErr error, search, sortBy, sortOrder string, perPage int, platform, programType string) g.Node {
-	return scopeTableInner(result, loadErr, search, sortBy, sortOrder, perPage, platform, programType)
-}
-
-// scopeTableInner renders the controls, table, and pagination for the scope page.
-func scopeTableInner(result *storage.ProgramListResult, loadErr error, search, sortBy, sortOrder string, perPage int, platform, programType string) g.Node {
-	if loadErr != nil {
-		return Div()
-	}
-
-	content := []g.Node{}
-
-	// Results count + per-page selector
-	var resultsCountText string
-	if result.TotalCount > 0 {
-		resultsCountText = fmt.Sprintf("Showing %d to %d of %d programs.",
-			min((result.Page-1)*result.PerPage+1, result.TotalCount),
-			min(result.Page*result.PerPage, result.TotalCount),
-			result.TotalCount,
-		)
-	} else if search != "" {
-		resultsCountText = fmt.Sprintf("No programs found for '%s'.", search)
-	} else {
-		resultsCountText = "No programs to display."
-	}
-
-	controlsRow := Div(Class("flex flex-col sm:flex-row justify-between items-center mb-3 gap-4"),
-		Div(Class("text-sm text-zinc-400"), g.Text(resultsCountText)),
-		Div(Class("flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3 w-full sm:w-auto"),
-			scopePerPageSelector(search, sortBy, sortOrder, perPage, platform, programType),
-		),
-	)
-	content = append(content, controlsRow)
-
-	// Build sort URL helper
-	buildSortURL := func(targetSortBy string) string {
-		order := "asc"
-		if sortBy == targetSortBy {
-			if sortOrder == "asc" {
-				order = "desc"
-			} else {
-				order = "asc"
-			}
-		}
-		u := fmt.Sprintf("/scope?page=1&sortBy=%s&sortOrder=%s&perPage=%d", targetSortBy, order, perPage)
-		if search != "" {
-			u += "&search=" + url.QueryEscape(search)
-		}
-		if platform != "" {
-			u += "&platform=" + platform
-		}
-		if programType != "" {
-			u += "&programType=" + programType
-		}
-		return u
-	}
-
-	sortIndicator := func(col string) string {
-		if sortBy == col {
-			if sortOrder == "asc" {
-				return " ▲"
-			}
-			return " ▼"
-		}
-		return ""
-	}
-
-	htmxAttrs := func(href string) []g.Node {
-		return []g.Node{
-			Href(href),
-			g.Attr("hx-get", href),
-			g.Attr("hx-target", "#scope-table-container"),
-			g.Attr("hx-push-url", "true"),
-		}
-	}
-
-	// Table headers
-	tableHeaders := Tr(
-		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-2/5"),
-			A(append(htmxAttrs(buildSortURL("handle")), Class("hover:text-zinc-200 transition-colors"), g.Text("Program"+sortIndicator("handle")))...),
-		),
-		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-1/5"),
-			A(append(htmxAttrs(buildSortURL("platform")), Class("hover:text-zinc-200 transition-colors"), g.Text("Platform"+sortIndicator("platform")))...),
-		),
-		Th(Class("px-4 py-3 text-center text-xs font-semibold text-zinc-500 uppercase tracking-wider w-1/5"),
-			A(append(htmxAttrs(buildSortURL("in_scope_count")), Class("hover:text-zinc-200 transition-colors"), g.Text("In Scope"+sortIndicator("in_scope_count")))...),
-		),
-		Th(Class("px-4 py-3 text-center text-xs font-semibold text-zinc-500 uppercase tracking-wider w-1/5"),
-			A(append(htmxAttrs(buildSortURL("out_of_scope_count")), Class("hover:text-zinc-200 transition-colors"), g.Text("Out of Scope"+sortIndicator("out_of_scope_count")))...),
-		),
-	)
-
-	// Table rows
-	var tableRows []g.Node
-	if len(result.Programs) == 0 {
-		noResultsMsg := "No programs to display."
-		if search != "" {
-			noResultsMsg = fmt.Sprintf("No programs found for '%s'.", search)
-		}
-		tableRows = append(tableRows,
-			Tr(Td(ColSpan("4"), Class("text-center py-16 text-zinc-500"),
-				Div(Class("flex flex-col items-center gap-3"),
-					g.Raw(`<svg class="w-12 h-12 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>`),
-					Span(g.Text(noResultsMsg)),
+			// Header row: title + platform dropdown + search
+			Div(Class("flex flex-col md:flex-row md:items-center gap-3 mb-4"),
+				Div(Class("flex items-center gap-3"),
+					H1(Class("text-2xl md:text-3xl font-bold text-white"), g.Text("Scope Data")),
+					platformDropdown,
 				),
-			)),
-		)
-	} else {
-		for i, p := range result.Programs {
-			rowBg := ""
-			if i%2 == 1 {
-				rowBg = " bg-zinc-800/20"
-			}
-
-			programURL := fmt.Sprintf("/program/%s/%s",
-				url.PathEscape(strings.ToLower(p.Platform)),
-				url.PathEscape(p.Handle),
-			)
-			externalURL := strings.ReplaceAll(p.URL, "api.yeswehack.com", "yeswehack.com")
-
-			tableRows = append(tableRows,
-				Tr(
-					Class("border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors duration-150 cursor-pointer"+rowBg),
-					g.Attr("onclick", fmt.Sprintf("window.location.href='%s'", programURL)),
-					Td(Class("px-4 py-3 text-sm text-zinc-200 w-2/5"),
-						Div(Class("flex items-center gap-2"),
-							A(Href(externalURL), Target("_blank"), Rel("noopener noreferrer"),
-								Class("text-zinc-500 hover:text-cyan-400 transition-colors flex-shrink-0"),
-								g.Attr("onclick", "event.stopPropagation()"),
-								g.Attr("title", "Open program page"),
-								g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>`),
-							),
-							Span(Class("font-medium text-zinc-100"), g.Text(p.Handle)),
-							programTypeBadge(p.IsBBP),
-						),
-					),
-					Td(Class("px-4 py-3 text-sm w-1/5"),
-						platformBadge(p.Platform),
-					),
-					Td(Class("px-4 py-3 text-sm text-zinc-200 w-1/5 text-center"),
-						Span(Class("text-emerald-400 font-medium"), g.Text(strconv.Itoa(p.InScopeCount))),
-					),
-					Td(Class("px-4 py-3 text-sm text-zinc-200 w-1/5 text-center"),
-						g.Text(strconv.Itoa(p.OutOfScopeCount)),
-					),
+				Div(Class("flex-1"),
+					searchBar,
 				),
-			)
-		}
-	}
-
-	table := Div(Class("overflow-x-auto rounded-none sm:rounded-xl border-y sm:border border-zinc-700/50 sm:shadow-xl sm:shadow-black/10"),
-		Table(Class("min-w-full divide-y divide-zinc-700"),
-			THead(Class("bg-zinc-800/80"),
-				tableHeaders,
 			),
-			TBody(Class("bg-zinc-900/50 divide-y divide-zinc-800"),
-				g.Group(tableRows),
+			typePills,
+			// Table container — filled by scope-table.js
+			Div(ID("scope-table-container"),
+				Div(Class("flex flex-col items-center justify-center py-20 gap-4"),
+					g.Raw(`<div class="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>`),
+					Span(Class("text-zinc-400 text-sm"), g.Text("Loading scope data...")),
+				),
 			),
+			// Noscript fallback
+			g.Raw(`<noscript><div class="text-center py-8 text-zinc-400">JavaScript is required to view the scope table. Browse individual programs from the <a href="/sitemap.xml" class="text-cyan-400 hover:underline">sitemap</a>.</div></noscript>`),
+			Script(Src("/static/js/scope-table.js")),
 		),
 	)
-	content = append(content, table)
-
-	// Pagination bottom
-	if result.TotalPages > 1 {
-		content = append(content, Div(Class("mt-6 flex justify-center"),
-			scopePagination(result.Page, result.TotalPages, search, sortBy, sortOrder, perPage, platform, programType),
-		))
-	}
-
-	return g.Group(content)
 }
 
-// scopeProgramTypeFilter renders pill buttons (All / BBP / VDP) for filtering by program type.
-func scopeProgramTypeFilter(programType string, perPage int, platform string) g.Node {
+// scopeProgramTypeFilter renders pill buttons (All / BBP / VDP) managed by scope-table.js.
+func scopeProgramTypeFilter() g.Node {
 	types := []struct{ Value, Label string }{
 		{"", "All"},
 		{"bbp", "BBP"},
@@ -626,41 +455,38 @@ func scopeProgramTypeFilter(programType string, perPage int, platform string) g.
 
 	var pills []g.Node
 	for _, t := range types {
-		isActive := programType == t.Value
-		href := fmt.Sprintf("/scope?page=1&perPage=%d", perPage)
-		if t.Value != "" {
-			href += "&programType=" + t.Value
-		}
-		if platform != "" {
-			href += "&platform=" + platform
-		}
-
-		classes := "px-4 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 "
-		if isActive {
+		// Default: first pill active
+		classes := "scope-type-pill px-4 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 cursor-pointer "
+		if t.Value == "" {
 			classes += "bg-cyan-500 text-white shadow-md shadow-cyan-500/20"
 		} else {
 			classes += "bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-700/50"
 		}
 
-		pills = append(pills, A(Href(href), Class(classes), g.Text(t.Label)))
+		pills = append(pills, Span(
+			Class(classes),
+			g.Attr("data-type", t.Value),
+			g.Text(t.Label),
+		))
 	}
 
 	return Div(Class("flex flex-wrap items-center gap-2 mb-4"),
 		Span(Class("text-sm text-zinc-500 mr-1"), g.Text("Program type:")),
 		g.Group(pills),
+		// Spacer
+		Span(Class("mx-2 hidden sm:inline text-zinc-700"), g.Text("|")),
+		// AI toggle button — managed by scope-table.js
+		Span(
+			ID("ai-toggle-btn"),
+			Class("ai-toggle-btn px-4 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 bg-cyan-500 text-white shadow-md shadow-cyan-500/20 cursor-pointer flex items-center gap-1.5"),
+			g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>`),
+			g.Text("AI Enhanced"),
+		),
 	)
 }
 
-// programTypeBadge renders a small inline badge ("BBP" in green, "VDP" in amber).
-func programTypeBadge(isBBP bool) g.Node {
-	if isBBP {
-		return Span(Class("inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-900/50 text-emerald-300 border border-emerald-800"), g.Text("BBP"))
-	}
-	return Span(Class("inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-900/50 text-amber-300 border border-amber-800"), g.Text("VDP"))
-}
-
-// scopePlatformFilterDropdown renders a multiselect dropdown for platform filtering.
-func scopePlatformFilterDropdown(currentPlatform string, perPage int, programType string) g.Node {
+// scopePlatformFilterDropdown renders a multiselect dropdown managed by scope-table.js.
+func scopePlatformFilterDropdown() g.Node {
 	platforms := []struct{ Value, Label string }{
 		{"h1", "HackerOne"},
 		{"bc", "Bugcrowd"},
@@ -668,334 +494,72 @@ func scopePlatformFilterDropdown(currentPlatform string, perPage int, programTyp
 		{"ywh", "YesWeHack"},
 	}
 
-	// Parse current selection
-	selectedSet := make(map[string]bool)
-	if currentPlatform != "" {
-		for _, p := range strings.Split(currentPlatform, ",") {
-			selectedSet[strings.TrimSpace(p)] = true
-		}
-	}
-	allSelected := len(selectedSet) == 0
-
-	// Build checkbox items
 	var checkboxItems []g.Node
 	for _, p := range platforms {
-		isChecked := selectedSet[p.Value]
-		attrs := []g.Node{
-			Type("checkbox"),
-			Name("platform"),
-			Value(p.Value),
-			Class("rounded border-zinc-600 bg-zinc-700 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-0"),
-		}
-		if isChecked {
-			attrs = append(attrs, Checked())
-		}
 		checkboxItems = append(checkboxItems,
 			Label(Class("flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-700/50 cursor-pointer text-sm text-zinc-300"),
-				Input(attrs...),
+				Input(
+					Type("checkbox"),
+					Name("platform"),
+					Value(p.Value),
+					Class("rounded border-zinc-600 bg-zinc-700 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-0"),
+				),
 				g.Text(p.Label),
 			),
 		)
 	}
 
-	// "All" button label
-	buttonLabel := "All Platforms"
-	if !allSelected {
-		var names []string
-		for _, p := range platforms {
-			if selectedSet[p.Value] {
-				names = append(names, p.Label)
-			}
-		}
-		if len(names) <= 2 {
-			buttonLabel = strings.Join(names, ", ")
-		} else {
-			buttonLabel = fmt.Sprintf("%d platforms", len(names))
-		}
-	}
-
 	return Div(Class("relative"), ID("platform-filter"),
-		// Toggle button
 		Button(
 			Type("button"),
 			ID("platform-dropdown-btn"),
 			Class("flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-zinc-800/50 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-200 hover:border-zinc-600 transition-all duration-200"),
-			g.Attr("onclick", "document.getElementById('platform-dropdown-menu').classList.toggle('hidden')"),
-			g.Text(buttonLabel),
+			g.Text("All Platforms"),
 			g.Raw(`<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>`),
 		),
-		// Dropdown panel
 		Div(
 			ID("platform-dropdown-menu"),
 			Class("hidden absolute z-30 mt-2 w-56 bg-zinc-800 border border-zinc-700/50 rounded-xl shadow-2xl shadow-black/30 py-1.5"),
-			// "All" quick option
 			Button(
 				Type("button"),
+				ID("platform-all-btn"),
 				Class("w-full text-left px-3 py-1.5 text-sm text-cyan-400 hover:bg-zinc-700/50 font-medium border-b border-zinc-700 mb-1"),
-				g.Attr("onclick", fmt.Sprintf(`
-					document.querySelectorAll('#platform-dropdown-menu input[type=checkbox]').forEach(cb => cb.checked = false);
-					applyPlatformFilter(%d, '%s');
-				`, perPage, programType)),
 				g.Text("All Platforms"),
 			),
 			g.Group(checkboxItems),
-			// Apply button
 			Div(Class("px-3 pt-2 pb-1 border-t border-zinc-700 mt-1"),
 				Button(
 					Type("button"),
+					ID("platform-apply-btn"),
 					Class("w-full px-3 py-1.5 text-sm font-medium rounded bg-cyan-600 text-white hover:bg-cyan-500 transition-colors"),
-					g.Attr("onclick", fmt.Sprintf("applyPlatformFilter(%d, '%s')", perPage, programType)),
 					g.Text("Apply"),
 				),
 			),
 		),
-		// Inline JS for platform filter
-		Script(g.Raw(`
-			function applyPlatformFilter(perPage, programType) {
-				var checked = [];
-				document.querySelectorAll('#platform-dropdown-menu input[type=checkbox]:checked').forEach(function(cb) {
-					checked.push(cb.value);
-				});
-				var url = '/scope?page=1&perPage=' + perPage;
-				if (checked.length > 0) {
-					url += '&platform=' + checked.join(',');
-				}
-				if (programType) {
-					url += '&programType=' + programType;
-				}
-				window.location.href = url;
-			}
-			// Close dropdown when clicking outside
-			document.addEventListener('click', function(e) {
-				var filter = document.getElementById('platform-filter');
-				var menu = document.getElementById('platform-dropdown-menu');
-				if (filter && menu && !filter.contains(e.target)) {
-					menu.classList.add('hidden');
-				}
-			});
-		`)),
 	)
 }
 
-// scopeSearchBar renders the search form for the scope page.
-func scopeSearchBar(search, sortBy, sortOrder string, perPage int, platform, programType string) g.Node {
-	return Form(Method("GET"), Action("/scope"),
+// scopeSearchBar renders the search input for the scope page, managed by scope-table.js.
+func scopeSearchBar() g.Node {
+	return Div(
 		Class("flex flex-col sm:flex-row gap-2 items-stretch sm:items-center"),
-		g.Attr("hx-get", "/scope"),
-		g.Attr("hx-target", "#scope-table-container"),
-		g.Attr("hx-push-url", "true"),
-		g.Attr("hx-include", "[name='search'],[name='perPage'],[name='sortBy'],[name='sortOrder'],[name='platform'],[name='programType']"),
 		Div(Class("relative flex-1"),
 			Div(Class("absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none"),
 				g.Raw(`<svg class="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>`),
 			),
 			Input(
 				Type("text"),
-				Name("search"),
-				Value(search),
+				ID("scope-search-input"),
 				Placeholder("Search programs and assets..."),
 				Class("w-full pl-10 pr-4 py-2.5 border border-zinc-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-zinc-800/50 text-zinc-200 placeholder-zinc-500 transition-colors duration-200"),
 			),
 		),
-		Input(Type("hidden"), Name("perPage"), Value(strconv.Itoa(perPage))),
-		Input(Type("hidden"), Name("sortBy"), Value(sortBy)),
-		Input(Type("hidden"), Name("sortOrder"), Value(sortOrder)),
-		Input(Type("hidden"), Name("platform"), Value(platform)),
-		Input(Type("hidden"), Name("programType"), Value(programType)),
-		Input(Type("hidden"), Name("page"), Value("1")),
 		Button(
-			Type("submit"),
-			Class("px-6 py-2.5 bg-cyan-600 text-white font-medium rounded-lg hover:bg-cyan-500 transition-all duration-200 hover:shadow-md hover:shadow-cyan-500/20"),
-			g.Text("Search"),
+			Type("button"),
+			ID("scope-search-clear"),
+			Class("px-4 py-2.5 bg-zinc-700 text-zinc-300 rounded-lg hover:bg-zinc-600 hover:text-white transition-all duration-200 text-center"),
+			g.Text("Clear"),
 		),
-		g.If(search != "",
-			A(
-				Href(func() string {
-					u := fmt.Sprintf("/scope?perPage=%d&sortBy=%s&sortOrder=%s", perPage, sortBy, sortOrder)
-					if platform != "" {
-						u += "&platform=" + platform
-					}
-					if programType != "" {
-						u += "&programType=" + programType
-					}
-					return u
-				}()),
-				Class("px-4 py-2.5 bg-zinc-700 text-zinc-300 rounded-lg hover:bg-zinc-600 hover:text-white transition-all duration-200 text-center"),
-				g.Text("Clear"),
-			),
-		),
-	)
-}
-
-// scopePerPageSelector renders the per-page dropdown for the scope page.
-func scopePerPageSelector(search, sortBy, sortOrder string, currentPerPage int, platform, programType string) g.Node {
-	options := []g.Node{}
-	for _, num := range []int{25, 50, 100, 250, 500} {
-		opt := Option(Value(strconv.Itoa(num)), g.Text(fmt.Sprintf("%d items", num)))
-		if num == currentPerPage {
-			opt = Option(Value(strconv.Itoa(num)), g.Text(fmt.Sprintf("%d items", num)), Selected())
-		}
-		options = append(options, opt)
-	}
-
-	return Form(Method("GET"), Action("/scope"), Class("w-full sm:w-auto flex items-center justify-center sm:justify-start gap-1 sm:gap-2 text-sm"),
-		Label(For("perPageSelect"), Class("text-zinc-400 whitespace-nowrap"), g.Text("Items per page:")),
-		Select(
-			ID("perPageSelect"),
-			Name("perPage"),
-			g.Attr("onchange", "this.form.submit()"),
-			Class("px-2.5 py-1.5 border border-zinc-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm bg-zinc-800/50 text-zinc-200 transition-colors duration-200"),
-			g.Group(options),
-		),
-		Input(Type("hidden"), Name("search"), Value(search)),
-		Input(Type("hidden"), Name("sortBy"), Value(sortBy)),
-		Input(Type("hidden"), Name("sortOrder"), Value(sortOrder)),
-		Input(Type("hidden"), Name("platform"), Value(platform)),
-		Input(Type("hidden"), Name("programType"), Value(programType)),
-		Input(Type("hidden"), Name("page"), Value("1")),
-	)
-}
-
-// scopePagination creates pagination controls for the scope page with HTMX support.
-func scopePagination(currentPage, totalPages int, search, sortBy, sortOrder string, perPage int, platform, programType string) g.Node {
-	var items []g.Node
-
-	createPageLink := func(page int, text string, disabled, active bool) g.Node {
-		href := fmt.Sprintf("/scope?page=%d&perPage=%d&sortBy=%s&sortOrder=%s", page, perPage, sortBy, sortOrder)
-		if search != "" {
-			href += "&search=" + url.QueryEscape(search)
-		}
-		if platform != "" {
-			href += "&platform=" + platform
-		}
-		if programType != "" {
-			href += "&programType=" + programType
-		}
-
-		classes := "px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-200"
-		if disabled {
-			classes += " bg-zinc-800/50 text-zinc-600 cursor-not-allowed"
-			return Span(Class(classes), g.Text(text))
-		} else if active {
-			classes += " bg-cyan-600 text-white shadow-md shadow-cyan-500/20"
-		} else {
-			classes += " bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
-		}
-
-		return A(
-			Href(href),
-			g.Attr("hx-get", href),
-			g.Attr("hx-target", "#scope-table-container"),
-			g.Attr("hx-push-url", "true"),
-			Class(classes),
-			g.Text(text),
-		)
-	}
-
-	// Previous - use arrow on mobile, text on desktop
-	prevHref := fmt.Sprintf("/scope?page=%d&perPage=%d&sortBy=%s&sortOrder=%s", currentPage-1, perPage, sortBy, sortOrder)
-	if search != "" {
-		prevHref += "&search=" + url.QueryEscape(search)
-	}
-	if platform != "" {
-		prevHref += "&platform=" + platform
-	}
-	if programType != "" {
-		prevHref += "&programType=" + programType
-	}
-	if currentPage <= 1 {
-		items = append(items, Span(Class("px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-600 cursor-not-allowed"),
-			g.Raw(`<span class="hidden sm:inline">Previous</span><span class="sm:hidden">&larr;</span>`),
-		))
-	} else {
-		items = append(items, A(
-			Href(prevHref),
-			g.Attr("hx-get", prevHref),
-			g.Attr("hx-target", "#scope-table-container"),
-			g.Attr("hx-push-url", "true"),
-			Class("px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-all duration-200"),
-			g.Raw(`<span class="hidden sm:inline">Previous</span><span class="sm:hidden">&larr;</span>`),
-		))
-	}
-
-	// Page numbers - show fewer on mobile
-	start := max(1, currentPage-2)
-	end := min(totalPages, currentPage+2)
-
-	if start > 1 {
-		items = append(items, createPageLink(1, "1", false, false))
-		if start > 2 {
-			items = append(items, Span(Class("px-1 sm:px-2 py-1.5 text-sm text-zinc-600"), g.Text("...")))
-		}
-	}
-	for i := start; i <= end; i++ {
-		// On mobile, only show current page and immediate neighbors
-		hideOnMobile := ""
-		if i != currentPage && (i < currentPage-1 || i > currentPage+1) {
-			hideOnMobile = " hidden sm:inline-flex"
-		}
-		pageClasses := "px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-200"
-		if i == currentPage {
-			pageClasses += " bg-cyan-600 text-white shadow-md shadow-cyan-500/20"
-		} else {
-			pageClasses += " bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
-		}
-		pageClasses += hideOnMobile
-
-		pageHref := fmt.Sprintf("/scope?page=%d&perPage=%d&sortBy=%s&sortOrder=%s", i, perPage, sortBy, sortOrder)
-		if search != "" {
-			pageHref += "&search=" + url.QueryEscape(search)
-		}
-		if platform != "" {
-			pageHref += "&platform=" + platform
-		}
-		if programType != "" {
-			pageHref += "&programType=" + programType
-		}
-		items = append(items, A(
-			Href(pageHref),
-			g.Attr("hx-get", pageHref),
-			g.Attr("hx-target", "#scope-table-container"),
-			g.Attr("hx-push-url", "true"),
-			Class(pageClasses),
-			g.Text(strconv.Itoa(i)),
-		))
-	}
-	if end < totalPages {
-		if end < totalPages-1 {
-			items = append(items, Span(Class("px-1 sm:px-2 py-1.5 text-sm text-zinc-600"), g.Text("...")))
-		}
-		items = append(items, createPageLink(totalPages, strconv.Itoa(totalPages), false, false))
-	}
-
-	// Next - use arrow on mobile, text on desktop
-	nextHref := fmt.Sprintf("/scope?page=%d&perPage=%d&sortBy=%s&sortOrder=%s", currentPage+1, perPage, sortBy, sortOrder)
-	if search != "" {
-		nextHref += "&search=" + url.QueryEscape(search)
-	}
-	if platform != "" {
-		nextHref += "&platform=" + platform
-	}
-	if programType != "" {
-		nextHref += "&programType=" + programType
-	}
-	if currentPage >= totalPages {
-		items = append(items, Span(Class("px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-600 cursor-not-allowed"),
-			g.Raw(`<span class="hidden sm:inline">Next</span><span class="sm:hidden">&rarr;</span>`),
-		))
-	} else {
-		items = append(items, A(
-			Href(nextHref),
-			g.Attr("hx-get", nextHref),
-			g.Attr("hx-target", "#scope-table-container"),
-			g.Attr("hx-push-url", "true"),
-			Class("px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-all duration-200"),
-			g.Raw(`<span class="hidden sm:inline">Next</span><span class="sm:hidden">&rarr;</span>`),
-		))
-	}
-
-	return Div(Class("mt-6 flex justify-center"),
-		Nav(Class("inline-flex items-center gap-1 bg-zinc-800/30 rounded-full px-1 py-1"), g.Group(items)),
 	)
 }
 
@@ -1043,119 +607,21 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 	).Render(w)
 }
 
-// HTTP handler for the /scope page
+// HTTP handler for the /scope page — serves a shell that loads data client-side via the API.
 func scopeHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/scope" {
 		http.NotFound(w, r)
 		return
 	}
 
-	ctx := context.Background()
-
-	// Parse query parameters
-	query := r.URL.Query()
-	search := strings.TrimSpace(query.Get("search"))
-	sortBy := strings.ToLower(strings.TrimSpace(query.Get("sortBy")))
-	sortOrder := strings.ToLower(strings.TrimSpace(query.Get("sortOrder")))
-	platformFilter := strings.ToLower(strings.TrimSpace(query.Get("platform")))
-	programType := strings.ToLower(strings.TrimSpace(query.Get("programType")))
-	if programType != "bbp" && programType != "vdp" {
-		programType = ""
-	}
-
-	page := 1
-	if p, err := strconv.Atoi(query.Get("page")); err == nil && p > 0 {
-		page = p
-	}
-
-	currentPerPage := 50
-	allowedPerPages := []int{25, 50, 100, 250, 500}
-	if p, err := strconv.Atoi(query.Get("perPage")); err == nil {
-		for _, allowed := range allowedPerPages {
-			if p == allowed {
-				currentPerPage = p
-				break
-			}
-		}
-	}
-
-	// Validate sortBy
-	validSortCols := map[string]bool{"handle": true, "platform": true, "in_scope_count": true, "out_of_scope_count": true}
-	if !validSortCols[sortBy] {
-		sortBy = "handle"
-	}
-	if sortOrder != "asc" && sortOrder != "desc" {
-		sortOrder = "asc"
-	}
-
-	// Parse comma-separated platforms into a slice
-	var platformSlice []string
-	if platformFilter != "" {
-		for _, p := range strings.Split(platformFilter, ",") {
-			p = strings.TrimSpace(p)
-			if p != "" {
-				platformSlice = append(platformSlice, p)
-			}
-		}
-	}
-
-	// Query DB with SQL-level pagination
-	result, err := db.ListProgramsPaginated(ctx, storage.ProgramListOptions{
-		Platforms:   platformSlice,
-		Search:      search,
-		SortBy:      sortBy,
-		SortOrder:   sortOrder,
-		Page:        page,
-		PerPage:     currentPerPage,
-		ProgramType: programType,
-	})
-
-	var loadErr error
-	if err != nil {
-		loadErr = err
-		log.Printf("Error listing programs: %v", err)
-		result = &storage.ProgramListResult{
-			Programs:   nil,
-			TotalCount: 0,
-			Page:       page,
-			PerPage:    currentPerPage,
-			TotalPages: 1,
-		}
-	}
-
-	// Clamp page
-	if page > result.TotalPages {
-		page = result.TotalPages
-	}
-	if page < 1 {
-		page = 1
-	}
-
-	// Check if this is an HTMX request
-	isHTMX := r.Header.Get("HX-Request") == "true"
-
-	if isHTMX {
-		// Return only the table fragment for HTMX swap
-		ScopeTableFragment(result, loadErr, search, sortBy, sortOrder, currentPerPage, platformFilter, programType).Render(w)
-		return
-	}
-
-	// Full page render
-	canonicalURL := fmt.Sprintf("/scope?page=%d", page)
-	pageTitle := fmt.Sprintf("Scope data - bbscope.com (Page %d)", page)
-	pageDescription := "Browse and download bug bounty scope data from all bug bounty platforms. Find in-scope websites from HackerOne, Bugcrowd, Intigriti and YesWeHack."
-	if page > 1 {
-		pageDescription = fmt.Sprintf("%s (Page %d)", pageDescription, page)
-	}
-
 	PageLayout(
-		pageTitle,
-		pageDescription,
+		"Scope data - bbscope.com",
+		"Browse and download bug bounty scope data from all bug bounty platforms. Find in-scope websites from HackerOne, Bugcrowd, Intigriti and YesWeHack.",
 		Navbar("/scope"),
-		ScopeContent(result, loadErr, search, sortBy, sortOrder, currentPerPage, platformFilter, programType),
+		ScopeContent(),
 		FooterEl(),
-		canonicalURL,
-		page > 1,
+		"/scope",
+		false,
 	).Render(w)
 }
 
@@ -1225,6 +691,10 @@ func Run(cfg ServerConfig) error {
 	http.HandleFunc("/robots.txt", robotsTxtHandler)
 	http.HandleFunc("/sitemap.xml", sitemapHandler)
 	http.HandleFunc("/debug", debugHandler)
+
+	// Public API
+	http.HandleFunc("/api/v1/programs", apiProgramsHandler)
+	http.HandleFunc("/api/v1/programs/", apiProgramDetailHandler)
 
 	// Serve static files
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("website/static"))))

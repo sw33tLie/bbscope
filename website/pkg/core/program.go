@@ -47,7 +47,7 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targets, err := db.ListProgramTargets(ctx, program.ID)
+	targets, err := db.ListProgramTargets(ctx, program.ID, false)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return

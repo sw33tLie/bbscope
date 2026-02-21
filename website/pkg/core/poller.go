@@ -162,6 +162,7 @@ func runPollCycle() {
 		}
 	}
 
+	invalidateProgramsCache()
 	log.Printf("Poll cycle completed in %s", time.Since(start).Round(time.Second))
 }
 
