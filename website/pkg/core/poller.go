@@ -18,6 +18,38 @@ import (
 
 const pollConcurrency = 5
 
+// PollerStatus holds the result of the last run for a single platform.
+type PollerStatus struct {
+	Platform  string
+	StartedAt time.Time
+	Duration  time.Duration
+	Success   bool
+	Skipped   bool // true if credentials were not configured
+}
+
+var (
+	pollerStatuses   = make(map[string]*PollerStatus)
+	pollerStatusesMu sync.RWMutex
+)
+
+func setPollerStatus(s *PollerStatus) {
+	pollerStatusesMu.Lock()
+	pollerStatuses[s.Platform] = s
+	pollerStatusesMu.Unlock()
+}
+
+// GetPollerStatuses returns a snapshot of all poller statuses.
+func GetPollerStatuses() map[string]*PollerStatus {
+	pollerStatusesMu.RLock()
+	defer pollerStatusesMu.RUnlock()
+	out := make(map[string]*PollerStatus, len(pollerStatuses))
+	for k, v := range pollerStatuses {
+		cp := *v
+		out[k] = &cp
+	}
+	return out
+}
+
 // startBackgroundPoller runs periodic poll cycles in the background.
 func startBackgroundPoller(cfg ServerConfig) {
 	log.Printf("Starting background poller (interval: %d hours)", cfg.PollInterval)
@@ -45,6 +77,7 @@ func buildPollers() []platforms.PlatformPoller {
 		pollers = append(pollers, h1platform.NewPoller(h1User, h1Token))
 	} else {
 		log.Println("Poller: Skipping HackerOne (H1_USERNAME/H1_TOKEN not set)")
+		setPollerStatus(&PollerStatus{Platform: "h1", StartedAt: time.Now(), Skipped: true})
 	}
 
 	// Bugcrowd
@@ -56,11 +89,13 @@ func buildPollers() []platforms.PlatformPoller {
 		authCfg := platforms.AuthConfig{Email: bcEmail, Password: bcPass, OtpSecret: bcOTP}
 		if err := bcPoller.Authenticate(ctx, authCfg); err != nil {
 			log.Printf("Poller: Bugcrowd auth failed: %v", err)
+			setPollerStatus(&PollerStatus{Platform: "bc", StartedAt: time.Now(), Success: false})
 		} else {
 			pollers = append(pollers, bcPoller)
 		}
 	} else {
 		log.Println("Poller: Skipping Bugcrowd (BC_EMAIL/BC_PASSWORD/BC_OTP not set)")
+		setPollerStatus(&PollerStatus{Platform: "bc", StartedAt: time.Now(), Skipped: true})
 	}
 
 	// Intigriti
@@ -69,11 +104,13 @@ func buildPollers() []platforms.PlatformPoller {
 		itPoller := itplatform.NewPoller()
 		if err := itPoller.Authenticate(ctx, platforms.AuthConfig{Token: itToken}); err != nil {
 			log.Printf("Poller: Intigriti auth failed: %v", err)
+			setPollerStatus(&PollerStatus{Platform: "it", StartedAt: time.Now(), Success: false})
 		} else {
 			pollers = append(pollers, itPoller)
 		}
 	} else {
 		log.Println("Poller: Skipping Intigriti (IT_TOKEN not set)")
+		setPollerStatus(&PollerStatus{Platform: "it", StartedAt: time.Now(), Skipped: true})
 	}
 
 	// YesWeHack
@@ -85,11 +122,13 @@ func buildPollers() []platforms.PlatformPoller {
 		authCfg := platforms.AuthConfig{Email: ywhEmail, Password: ywhPass, OtpSecret: ywhOTP}
 		if err := ywhPoller.Authenticate(ctx, authCfg); err != nil {
 			log.Printf("Poller: YesWeHack auth failed: %v", err)
+			setPollerStatus(&PollerStatus{Platform: "ywh", StartedAt: time.Now(), Success: false})
 		} else {
 			pollers = append(pollers, ywhPoller)
 		}
 	} else {
 		log.Println("Poller: Skipping YesWeHack (YWH_EMAIL/YWH_PASSWORD/YWH_OTP not set)")
+		setPollerStatus(&PollerStatus{Platform: "ywh", StartedAt: time.Now(), Skipped: true})
 	}
 
 	return pollers
@@ -110,7 +149,15 @@ func runPollCycle() {
 	opts := platforms.PollOptions{Categories: "all"}
 
 	for _, p := range pollers {
-		if err := pollPlatform(ctx, p, opts); err != nil {
+		pStart := time.Now()
+		err := pollPlatform(ctx, p, opts)
+		setPollerStatus(&PollerStatus{
+			Platform:  p.Name(),
+			StartedAt: pStart,
+			Duration:  time.Since(pStart),
+			Success:   err == nil,
+		})
+		if err != nil {
 			log.Printf("Poller: Error polling %s: %v", p.Name(), err)
 		}
 	}

@@ -28,6 +28,7 @@ type ServerConfig struct {
 
 var db *storage.DB
 var serverDomain string
+var serverStartTime time.Time
 
 // UpdateEntryAsset represents an asset within an update event.
 type UpdateEntryAsset struct {
@@ -1138,6 +1139,7 @@ func Run(cfg ServerConfig) error {
 	}
 
 	serverDomain = cfg.Domain
+	serverStartTime = time.Now()
 
 	if cfg.PollInterval > 0 {
 		go startBackgroundPoller(cfg)
@@ -1152,6 +1154,7 @@ func Run(cfg ServerConfig) error {
 	http.HandleFunc("/contact", contactHandler)
 	http.HandleFunc("/robots.txt", robotsTxtHandler)
 	http.HandleFunc("/sitemap.xml", sitemapHandler)
+	http.HandleFunc("/debug", debugHandler)
 
 	// Serve static files
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("website/static"))))
