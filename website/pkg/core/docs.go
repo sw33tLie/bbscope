@@ -51,7 +51,7 @@ func DocsContent() g.Node {
 	htmlOutput := markdown.ToHTML([]byte(docsMarkdownContent), p, nil)
 
 	return Main(Class("container mx-auto mt-8 mb-16 p-4"),
-		Section(Class("md:bg-white md:rounded-lg md:shadow-xl md:p-8 lg:p-12 prose lg:prose-xl max-w-4xl mx-auto"), // MODIFIED classes: e.g., changed prose-xl to prose and lg:prose-2xl to lg:prose-xl
+		Section(Class("bg-slate-900/50 border border-slate-800 rounded-lg shadow-xl p-6 md:p-8 lg:p-12 prose lg:prose-xl prose-invert max-w-4xl mx-auto"),
 			g.Raw(string(htmlOutput)), // Use g.Raw to render the HTML string
 		),
 	)
