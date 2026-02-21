@@ -251,10 +251,10 @@ func processProgramsConcurrently(ctx context.Context, p platforms.PlatformPoller
 				// Build storage items (no AI normalization in background poller)
 				var allItems []storage.TargetItem
 				for _, s := range pd.InScope {
-					allItems = append(allItems, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: true})
+					allItems = append(allItems, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: true, IsBBP: s.IsBBP})
 				}
 				for _, s := range pd.OutOfScope {
-					allItems = append(allItems, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: false})
+					allItems = append(allItems, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: false, IsBBP: s.IsBBP})
 				}
 
 				entries, err := storage.BuildEntries(pd.Url, p.Name(), h, allItems)
