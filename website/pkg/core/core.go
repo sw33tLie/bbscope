@@ -409,9 +409,15 @@ func FooterEl() g.Node {
 // ScopeContent renders the full /scope page content (used for non-HTMX requests).
 func ScopeContent(result *storage.ProgramListResult, loadErr error, search, sortBy, sortOrder string, perPage int, platform string) g.Node {
 	pageContent := []g.Node{
-		H1(Class("text-2xl md:text-3xl font-bold text-white mb-6"), g.Text("Scope Data")),
-		scopePlatformFilterDropdown(platform, perPage),
-		scopeSearchBar(search, sortBy, sortOrder, perPage, platform),
+		Div(Class("flex flex-col md:flex-row md:items-center gap-3 mb-4"),
+			Div(Class("flex items-center gap-3"),
+				H1(Class("text-2xl md:text-3xl font-bold text-white"), g.Text("Scope Data")),
+				scopePlatformFilterDropdown(platform, perPage),
+			),
+			Div(Class("flex-1"),
+				scopeSearchBar(search, sortBy, sortOrder, perPage, platform),
+			),
+		),
 	}
 
 	if loadErr != nil {
@@ -463,20 +469,13 @@ func scopeTableInner(result *storage.ProgramListResult, loadErr error, search, s
 		resultsCountText = "No programs to display."
 	}
 
-	controlsRow := Div(Class("flex flex-col sm:flex-row justify-between items-center mb-4 gap-4"),
+	controlsRow := Div(Class("flex flex-col sm:flex-row justify-between items-center mb-3 gap-4"),
 		Div(Class("text-sm text-zinc-400"), g.Text(resultsCountText)),
 		Div(Class("flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3 w-full sm:w-auto"),
 			scopePerPageSelector(search, sortBy, sortOrder, perPage, platform),
 		),
 	)
 	content = append(content, controlsRow)
-
-	// Pagination top
-	if result.TotalPages > 1 {
-		content = append(content, Div(Class("mb-6 flex justify-center"),
-			scopePagination(result.Page, result.TotalPages, search, sortBy, sortOrder, perPage, platform),
-		))
-	}
 
 	// Build sort URL helper
 	buildSortURL := func(targetSortBy string) string {
@@ -667,12 +666,12 @@ func scopePlatformFilterDropdown(currentPlatform string, perPage int) g.Node {
 		}
 	}
 
-	return Div(Class("relative mb-6"), ID("platform-filter"),
+	return Div(Class("relative"), ID("platform-filter"),
 		// Toggle button
 		Button(
 			Type("button"),
 			ID("platform-dropdown-btn"),
-			Class("flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg bg-zinc-800/50 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-200 hover:border-zinc-600 transition-all duration-200"),
+			Class("flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-zinc-800/50 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-200 hover:border-zinc-600 transition-all duration-200"),
 			g.Attr("onclick", "document.getElementById('platform-dropdown-menu').classList.toggle('hidden')"),
 			g.Text(buttonLabel),
 			g.Raw(`<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>`),
@@ -729,47 +728,45 @@ func scopePlatformFilterDropdown(currentPlatform string, perPage int) g.Node {
 
 // scopeSearchBar renders the search form for the scope page.
 func scopeSearchBar(search, sortBy, sortOrder string, perPage int, platform string) g.Node {
-	return Div(Class("mb-6"),
-		Form(Method("GET"), Action("/scope"),
-			Class("flex flex-col sm:flex-row gap-2 items-stretch sm:items-center"),
-			g.Attr("hx-get", "/scope"),
-			g.Attr("hx-target", "#scope-table-container"),
-			g.Attr("hx-push-url", "true"),
-			g.Attr("hx-include", "[name='search'],[name='perPage'],[name='sortBy'],[name='sortOrder'],[name='platform']"),
-			Div(Class("relative flex-1"),
-				Div(Class("absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none"),
-					g.Raw(`<svg class="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>`),
-				),
-				Input(
-					Type("text"),
-					Name("search"),
-					Value(search),
-					Placeholder("Search programs and assets..."),
-					Class("w-full pl-10 pr-4 py-2.5 border border-zinc-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-zinc-800/50 text-zinc-200 placeholder-zinc-500 transition-colors duration-200"),
-				),
+	return Form(Method("GET"), Action("/scope"),
+		Class("flex flex-col sm:flex-row gap-2 items-stretch sm:items-center"),
+		g.Attr("hx-get", "/scope"),
+		g.Attr("hx-target", "#scope-table-container"),
+		g.Attr("hx-push-url", "true"),
+		g.Attr("hx-include", "[name='search'],[name='perPage'],[name='sortBy'],[name='sortOrder'],[name='platform']"),
+		Div(Class("relative flex-1"),
+			Div(Class("absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none"),
+				g.Raw(`<svg class="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>`),
 			),
-			Input(Type("hidden"), Name("perPage"), Value(strconv.Itoa(perPage))),
-			Input(Type("hidden"), Name("sortBy"), Value(sortBy)),
-			Input(Type("hidden"), Name("sortOrder"), Value(sortOrder)),
-			Input(Type("hidden"), Name("platform"), Value(platform)),
-			Input(Type("hidden"), Name("page"), Value("1")),
-			Button(
-				Type("submit"),
-				Class("px-6 py-2.5 bg-cyan-600 text-white font-medium rounded-lg hover:bg-cyan-500 transition-all duration-200 hover:shadow-md hover:shadow-cyan-500/20"),
-				g.Text("Search"),
+			Input(
+				Type("text"),
+				Name("search"),
+				Value(search),
+				Placeholder("Search programs and assets..."),
+				Class("w-full pl-10 pr-4 py-2.5 border border-zinc-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-zinc-800/50 text-zinc-200 placeholder-zinc-500 transition-colors duration-200"),
 			),
-			g.If(search != "",
-				A(
-					Href(func() string {
-						u := fmt.Sprintf("/scope?perPage=%d&sortBy=%s&sortOrder=%s", perPage, sortBy, sortOrder)
-						if platform != "" {
-							u += "&platform=" + platform
-						}
-						return u
-					}()),
-					Class("px-4 py-2.5 bg-zinc-700 text-zinc-300 rounded-lg hover:bg-zinc-600 hover:text-white transition-all duration-200 text-center"),
-					g.Text("Clear"),
-				),
+		),
+		Input(Type("hidden"), Name("perPage"), Value(strconv.Itoa(perPage))),
+		Input(Type("hidden"), Name("sortBy"), Value(sortBy)),
+		Input(Type("hidden"), Name("sortOrder"), Value(sortOrder)),
+		Input(Type("hidden"), Name("platform"), Value(platform)),
+		Input(Type("hidden"), Name("page"), Value("1")),
+		Button(
+			Type("submit"),
+			Class("px-6 py-2.5 bg-cyan-600 text-white font-medium rounded-lg hover:bg-cyan-500 transition-all duration-200 hover:shadow-md hover:shadow-cyan-500/20"),
+			g.Text("Search"),
+		),
+		g.If(search != "",
+			A(
+				Href(func() string {
+					u := fmt.Sprintf("/scope?perPage=%d&sortBy=%s&sortOrder=%s", perPage, sortBy, sortOrder)
+					if platform != "" {
+						u += "&platform=" + platform
+					}
+					return u
+				}()),
+				Class("px-4 py-2.5 bg-zinc-700 text-zinc-300 rounded-lg hover:bg-zinc-600 hover:text-white transition-all duration-200 text-center"),
+				g.Text("Clear"),
 			),
 		),
 	)
