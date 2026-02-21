@@ -15,9 +15,9 @@ import (
 
 // statsCard renders a summary stat card for the stats page.
 func statsCard(label, value, valueColor string) g.Node {
-	return Div(Class("bg-slate-800/30 border border-slate-700/50 rounded-xl p-4 text-center"),
+	return Div(Class("bg-zinc-800/30 border border-zinc-700/50 rounded-xl p-4 text-center"),
 		Div(Class("text-2xl font-extrabold tabular-nums "+valueColor), g.Text(value)),
-		Div(Class("text-xs uppercase tracking-wider text-slate-500 mt-1 font-medium"), g.Text(label)),
+		Div(Class("text-xs uppercase tracking-wider text-zinc-500 mt-1 font-medium"), g.Text(label)),
 	)
 }
 
@@ -69,8 +69,8 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 	)
 
 	// Chart.js doughnut chart for program counts
-	programChart := Div(Class("mt-8 p-6 bg-slate-800/20 border border-slate-700/50 rounded-xl"),
-		H2(Class("text-lg font-semibold text-slate-300 mb-6 text-center"), g.Text("Program Counts by Platform")),
+	programChart := Div(Class("mt-8 p-6 bg-zinc-800/20 border border-zinc-700/50 rounded-xl"),
+		H2(Class("text-lg font-semibold text-zinc-300 mb-6 text-center"), g.Text("Program Counts by Platform")),
 		Div(Class("max-w-md mx-auto"),
 			Canvas(ID("programChart"), g.Attr("height", "300")),
 		),
@@ -79,7 +79,7 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 	if statsErr == nil {
 		content = append(content, programChart)
 	} else {
-		content = append(content, P(Class("text-lg text-slate-400 mt-8"), g.Text("Could not load any program statistics data to display chart.")))
+		content = append(content, P(Class("text-lg text-zinc-400 mt-8"), g.Text("Could not load any program statistics data to display chart.")))
 	}
 
 	// Chart.js horizontal bar chart for asset types
@@ -111,8 +111,8 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 			chartHeight = 200
 		}
 
-		assetTypeChart := Div(Class("mt-12 p-6 bg-slate-800/20 border border-slate-700/50 rounded-xl"),
-			H2(Class("text-lg font-semibold text-slate-300 mb-6 text-center"), g.Text("In-Scope Assets by Type")),
+		assetTypeChart := Div(Class("mt-12 p-6 bg-zinc-800/20 border border-zinc-700/50 rounded-xl"),
+			H2(Class("text-lg font-semibold text-zinc-300 mb-6 text-center"), g.Text("In-Scope Assets by Type")),
 			Div(Class("max-w-2xl mx-auto"),
 				Canvas(ID("assetChart"), g.Attr("height", strconv.Itoa(chartHeight))),
 			),
@@ -130,7 +130,7 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 						datasets: [{
 							data: [%d, %d, %d, %d],
 							backgroundColor: ['#3b82f6', '#f97316', '#eab308', '#8b5cf6'],
-							borderColor: '#1e293b',
+							borderColor: '#27272a',
 							borderWidth: 2,
 							hoverOffset: 8
 						}]
@@ -140,13 +140,13 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 						plugins: {
 							legend: {
 								position: 'bottom',
-								labels: { color: '#94a3b8', padding: 16, font: { size: 13 } }
+								labels: { color: '#a1a1aa', padding: 16, font: { size: 13 } }
 							},
 							tooltip: {
-								backgroundColor: '#1e293b',
-								titleColor: '#e2e8f0',
-								bodyColor: '#e2e8f0',
-								borderColor: '#334155',
+								backgroundColor: '#27272a',
+								titleColor: '#e4e4e7',
+								bodyColor: '#e4e4e7',
+								borderColor: '#3f3f46',
 								borderWidth: 1
 							}
 						}
@@ -169,16 +169,16 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 						indexAxis: 'y',
 						responsive: true,
 						scales: {
-							x: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
-							y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } }
+							x: { ticks: { color: '#a1a1aa' }, grid: { color: '#27272a' } },
+							y: { ticks: { color: '#a1a1aa' }, grid: { color: '#27272a' } }
 						},
 						plugins: {
 							legend: { display: false },
 							tooltip: {
-								backgroundColor: '#1e293b',
-								titleColor: '#e2e8f0',
-								bodyColor: '#e2e8f0',
-								borderColor: '#334155',
+								backgroundColor: '#27272a',
+								titleColor: '#e4e4e7',
+								bodyColor: '#e4e4e7',
+								borderColor: '#3f3f46',
 								borderWidth: 1
 							}
 						}
@@ -191,9 +191,9 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 		)
 	} else {
 		if assetErr == nil {
-			content = append(content, P(Class("text-lg text-slate-400 mt-8"), g.Text("No in-scope asset data found to display by type.")))
+			content = append(content, P(Class("text-lg text-zinc-400 mt-8"), g.Text("No in-scope asset data found to display by type.")))
 		} else {
-			content = append(content, P(Class("text-lg text-slate-400 mt-8"), g.Text("Could not generate asset type statistics chart due to loading errors or no data.")))
+			content = append(content, P(Class("text-lg text-zinc-400 mt-8"), g.Text("Could not generate asset type statistics chart due to loading errors or no data.")))
 		}
 
 		// If there are no asset counts but platform chart exists, still init Chart.js for it
@@ -208,7 +208,7 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 							datasets: [{
 								data: [%d, %d, %d, %d],
 								backgroundColor: ['#3b82f6', '#f97316', '#eab308', '#8b5cf6'],
-								borderColor: '#1e293b',
+								borderColor: '#27272a',
 								borderWidth: 2,
 								hoverOffset: 8
 							}]
@@ -218,13 +218,13 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 							plugins: {
 								legend: {
 									position: 'bottom',
-									labels: { color: '#94a3b8', padding: 16, font: { size: 13 } }
+									labels: { color: '#a1a1aa', padding: 16, font: { size: 13 } }
 								},
 								tooltip: {
-									backgroundColor: '#1e293b',
-									titleColor: '#e2e8f0',
-									bodyColor: '#e2e8f0',
-									borderColor: '#334155',
+									backgroundColor: '#27272a',
+									titleColor: '#e4e4e7',
+									bodyColor: '#e4e4e7',
+									borderColor: '#3f3f46',
 									borderWidth: 1
 								}
 							}
@@ -236,7 +236,7 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 	}
 
 	return Main(Class("container mx-auto mt-10 mb-20 px-4"),
-		Section(Class("bg-slate-900/30 border border-slate-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 lg:p-12"),
+		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 lg:p-12"),
 			g.Group(content),
 		),
 	)

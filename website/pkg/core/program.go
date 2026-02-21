@@ -92,19 +92,19 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 		}
 	}
 
-	chevronSep := Span(Class("mx-2 text-slate-600"), g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>`))
+	chevronSep := Span(Class("mx-2 text-zinc-600"), g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>`))
 
 	content := []g.Node{
 		// Breadcrumb
-		Nav(Class("flex items-center text-sm text-slate-500 mb-8"),
+		Nav(Class("flex items-center text-sm text-zinc-500 mb-8"),
 			A(Href("/scope"), Class("hover:text-cyan-400 transition-colors duration-200"), g.Text("Scope")),
 			chevronSep,
 			A(Href(fmt.Sprintf("/scope?platform=%s", strings.ToLower(program.Platform))),
 				Class("hover:text-cyan-400 transition-colors duration-200"),
 				g.Text(capitalizedPlatform(program.Platform)),
 			),
-			Span(Class("mx-2 text-slate-600"), g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>`)),
-			Span(Class("text-slate-200"), g.Text(program.Handle)),
+			Span(Class("mx-2 text-zinc-600"), g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>`)),
+			Span(Class("text-zinc-200"), g.Text(program.Handle)),
 		),
 
 		// Program header
@@ -121,13 +121,13 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 				),
 			),
 			Div(Class("flex gap-4"),
-				Div(Class("text-center px-5 py-3 bg-slate-800/30 border border-slate-700/50 rounded-xl"),
+				Div(Class("text-center px-5 py-3 bg-zinc-800/30 border border-zinc-700/50 rounded-xl"),
 					Div(Class("text-2xl font-extrabold text-emerald-400 tabular-nums"), g.Text(fmt.Sprintf("%d", inScopeCount))),
-					Div(Class("text-xs uppercase tracking-wider text-slate-500 mt-1 font-medium"), g.Text("In Scope")),
+					Div(Class("text-xs uppercase tracking-wider text-zinc-500 mt-1 font-medium"), g.Text("In Scope")),
 				),
-				Div(Class("text-center px-5 py-3 bg-slate-800/30 border border-slate-700/50 rounded-xl"),
-					Div(Class("text-2xl font-extrabold text-slate-400 tabular-nums"), g.Text(fmt.Sprintf("%d", oosCount))),
-					Div(Class("text-xs uppercase tracking-wider text-slate-500 mt-1 font-medium"), g.Text("Out of Scope")),
+				Div(Class("text-center px-5 py-3 bg-zinc-800/30 border border-zinc-700/50 rounded-xl"),
+					Div(Class("text-2xl font-extrabold text-zinc-400 tabular-nums"), g.Text(fmt.Sprintf("%d", oosCount))),
+					Div(Class("text-xs uppercase tracking-wider text-zinc-500 mt-1 font-medium"), g.Text("Out of Scope")),
 				),
 			),
 		),
@@ -136,7 +136,7 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 	// In-scope assets table
 	if len(inScope) > 0 {
 		content = append(content,
-			H2(Class("text-lg font-semibold text-slate-200 mb-4 flex items-center gap-2"),
+			H2(Class("text-lg font-semibold text-zinc-200 mb-4 flex items-center gap-2"),
 				Span(Class("w-2 h-2 rounded-full bg-emerald-400")),
 				g.Textf("In-Scope Assets (%d)", len(inScope)),
 			),
@@ -144,11 +144,11 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 		)
 	} else {
 		content = append(content,
-			H2(Class("text-lg font-semibold text-slate-200 mb-4 flex items-center gap-2"),
+			H2(Class("text-lg font-semibold text-zinc-200 mb-4 flex items-center gap-2"),
 				Span(Class("w-2 h-2 rounded-full bg-emerald-400")),
 				g.Text("In-Scope Assets"),
 			),
-			P(Class("text-slate-400 text-sm mb-8"), g.Text("No in-scope assets found for this program.")),
+			P(Class("text-zinc-400 text-sm mb-8"), g.Text("No in-scope assets found for this program.")),
 		)
 	}
 
@@ -156,8 +156,8 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 	if len(outOfScope) > 0 {
 		content = append(content,
 			Details(Class("mt-8"),
-				Summary(Class("text-lg font-semibold text-slate-200 mb-4 cursor-pointer hover:text-slate-100 transition-colors flex items-center gap-2"),
-					Span(Class("w-2 h-2 rounded-full bg-slate-500")),
+				Summary(Class("text-lg font-semibold text-zinc-200 mb-4 cursor-pointer hover:text-zinc-100 transition-colors flex items-center gap-2"),
+					Span(Class("w-2 h-2 rounded-full bg-zinc-500")),
 					g.Textf("Out-of-Scope Assets (%d)", len(outOfScope)),
 				),
 				Div(Class("mt-4"),
@@ -168,7 +168,7 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 	}
 
 	return Main(Class("container mx-auto mt-10 mb-20 px-4"),
-		Section(Class("bg-slate-900/30 border border-slate-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8"),
+		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8"),
 			g.Group(content),
 		),
 	)
@@ -177,16 +177,16 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 // assetTable renders a table of program targets with optional quick links.
 func assetTable(targets []storage.ProgramTarget, showQuickLinks bool) g.Node {
 	headerCols := []g.Node{
-		Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider"), g.Text("Asset")),
-		Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-28"), g.Text("Category")),
+		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider"), g.Text("Asset")),
+		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-28"), g.Text("Category")),
 	}
 	if showQuickLinks {
 		headerCols = append(headerCols,
-			Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider"), g.Text("Quick Links")),
+			Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider"), g.Text("Quick Links")),
 		)
 	}
 	headerCols = append(headerCols,
-		Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-16"), g.Text("")),
+		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-16"), g.Text("")),
 	)
 
 	var rows []g.Node
@@ -194,11 +194,11 @@ func assetTable(targets []storage.ProgramTarget, showQuickLinks bool) g.Node {
 		category := strings.ToUpper(scope.NormalizeCategory(t.Category))
 		rowBg := ""
 		if i%2 == 1 {
-			rowBg = " bg-slate-800/20"
+			rowBg = " bg-zinc-800/20"
 		}
 
 		cols := []g.Node{
-			Td(Class("px-4 py-3 text-sm text-slate-200 break-all"),
+			Td(Class("px-4 py-3 text-sm text-zinc-200 break-all"),
 				assetDisplay(t),
 			),
 			Td(Class("px-4 py-3 text-sm"),
@@ -218,17 +218,17 @@ func assetTable(targets []storage.ProgramTarget, showQuickLinks bool) g.Node {
 			),
 		)
 
-		rows = append(rows, Tr(Class("border-b border-slate-800/50 hover:bg-slate-800/50 transition-colors duration-150"+rowBg),
+		rows = append(rows, Tr(Class("border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors duration-150"+rowBg),
 			g.Group(cols),
 		))
 	}
 
-	return Div(Class("overflow-x-auto rounded-xl border border-slate-700/50 mb-6"),
-		Table(Class("min-w-full divide-y divide-slate-700"),
-			THead(Class("bg-slate-800/80"),
+	return Div(Class("overflow-x-auto rounded-xl border border-zinc-700/50 mb-6"),
+		Table(Class("min-w-full divide-y divide-zinc-700"),
+			THead(Class("bg-zinc-800/80"),
 				Tr(g.Group(headerCols)),
 			),
-			TBody(Class("bg-slate-900/50 divide-y divide-slate-800"),
+			TBody(Class("bg-zinc-900/50 divide-y divide-zinc-800"),
 				g.Group(rows),
 			),
 		),
@@ -260,7 +260,7 @@ func assetDisplay(t storage.ProgramTarget) g.Node {
 
 // categoryBadge renders a colored badge for the asset category.
 func categoryBadge(category string) g.Node {
-	colors := "bg-slate-700 text-slate-300"
+	colors := "bg-zinc-700 text-zinc-300"
 	switch strings.ToLower(category) {
 	case "url":
 		colors = "bg-blue-900/50 text-blue-300 border border-blue-800"
@@ -275,7 +275,7 @@ func categoryBadge(category string) g.Node {
 	case "api":
 		colors = "bg-cyan-900/50 text-cyan-300 border border-cyan-800"
 	case "other":
-		colors = "bg-slate-800 text-slate-400 border border-slate-700"
+		colors = "bg-zinc-800 text-zinc-400 border border-zinc-700"
 	case "hardware":
 		colors = "bg-orange-900/50 text-orange-300 border border-orange-800"
 	case "executable":
@@ -286,7 +286,7 @@ func categoryBadge(category string) g.Node {
 
 // platformBadge renders a colored badge for the platform name.
 func platformBadge(platform string) g.Node {
-	colors := "bg-slate-700 text-slate-300"
+	colors := "bg-zinc-700 text-zinc-300"
 	switch strings.ToLower(platform) {
 	case "h1", "hackerone":
 		colors = "bg-blue-900/50 text-blue-300 border border-blue-800"
@@ -327,14 +327,14 @@ type QuickLink struct {
 func quickLinksForAsset(target, category string) g.Node {
 	links := generateQuickLinks(target, category)
 	if len(links) == 0 {
-		return Span(Class("text-slate-500 text-xs"), g.Text("-"))
+		return Span(Class("text-zinc-500 text-xs"), g.Text("-"))
 	}
 
 	var nodes []g.Node
 	for _, link := range links {
 		nodes = append(nodes,
 			A(Href(link.URL), Target("_blank"), Rel("noopener noreferrer"),
-				Class("inline-flex items-center px-2 py-0.5 text-[11px] rounded-md bg-slate-800/50 text-slate-400 hover:bg-slate-700 hover:text-cyan-400 border border-slate-700/50 transition-all duration-200"),
+				Class("inline-flex items-center px-2 py-0.5 text-[11px] rounded-md bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-cyan-400 border border-zinc-700/50 transition-all duration-200"),
 				g.Attr("title", link.Description),
 				g.Text(link.Label),
 			),
@@ -455,7 +455,7 @@ func copyButton(text string) g.Node {
 
 	return Button(
 		Type("button"),
-		Class("p-1.5 text-slate-500 hover:text-cyan-400 transition-all duration-200 rounded-md hover:bg-slate-800/50"),
+		Class("p-1.5 text-zinc-500 hover:text-cyan-400 transition-all duration-200 rounded-md hover:bg-zinc-800/50"),
 		g.Attr("onclick", fmt.Sprintf("navigator.clipboard.writeText('%s').then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)})", escaped)),
 		g.Attr("title", "Copy to clipboard"),
 		g.Text("Copy"),

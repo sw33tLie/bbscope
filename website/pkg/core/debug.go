@@ -28,13 +28,13 @@ func debugContent() g.Node {
 		var statusBadge, startedAt, duration g.Node
 
 		if !ok {
-			statusBadge = Span(Class("inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-400"), g.Text("Pending"))
-			startedAt = Span(Class("text-slate-500"), g.Text("-"))
-			duration = Span(Class("text-slate-500"), g.Text("-"))
+			statusBadge = Span(Class("inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-700 text-zinc-400"), g.Text("Pending"))
+			startedAt = Span(Class("text-zinc-500"), g.Text("-"))
+			duration = Span(Class("text-zinc-500"), g.Text("-"))
 		} else if s.Skipped {
-			statusBadge = Span(Class("inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-400"), g.Text("Skipped"))
-			startedAt = Span(Class("text-slate-500"), g.Text("-"))
-			duration = Span(Class("text-slate-500"), g.Text("-"))
+			statusBadge = Span(Class("inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-700 text-zinc-400"), g.Text("Skipped"))
+			startedAt = Span(Class("text-zinc-500"), g.Text("-"))
+			duration = Span(Class("text-zinc-500"), g.Text("-"))
 		} else if s.Success {
 			statusBadge = Span(Class("inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-400 border border-emerald-800/50"), g.Text("Success"))
 			startedAt = Span(g.Text(s.StartedAt.UTC().Format(time.RFC3339)))
@@ -45,11 +45,11 @@ func debugContent() g.Node {
 			duration = Span(g.Text(s.Duration.Round(time.Second).String()))
 		}
 
-		rows = append(rows, Tr(Class("border-b border-slate-800/50"),
+		rows = append(rows, Tr(Class("border-b border-zinc-800/50"),
 			Td(Class("px-4 py-3 font-medium text-white"), g.Text(displayName)),
 			Td(Class("px-4 py-3"), statusBadge),
-			Td(Class("px-4 py-3 text-slate-400 text-sm tabular-nums"), startedAt),
-			Td(Class("px-4 py-3 text-slate-400 text-sm tabular-nums"), duration),
+			Td(Class("px-4 py-3 text-zinc-400 text-sm tabular-nums"), startedAt),
+			Td(Class("px-4 py-3 text-zinc-400 text-sm tabular-nums"), duration),
 		))
 	}
 
@@ -60,23 +60,23 @@ func debugContent() g.Node {
 	return Main(Class("container mx-auto mt-10 mb-20 px-4 max-w-4xl"),
 		H1(Class("text-2xl md:text-3xl font-bold text-white mb-6"), g.Text("Debug")),
 
-		Section(Class("bg-slate-900/30 border border-slate-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
+		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
 			H2(Class("text-lg font-semibold text-white mb-4"), g.Text("Server")),
-			Div(Class("text-sm text-slate-400"),
+			Div(Class("text-sm text-zinc-400"),
 				g.Text(fmt.Sprintf("Uptime: %s", uptimeStr)),
 			),
 		),
 
-		Section(Class("bg-slate-900/30 border border-slate-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8"),
+		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8"),
 			H2(Class("text-lg font-semibold text-white mb-4"), g.Text("Poller Status")),
 			Div(Class("overflow-x-auto"),
 				Table(Class("w-full"),
 					THead(
-						Tr(Class("border-b border-slate-700/50"),
-							Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider"), g.Text("Platform")),
-							Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider"), g.Text("Status")),
-							Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider"), g.Text("Last Run (UTC)")),
-							Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider"), g.Text("Duration")),
+						Tr(Class("border-b border-zinc-700/50"),
+							Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider"), g.Text("Platform")),
+							Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider"), g.Text("Status")),
+							Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider"), g.Text("Last Run (UTC)")),
+							Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider"), g.Text("Duration")),
 						),
 					),
 					TBody(rows...),

@@ -9,11 +9,11 @@ import (
 
 func contactLink(icon, label, href string) g.Node {
 	return A(Href(href), Target("_blank"), Rel("noopener noreferrer"),
-		Class("flex items-center gap-3 px-4 py-3 bg-slate-800/30 border border-slate-700/50 rounded-xl hover:border-slate-600 hover:bg-slate-800/50 transition-all duration-200 group"),
+		Class("flex items-center gap-3 px-4 py-3 bg-zinc-800/30 border border-zinc-700/50 rounded-xl hover:border-zinc-600 hover:bg-zinc-800/50 transition-all duration-200 group"),
 		Div(Class("w-9 h-9 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center flex-shrink-0 group-hover:bg-cyan-500/20 transition-colors duration-200"),
 			g.Raw(icon),
 		),
-		Span(Class("text-sm text-slate-300 group-hover:text-cyan-400 transition-colors duration-200"), g.Text(label)),
+		Span(Class("text-sm text-zinc-300 group-hover:text-cyan-400 transition-colors duration-200"), g.Text(label)),
 	)
 }
 
@@ -23,11 +23,11 @@ func ContactContent() g.Node {
 		// Page header
 		Div(Class("mb-10"),
 			H1(Class("text-2xl md:text-3xl font-bold text-white mb-3"), g.Text("Contact")),
-			P(Class("text-slate-400 text-lg"), g.Text("This website is created and maintained by sw33tLie.")),
+			P(Class("text-zinc-400 text-lg"), g.Text("This website is created and maintained by sw33tLie.")),
 		),
 
 		// Get in Touch
-		Section(Class("bg-slate-900/30 border border-slate-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
+		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
 			H2(Class("text-lg font-semibold text-white mb-5"), g.Text("Get in Touch")),
 			Div(Class("space-y-3"),
 				contactLink(
@@ -44,9 +44,9 @@ func ContactContent() g.Node {
 		),
 
 		// Contributing
-		Section(Class("bg-slate-900/30 border border-slate-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
+		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
 			H2(Class("text-lg font-semibold text-white mb-3"), g.Text("Found a Bug?")),
-			P(Class("text-slate-400 leading-relaxed mb-4"), g.Text("Found an issue with bbscope or this website? Pull requests are welcome!")),
+			P(Class("text-zinc-400 leading-relaxed mb-4"), g.Text("Found an issue with bbscope or this website? Pull requests are welcome!")),
 			A(Href("https://github.com/sw33tLie/bbscope"), Target("_blank"), Rel("noopener noreferrer"),
 				Class("inline-flex items-center gap-2 px-4 py-2 bg-cyan-600 rounded-lg text-sm text-white font-medium hover:bg-cyan-500 transition-all duration-200 hover:shadow-md hover:shadow-cyan-500/20"),
 				g.Text("Open an Issue"),
@@ -54,9 +54,9 @@ func ContactContent() g.Node {
 		),
 
 		// Collaboration
-		Section(Class("bg-slate-900/30 border border-slate-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8"),
+		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8"),
 			H2(Class("text-lg font-semibold text-white mb-3"), g.Text("Collaboration & Bug Hunting")),
-			P(Class("text-slate-400 leading-relaxed"), g.Text("Are you a fellow bug hunter stuck on a particularly tricky bug? Don't hesitate to reach out! I'm always open to collaboration and brainstorming. Feel free to send a DM!")),
+			P(Class("text-zinc-400 leading-relaxed"), g.Text("Are you a fellow bug hunter stuck on a particularly tricky bug? Don't hesitate to reach out! I'm always open to collaboration and brainstorming. Feel free to send a DM!")),
 		),
 	)
 }
