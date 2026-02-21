@@ -262,6 +262,55 @@ func programDetailAIToggleScript() g.Node {
     return '<span>' + escapeHtml(target) + '</span>';
   }
 
+  function extractDomain(target) {
+    var t = target.replace(/^\*\./, '');
+    if (t.indexOf('://') !== -1) {
+      try { var u = new URL(t); if (u.hostname) return u.hostname; } catch(e) {}
+    }
+    try { var u = new URL('https://' + t); if (u.hostname && u.hostname.indexOf('.') !== -1 && u.hostname.indexOf(' ') === -1) return u.hostname; } catch(e) {}
+    var cleaned = t.split('/')[0].split(':')[0];
+    if (cleaned.indexOf('.') !== -1 && cleaned.indexOf(' ') === -1) return cleaned;
+    return '';
+  }
+
+  function extractPackageName(target) {
+    if (target.indexOf('play.google.com') !== -1) {
+      try { var u = new URL(target); var id = u.searchParams.get('id'); if (id) return id; } catch(e) {}
+    }
+    if (target.indexOf('.') !== -1 && target.indexOf('/') === -1 && target.indexOf(' ') === -1 && target.split('.').length >= 2) return target;
+    return '';
+  }
+
+  var linkCls = 'inline-flex items-center px-2 py-0.5 text-[11px] rounded-md bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-cyan-400 border border-zinc-700/50 transition-all duration-200';
+
+  function quickLinksHtml(target, cat) {
+    var c = cat.toLowerCase();
+    var domain = extractDomain(target);
+    var links = [];
+    if ((c === 'url' || c === 'wildcard' || c === 'api') && domain) {
+      links.push({l:'crt.sh', u:'https://crt.sh/?q=%25.' + encodeURIComponent(domain), d:'TLS certificate transparency search'});
+      links.push({l:'Google', u:'https://www.google.com/search?q=site:' + encodeURIComponent(domain), d:'Google dorking - site search'});
+      links.push({l:'Shodan', u:'https://www.shodan.io/search?query=hostname:' + encodeURIComponent(domain), d:'Shodan host search'});
+      links.push({l:'SecurityTrails', u:'https://securitytrails.com/domain/' + encodeURIComponent(domain) + '/dns', d:'DNS and subdomain history'});
+      links.push({l:'Wayback', u:'https://web.archive.org/web/*/' + encodeURIComponent(target), d:'Wayback Machine archives'});
+      links.push({l:'DNSdumpster', u:'https://dnsdumpster.com/?search=' + encodeURIComponent(domain), d:'DNS recon and subdomain discovery'});
+      links.push({l:'VirusTotal', u:'https://www.virustotal.com/gui/domain/' + encodeURIComponent(domain), d:'VirusTotal domain analysis'});
+    } else if (c === 'cidr') {
+      links.push({l:'Shodan', u:'https://www.shodan.io/search?query=net:' + encodeURIComponent(target), d:'Shodan network search'});
+      links.push({l:'Censys', u:'https://search.censys.io/hosts?q=' + encodeURIComponent(target), d:'Censys host search'});
+    } else if (c === 'android') {
+      var pkg = extractPackageName(target);
+      if (pkg) links.push({l:'Play Store', u:'https://play.google.com/store/apps/details?id=' + encodeURIComponent(pkg), d:'Google Play Store listing'});
+    }
+    if (links.length === 0) return '<span class="text-zinc-500 text-xs">-</span>';
+    var html = '<div class="flex flex-wrap gap-1">';
+    for (var i = 0; i < links.length; i++) {
+      html += '<a href="' + escapeHtml(links[i].u) + '" target="_blank" rel="noopener noreferrer" class="' + linkCls + '" title="' + escapeHtml(links[i].d) + '">' + escapeHtml(links[i].l) + '</a>';
+    }
+    html += '</div>';
+    return html;
+  }
+
   function renderTable(targets, showLinks) {
     if (!targets || targets.length === 0) return '';
     var html = '<div class="overflow-x-auto rounded-xl border border-zinc-700/50 mb-6"><table class="min-w-full divide-y divide-zinc-700"><thead class="bg-zinc-800/80"><tr>';
@@ -278,7 +327,7 @@ func programDetailAIToggleScript() g.Node {
       html += '<tr class="border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors duration-150' + rowBg + '">';
       html += '<td class="px-4 py-3 text-sm text-zinc-200 break-all">' + assetLink(display, cat) + '</td>';
       html += '<td class="px-4 py-3 text-sm"><span class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md ' + categoryBadgeClass(cat) + '">' + escapeHtml(cat) + '</span></td>';
-      if (showLinks) html += '<td class="px-4 py-3 text-sm"><span class="text-zinc-500 text-xs">-</span></td>';
+      if (showLinks) html += '<td class="px-4 py-3 text-sm">' + quickLinksHtml(display, cat) + '</td>';
       var esc = display.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n');
       html += '<td class="px-4 py-3 text-sm"><button type="button" class="p-1.5 text-zinc-500 hover:text-cyan-400 transition-all duration-200 rounded-md hover:bg-zinc-800/50" onclick="navigator.clipboard.writeText(\'' + esc + '\').then(()=>{this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'Copy\',1500)})" title="Copy to clipboard">Copy</button></td>';
       html += '</tr>';
