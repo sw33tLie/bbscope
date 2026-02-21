@@ -1070,6 +1070,7 @@ type ListOptions struct {
 	Since          time.Time
 	IncludeOOS     bool
 	IncludeIgnored bool
+	ProgramType    string // "bbp", "vdp", or "" (all)
 }
 
 // ListEntries returns current entries matching filters.
@@ -1099,6 +1100,12 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 		where += fmt.Sprintf(" AND COALESCE(a.last_seen_at, t.last_seen_at) >= $%d", argIdx)
 		args = append(args, opts.Since.UTC())
 		argIdx++
+	}
+	switch opts.ProgramType {
+	case "bbp":
+		where += " AND EXISTS (SELECT 1 FROM targets_raw t2 WHERE t2.program_id = p.id AND t2.is_bbp = 1)"
+	case "vdp":
+		where += " AND NOT EXISTS (SELECT 1 FROM targets_raw t2 WHERE t2.program_id = p.id AND t2.is_bbp = 1)"
 	}
 
 	query := fmt.Sprintf(`
