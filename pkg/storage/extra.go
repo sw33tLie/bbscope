@@ -63,12 +63,13 @@ func (d *DB) ListPrograms(ctx context.Context) ([]Program, error) {
 
 // ProgramListOptions controls filtering/sorting/pagination for program listing.
 type ProgramListOptions struct {
-	Platforms []string // filter by platforms (empty = all)
-	Search    string   // search across handle, url, and target names
-	SortBy    string   // "handle", "platform", "in_scope_count", "out_of_scope_count"
-	SortOrder string   // "asc" or "desc"
-	Page      int
-	PerPage   int
+	Platforms   []string // filter by platforms (empty = all)
+	Search      string   // search across handle, url, and target names
+	SortBy      string   // "handle", "platform", "in_scope_count", "out_of_scope_count"
+	SortOrder   string   // "asc" or "desc"
+	Page        int
+	PerPage     int
+	ProgramType string // "bbp", "vdp", or "" (all)
 }
 
 // ProgramListEntry is a program with aggregated target counts.
@@ -78,6 +79,7 @@ type ProgramListEntry struct {
 	URL             string
 	InScopeCount    int
 	OutOfScopeCount int
+	IsBBP           bool
 }
 
 // ProgramListResult holds paginated results.
@@ -134,8 +136,29 @@ func (d *DB) ListProgramsPaginated(ctx context.Context, opts ProgramListOptions)
 		argIdx += 3
 	}
 
+	// Build HAVING clause for program type filter
+	havingClause := ""
+	switch opts.ProgramType {
+	case "bbp":
+		havingClause = " HAVING COALESCE(MAX(t.is_bbp), 0) = 1"
+	case "vdp":
+		havingClause = " HAVING COALESCE(MAX(t.is_bbp), 0) = 0"
+	}
+
 	// Count query
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM programs p %s", where)
+	var countQuery string
+	if havingClause != "" {
+		// Need subquery with join + HAVING to filter by program type
+		countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM (
+			SELECT p.id FROM programs p
+			LEFT JOIN targets_raw t ON t.program_id = p.id
+			%s
+			GROUP BY p.id
+			%s
+		) sub`, where, havingClause)
+	} else {
+		countQuery = fmt.Sprintf("SELECT COUNT(*) FROM programs p %s", where)
+	}
 	var totalCount int
 	if err := d.sql.QueryRowContext(ctx, countQuery, args...).Scan(&totalCount); err != nil {
 		return nil, fmt.Errorf("counting programs: %w", err)
@@ -178,15 +201,17 @@ func (d *DB) ListProgramsPaginated(ctx context.Context, opts ProgramListOptions)
 	mainQuery := fmt.Sprintf(`
 		SELECT p.platform, p.handle, p.url,
 			COALESCE(SUM(CASE WHEN COALESCE(a.in_scope, t.in_scope) = 1 THEN 1 ELSE 0 END), 0) AS in_scope_count,
-			COALESCE(SUM(CASE WHEN COALESCE(a.in_scope, t.in_scope) = 0 THEN 1 ELSE 0 END), 0) AS out_of_scope_count
+			COALESCE(SUM(CASE WHEN COALESCE(a.in_scope, t.in_scope) = 0 THEN 1 ELSE 0 END), 0) AS out_of_scope_count,
+			COALESCE(MAX(t.is_bbp), 0) AS has_bbp
 		FROM programs p
 		LEFT JOIN targets_raw t ON t.program_id = p.id
 		LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
 		%s
 		GROUP BY p.id, p.platform, p.handle, p.url
+		%s
 		ORDER BY %s %s, LOWER(p.handle) ASC
 		LIMIT $%d OFFSET $%d
-	`, where, sortColumn, sortDir, argIdx, argIdx+1)
+	`, where, havingClause, sortColumn, sortDir, argIdx, argIdx+1)
 
 	args = append(args, opts.PerPage, offset)
 
@@ -199,9 +224,11 @@ func (d *DB) ListProgramsPaginated(ctx context.Context, opts ProgramListOptions)
 	var programs []ProgramListEntry
 	for rows.Next() {
 		var p ProgramListEntry
-		if err := rows.Scan(&p.Platform, &p.Handle, &p.URL, &p.InScopeCount, &p.OutOfScopeCount); err != nil {
+		var hasBBP int
+		if err := rows.Scan(&p.Platform, &p.Handle, &p.URL, &p.InScopeCount, &p.OutOfScopeCount, &hasBBP); err != nil {
 			return nil, err
 		}
+		p.IsBBP = hasBBP == 1
 		programs = append(programs, p)
 	}
 	if err := rows.Err(); err != nil {

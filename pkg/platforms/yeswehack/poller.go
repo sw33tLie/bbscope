@@ -13,9 +13,14 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-type Poller struct{ token string }
+type Poller struct {
+	token  string
+	bbpSet map[string]bool // tracks which handles are bounty programs
+}
 
-func NewPoller(token string) *Poller { return &Poller{token: token} }
+func NewPoller(token string) *Poller {
+	return &Poller{token: token, bbpSet: map[string]bool{}}
+}
 
 func (p *Poller) Name() string { return "ywh" }
 
@@ -36,6 +41,7 @@ func (p *Poller) Authenticate(ctx context.Context, cfg platforms.AuthConfig) err
 }
 
 func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOptions) ([]string, error) {
+	p.bbpSet = map[string]bool{}
 	var handles []string
 	var page = 1
 	var nb_pages = 2 // Init with a value > page
@@ -63,7 +69,11 @@ func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOpti
 			}
 			if !opts.PrivateOnly || (opts.PrivateOnly && !allPublic[i].Bool()) {
 				if !opts.BountyOnly || (opts.BountyOnly && allRewarding[i].Bool()) {
-					handles = append(handles, allCompanySlugs[i].Str)
+					slug := allCompanySlugs[i].Str
+					handles = append(handles, slug)
+					if allRewarding[i].Bool() {
+						p.bbpSet[slug] = true
+					}
 				}
 			}
 		}
@@ -96,6 +106,8 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 	// If nil, we'll include all categories.
 	selectedCategories := scope.GetAllStringsForCategories(opts.Categories)
 
+	isBBP := p.bbpSet[handle]
+
 	for i := 0; i < len(chunkData[0].Array()); i++ {
 		scopeType := chunkData[1].Array()[i].Str
 		target := chunkData[0].Array()[i].Str
@@ -105,6 +117,7 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 			pData.InScope = append(pData.InScope, scope.ScopeElement{
 				Target:   target,
 				Category: scopeType,
+				IsBBP:    isBBP,
 			})
 			continue
 		}
@@ -122,6 +135,7 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 			pData.InScope = append(pData.InScope, scope.ScopeElement{
 				Target:   target,
 				Category: scopeType,
+				IsBBP:    isBBP,
 			})
 		}
 	}
@@ -132,6 +146,7 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 		pData.OutOfScope = append(pData.OutOfScope, scope.ScopeElement{
 			Target:   item.String(),
 			Category: "other",
+			IsBBP:    isBBP,
 		})
 	}
 

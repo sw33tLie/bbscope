@@ -317,10 +317,10 @@ func processProgramsConcurrently(ctx context.Context, cmd *cobra.Command, p plat
 				// Process database operations
 				var allItems []storage.TargetItem
 				for _, s := range pd.InScope {
-					allItems = append(allItems, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: true})
+					allItems = append(allItems, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: true, IsBBP: s.IsBBP})
 				}
 				for _, s := range pd.OutOfScope {
-					allItems = append(allItems, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: false})
+					allItems = append(allItems, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: false, IsBBP: s.IsBBP})
 				}
 
 				processedItems := make([]storage.TargetItem, 0, len(allItems))

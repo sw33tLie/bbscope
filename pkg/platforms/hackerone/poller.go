@@ -145,6 +145,7 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 							Target:      target,
 							Description: instruction,
 							Category:    assetCategory,
+							IsBBP:       eligibleForBounty,
 						})
 					}
 				} else {
@@ -152,6 +153,7 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 						Target:      target,
 						Description: instruction,
 						Category:    assetCategory,
+						IsBBP:       eligibleForBounty,
 					})
 				}
 			}

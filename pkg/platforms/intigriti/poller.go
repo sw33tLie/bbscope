@@ -129,33 +129,64 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 		return p.FetchProgramScope(ctx, handle, opts)
 	}
 
-	//processed := make(map[string]struct{})
+	// First pass: collect targets and determine if program is BBP.
+	// A program is BBP if at least one in-scope target has a tier other than "No Bounty".
+	type target struct {
+		endpoint    string
+		category    string
+		description string
+		inScope     bool
+	}
+	var targets []target
+	isBBP := false
+
 	contentArray := gjson.Get(res.BodyString, "domains.content")
 	contentArray.ForEach(func(key, value gjson.Result) bool {
 		endpoint := value.Get("endpoint").String()
 		categoryID := value.Get("type.id").Int()
 		categoryValue := value.Get("type.value").Str
 		tierID := value.Get("tier.id").Int()
+		tierValue := value.Get("tier.value").Str
 		description := value.Get("description").Str
 
 		if tierID != 5 { // Not out-of-scope
 			allowedCategories := getCategoryID(opts.Categories)
 			if allowedCategories == nil || isInArray(int(categoryID), allowedCategories) {
-				pData.InScope = append(pData.InScope, scope.ScopeElement{
-					Target:      endpoint,
-					Description: strings.ReplaceAll(description, "\n", "  "),
-					Category:    categoryValue,
+				targets = append(targets, target{
+					endpoint:    endpoint,
+					category:    categoryValue,
+					description: strings.ReplaceAll(description, "\n", "  "),
+					inScope:     true,
 				})
+				if tierValue != "No Bounty" {
+					isBBP = true
+				}
 			}
 		} else {
-			pData.OutOfScope = append(pData.OutOfScope, scope.ScopeElement{
-				Target:      endpoint,
-				Description: strings.ReplaceAll(description, "\n", "  "),
-				Category:    categoryValue,
+			targets = append(targets, target{
+				endpoint:    endpoint,
+				category:    categoryValue,
+				description: strings.ReplaceAll(description, "\n", "  "),
+				inScope:     false,
 			})
 		}
 		return true
 	})
+
+	// Second pass: build ScopeElements with IsBBP set
+	for _, t := range targets {
+		elem := scope.ScopeElement{
+			Target:      t.endpoint,
+			Description: t.description,
+			Category:    t.category,
+			IsBBP:       isBBP,
+		}
+		if t.inScope {
+			pData.InScope = append(pData.InScope, elem)
+		} else {
+			pData.OutOfScope = append(pData.OutOfScope, elem)
+		}
+	}
 
 	return pData, nil
 }

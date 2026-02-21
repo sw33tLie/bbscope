@@ -53,13 +53,17 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Count in-scope and out-of-scope
+	// Count in-scope and out-of-scope; derive isBBP
 	inScopeCount, oosCount := 0, 0
+	isBBP := false
 	for _, t := range targets {
 		if t.InScope {
 			inScopeCount++
 		} else {
 			oosCount++
+		}
+		if t.IsBBP {
+			isBBP = true
 		}
 	}
 
@@ -74,7 +78,7 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 		title,
 		description,
 		Navbar("/scope"),
-		ProgramDetailContent(program, targets, programURL, inScopeCount, oosCount),
+		ProgramDetailContent(program, targets, programURL, inScopeCount, oosCount, isBBP),
 		FooterEl(),
 		canonicalURL,
 		false,
@@ -82,7 +86,7 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // ProgramDetailContent renders the program detail page content.
-func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTarget, programURL string, inScopeCount, oosCount int) g.Node {
+func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTarget, programURL string, inScopeCount, oosCount int, isBBP bool) g.Node {
 	var inScope, outOfScope []storage.ProgramTarget
 	for _, t := range targets {
 		if t.InScope {
@@ -105,6 +109,20 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 			),
 			Span(Class("mx-2 text-zinc-600"), g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>`)),
 			Span(Class("text-zinc-200"), g.Text(program.Handle)),
+		),
+
+		// VDP info banner
+		g.If(!isBBP,
+			Div(Class("mb-8 rounded-xl border border-amber-800/50 bg-amber-900/20 px-5 py-4 flex items-start gap-3"),
+				// Info icon
+				Div(Class("flex-shrink-0 mt-0.5"),
+					g.Raw(`<svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`),
+				),
+				Div(
+					Div(Class("font-semibold text-amber-300 text-sm"), g.Text("Vulnerability Disclosure Program (VDP)")),
+					P(Class("text-amber-200/70 text-sm mt-1 leading-relaxed"), g.Text("VDPs are meant for responsibly reporting vulnerabilities you encounter — not for actively hunting for fame or reputation. Even if you're just starting out, consider focusing on rewarded bug bounty programs instead.")),
+				),
+			),
 		),
 
 		// Program header

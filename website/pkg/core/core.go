@@ -407,17 +407,18 @@ func FooterEl() g.Node {
 }
 
 // ScopeContent renders the full /scope page content (used for non-HTMX requests).
-func ScopeContent(result *storage.ProgramListResult, loadErr error, search, sortBy, sortOrder string, perPage int, platform string) g.Node {
+func ScopeContent(result *storage.ProgramListResult, loadErr error, search, sortBy, sortOrder string, perPage int, platform, programType string) g.Node {
 	pageContent := []g.Node{
 		Div(Class("flex flex-col md:flex-row md:items-center gap-3 mb-4"),
 			Div(Class("flex items-center gap-3"),
 				H1(Class("text-2xl md:text-3xl font-bold text-white"), g.Text("Scope Data")),
-				scopePlatformFilterDropdown(platform, perPage),
+				scopePlatformFilterDropdown(platform, perPage, programType),
 			),
 			Div(Class("flex-1"),
-				scopeSearchBar(search, sortBy, sortOrder, perPage, platform),
+				scopeSearchBar(search, sortBy, sortOrder, perPage, platform, programType),
 			),
 		),
+		scopeProgramTypeFilter(programType, perPage, platform),
 	}
 
 	if loadErr != nil {
@@ -431,7 +432,7 @@ func ScopeContent(result *storage.ProgramListResult, loadErr error, search, sort
 
 	pageContent = append(pageContent,
 		Div(ID("scope-table-container"),
-			scopeTableInner(result, loadErr, search, sortBy, sortOrder, perPage, platform),
+			scopeTableInner(result, loadErr, search, sortBy, sortOrder, perPage, platform, programType),
 		),
 	)
 
@@ -443,12 +444,12 @@ func ScopeContent(result *storage.ProgramListResult, loadErr error, search, sort
 }
 
 // ScopeTableFragment renders just the table container content for HTMX partial responses.
-func ScopeTableFragment(result *storage.ProgramListResult, loadErr error, search, sortBy, sortOrder string, perPage int, platform string) g.Node {
-	return scopeTableInner(result, loadErr, search, sortBy, sortOrder, perPage, platform)
+func ScopeTableFragment(result *storage.ProgramListResult, loadErr error, search, sortBy, sortOrder string, perPage int, platform, programType string) g.Node {
+	return scopeTableInner(result, loadErr, search, sortBy, sortOrder, perPage, platform, programType)
 }
 
 // scopeTableInner renders the controls, table, and pagination for the scope page.
-func scopeTableInner(result *storage.ProgramListResult, loadErr error, search, sortBy, sortOrder string, perPage int, platform string) g.Node {
+func scopeTableInner(result *storage.ProgramListResult, loadErr error, search, sortBy, sortOrder string, perPage int, platform, programType string) g.Node {
 	if loadErr != nil {
 		return Div()
 	}
@@ -472,7 +473,7 @@ func scopeTableInner(result *storage.ProgramListResult, loadErr error, search, s
 	controlsRow := Div(Class("flex flex-col sm:flex-row justify-between items-center mb-3 gap-4"),
 		Div(Class("text-sm text-zinc-400"), g.Text(resultsCountText)),
 		Div(Class("flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3 w-full sm:w-auto"),
-			scopePerPageSelector(search, sortBy, sortOrder, perPage, platform),
+			scopePerPageSelector(search, sortBy, sortOrder, perPage, platform, programType),
 		),
 	)
 	content = append(content, controlsRow)
@@ -493,6 +494,9 @@ func scopeTableInner(result *storage.ProgramListResult, loadErr error, search, s
 		}
 		if platform != "" {
 			u += "&platform=" + platform
+		}
+		if programType != "" {
+			u += "&programType=" + programType
 		}
 		return u
 	}
@@ -573,6 +577,7 @@ func scopeTableInner(result *storage.ProgramListResult, loadErr error, search, s
 								g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>`),
 							),
 							Span(Class("font-medium text-zinc-100"), g.Text(p.Handle)),
+							programTypeBadge(p.IsBBP),
 						),
 					),
 					Td(Class("px-4 py-3 text-sm w-1/5"),
@@ -604,15 +609,58 @@ func scopeTableInner(result *storage.ProgramListResult, loadErr error, search, s
 	// Pagination bottom
 	if result.TotalPages > 1 {
 		content = append(content, Div(Class("mt-6 flex justify-center"),
-			scopePagination(result.Page, result.TotalPages, search, sortBy, sortOrder, perPage, platform),
+			scopePagination(result.Page, result.TotalPages, search, sortBy, sortOrder, perPage, platform, programType),
 		))
 	}
 
 	return g.Group(content)
 }
 
+// scopeProgramTypeFilter renders pill buttons (All / BBP / VDP) for filtering by program type.
+func scopeProgramTypeFilter(programType string, perPage int, platform string) g.Node {
+	types := []struct{ Value, Label string }{
+		{"", "All"},
+		{"bbp", "BBP"},
+		{"vdp", "VDP"},
+	}
+
+	var pills []g.Node
+	for _, t := range types {
+		isActive := programType == t.Value
+		href := fmt.Sprintf("/scope?page=1&perPage=%d", perPage)
+		if t.Value != "" {
+			href += "&programType=" + t.Value
+		}
+		if platform != "" {
+			href += "&platform=" + platform
+		}
+
+		classes := "px-4 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 "
+		if isActive {
+			classes += "bg-cyan-500 text-white shadow-md shadow-cyan-500/20"
+		} else {
+			classes += "bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-700/50"
+		}
+
+		pills = append(pills, A(Href(href), Class(classes), g.Text(t.Label)))
+	}
+
+	return Div(Class("flex flex-wrap items-center gap-2 mb-4"),
+		Span(Class("text-sm text-zinc-500 mr-1"), g.Text("Program type:")),
+		g.Group(pills),
+	)
+}
+
+// programTypeBadge renders a small inline badge ("BBP" in green, "VDP" in amber).
+func programTypeBadge(isBBP bool) g.Node {
+	if isBBP {
+		return Span(Class("inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-900/50 text-emerald-300 border border-emerald-800"), g.Text("BBP"))
+	}
+	return Span(Class("inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-900/50 text-amber-300 border border-amber-800"), g.Text("VDP"))
+}
+
 // scopePlatformFilterDropdown renders a multiselect dropdown for platform filtering.
-func scopePlatformFilterDropdown(currentPlatform string, perPage int) g.Node {
+func scopePlatformFilterDropdown(currentPlatform string, perPage int, programType string) g.Node {
 	platforms := []struct{ Value, Label string }{
 		{"h1", "HackerOne"},
 		{"bc", "Bugcrowd"},
@@ -686,8 +734,8 @@ func scopePlatformFilterDropdown(currentPlatform string, perPage int) g.Node {
 				Class("w-full text-left px-3 py-1.5 text-sm text-cyan-400 hover:bg-zinc-700/50 font-medium border-b border-zinc-700 mb-1"),
 				g.Attr("onclick", fmt.Sprintf(`
 					document.querySelectorAll('#platform-dropdown-menu input[type=checkbox]').forEach(cb => cb.checked = false);
-					applyPlatformFilter(%d);
-				`, perPage)),
+					applyPlatformFilter(%d, '%s');
+				`, perPage, programType)),
 				g.Text("All Platforms"),
 			),
 			g.Group(checkboxItems),
@@ -696,14 +744,14 @@ func scopePlatformFilterDropdown(currentPlatform string, perPage int) g.Node {
 				Button(
 					Type("button"),
 					Class("w-full px-3 py-1.5 text-sm font-medium rounded bg-cyan-600 text-white hover:bg-cyan-500 transition-colors"),
-					g.Attr("onclick", fmt.Sprintf("applyPlatformFilter(%d)", perPage)),
+					g.Attr("onclick", fmt.Sprintf("applyPlatformFilter(%d, '%s')", perPage, programType)),
 					g.Text("Apply"),
 				),
 			),
 		),
 		// Inline JS for platform filter
 		Script(g.Raw(`
-			function applyPlatformFilter(perPage) {
+			function applyPlatformFilter(perPage, programType) {
 				var checked = [];
 				document.querySelectorAll('#platform-dropdown-menu input[type=checkbox]:checked').forEach(function(cb) {
 					checked.push(cb.value);
@@ -711,6 +759,9 @@ func scopePlatformFilterDropdown(currentPlatform string, perPage int) g.Node {
 				var url = '/scope?page=1&perPage=' + perPage;
 				if (checked.length > 0) {
 					url += '&platform=' + checked.join(',');
+				}
+				if (programType) {
+					url += '&programType=' + programType;
 				}
 				window.location.href = url;
 			}
@@ -727,13 +778,13 @@ func scopePlatformFilterDropdown(currentPlatform string, perPage int) g.Node {
 }
 
 // scopeSearchBar renders the search form for the scope page.
-func scopeSearchBar(search, sortBy, sortOrder string, perPage int, platform string) g.Node {
+func scopeSearchBar(search, sortBy, sortOrder string, perPage int, platform, programType string) g.Node {
 	return Form(Method("GET"), Action("/scope"),
 		Class("flex flex-col sm:flex-row gap-2 items-stretch sm:items-center"),
 		g.Attr("hx-get", "/scope"),
 		g.Attr("hx-target", "#scope-table-container"),
 		g.Attr("hx-push-url", "true"),
-		g.Attr("hx-include", "[name='search'],[name='perPage'],[name='sortBy'],[name='sortOrder'],[name='platform']"),
+		g.Attr("hx-include", "[name='search'],[name='perPage'],[name='sortBy'],[name='sortOrder'],[name='platform'],[name='programType']"),
 		Div(Class("relative flex-1"),
 			Div(Class("absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none"),
 				g.Raw(`<svg class="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>`),
@@ -750,6 +801,7 @@ func scopeSearchBar(search, sortBy, sortOrder string, perPage int, platform stri
 		Input(Type("hidden"), Name("sortBy"), Value(sortBy)),
 		Input(Type("hidden"), Name("sortOrder"), Value(sortOrder)),
 		Input(Type("hidden"), Name("platform"), Value(platform)),
+		Input(Type("hidden"), Name("programType"), Value(programType)),
 		Input(Type("hidden"), Name("page"), Value("1")),
 		Button(
 			Type("submit"),
@@ -763,6 +815,9 @@ func scopeSearchBar(search, sortBy, sortOrder string, perPage int, platform stri
 					if platform != "" {
 						u += "&platform=" + platform
 					}
+					if programType != "" {
+						u += "&programType=" + programType
+					}
 					return u
 				}()),
 				Class("px-4 py-2.5 bg-zinc-700 text-zinc-300 rounded-lg hover:bg-zinc-600 hover:text-white transition-all duration-200 text-center"),
@@ -773,7 +828,7 @@ func scopeSearchBar(search, sortBy, sortOrder string, perPage int, platform stri
 }
 
 // scopePerPageSelector renders the per-page dropdown for the scope page.
-func scopePerPageSelector(search, sortBy, sortOrder string, currentPerPage int, platform string) g.Node {
+func scopePerPageSelector(search, sortBy, sortOrder string, currentPerPage int, platform, programType string) g.Node {
 	options := []g.Node{}
 	for _, num := range []int{25, 50, 100, 250, 500} {
 		opt := Option(Value(strconv.Itoa(num)), g.Text(fmt.Sprintf("%d items", num)))
@@ -796,12 +851,13 @@ func scopePerPageSelector(search, sortBy, sortOrder string, currentPerPage int, 
 		Input(Type("hidden"), Name("sortBy"), Value(sortBy)),
 		Input(Type("hidden"), Name("sortOrder"), Value(sortOrder)),
 		Input(Type("hidden"), Name("platform"), Value(platform)),
+		Input(Type("hidden"), Name("programType"), Value(programType)),
 		Input(Type("hidden"), Name("page"), Value("1")),
 	)
 }
 
 // scopePagination creates pagination controls for the scope page with HTMX support.
-func scopePagination(currentPage, totalPages int, search, sortBy, sortOrder string, perPage int, platform string) g.Node {
+func scopePagination(currentPage, totalPages int, search, sortBy, sortOrder string, perPage int, platform, programType string) g.Node {
 	var items []g.Node
 
 	createPageLink := func(page int, text string, disabled, active bool) g.Node {
@@ -811,6 +867,9 @@ func scopePagination(currentPage, totalPages int, search, sortBy, sortOrder stri
 		}
 		if platform != "" {
 			href += "&platform=" + platform
+		}
+		if programType != "" {
+			href += "&programType=" + programType
 		}
 
 		classes := "px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-200"
@@ -840,6 +899,9 @@ func scopePagination(currentPage, totalPages int, search, sortBy, sortOrder stri
 	}
 	if platform != "" {
 		prevHref += "&platform=" + platform
+	}
+	if programType != "" {
+		prevHref += "&programType=" + programType
 	}
 	if currentPage <= 1 {
 		items = append(items, Span(Class("px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-600 cursor-not-allowed"),
@@ -887,6 +949,9 @@ func scopePagination(currentPage, totalPages int, search, sortBy, sortOrder stri
 		if platform != "" {
 			pageHref += "&platform=" + platform
 		}
+		if programType != "" {
+			pageHref += "&programType=" + programType
+		}
 		items = append(items, A(
 			Href(pageHref),
 			g.Attr("hx-get", pageHref),
@@ -910,6 +975,9 @@ func scopePagination(currentPage, totalPages int, search, sortBy, sortOrder stri
 	}
 	if platform != "" {
 		nextHref += "&platform=" + platform
+	}
+	if programType != "" {
+		nextHref += "&programType=" + programType
 	}
 	if currentPage >= totalPages {
 		items = append(items, Span(Class("px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-600 cursor-not-allowed"),
@@ -990,6 +1058,10 @@ func scopeHandler(w http.ResponseWriter, r *http.Request) {
 	sortBy := strings.ToLower(strings.TrimSpace(query.Get("sortBy")))
 	sortOrder := strings.ToLower(strings.TrimSpace(query.Get("sortOrder")))
 	platformFilter := strings.ToLower(strings.TrimSpace(query.Get("platform")))
+	programType := strings.ToLower(strings.TrimSpace(query.Get("programType")))
+	if programType != "bbp" && programType != "vdp" {
+		programType = ""
+	}
 
 	page := 1
 	if p, err := strconv.Atoi(query.Get("page")); err == nil && p > 0 {
@@ -1029,12 +1101,13 @@ func scopeHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Query DB with SQL-level pagination
 	result, err := db.ListProgramsPaginated(ctx, storage.ProgramListOptions{
-		Platforms: platformSlice,
-		Search:    search,
-		SortBy:    sortBy,
-		SortOrder: sortOrder,
-		Page:      page,
-		PerPage:   currentPerPage,
+		Platforms:   platformSlice,
+		Search:      search,
+		SortBy:      sortBy,
+		SortOrder:   sortOrder,
+		Page:        page,
+		PerPage:     currentPerPage,
+		ProgramType: programType,
 	})
 
 	var loadErr error
@@ -1063,7 +1136,7 @@ func scopeHandler(w http.ResponseWriter, r *http.Request) {
 
 	if isHTMX {
 		// Return only the table fragment for HTMX swap
-		ScopeTableFragment(result, loadErr, search, sortBy, sortOrder, currentPerPage, platformFilter).Render(w)
+		ScopeTableFragment(result, loadErr, search, sortBy, sortOrder, currentPerPage, platformFilter, programType).Render(w)
 		return
 	}
 
@@ -1079,7 +1152,7 @@ func scopeHandler(w http.ResponseWriter, r *http.Request) {
 		pageTitle,
 		pageDescription,
 		Navbar("/scope"),
-		ScopeContent(result, loadErr, search, sortBy, sortOrder, currentPerPage, platformFilter),
+		ScopeContent(result, loadErr, search, sortBy, sortOrder, currentPerPage, platformFilter, programType),
 		FooterEl(),
 		canonicalURL,
 		page > 1,
