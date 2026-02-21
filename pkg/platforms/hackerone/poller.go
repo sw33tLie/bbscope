@@ -113,12 +113,22 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 				statusCode = res.StatusCode
 				break
 			}
+			// Don't retry on non-retryable HTTP errors
+			if err == nil && res != nil && (res.StatusCode == 400 || res.StatusCode == 403 || res.StatusCode == 404) {
+				statusCode = res.StatusCode
+				break
+			}
 			retries--
 			time.Sleep(2 * time.Second)
 		}
 
-		if retries == 0 {
-			return scope.ProgramData{}, fmt.Errorf("failed to retrieve data for %s after 3 attempts with status %d", handle, statusCode)
+		if retries == 0 || (res != nil && !strings.Contains(res.BodyString, "\"data\":")) {
+			// Return whatever we've collected so far instead of failing
+			if len(pData.InScope) > 0 || len(pData.OutOfScope) > 0 {
+				utils.Log.Warnf("Partial data for %s: stopped at status %d", handle, statusCode)
+				return pData, nil
+			}
+			return pData, fmt.Errorf("failed to retrieve data for %s after 3 attempts with status %d", handle, statusCode)
 		}
 
 		assetCount := int(gjson.Get(res.BodyString, "data.#").Int())
