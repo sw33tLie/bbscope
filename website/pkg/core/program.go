@@ -136,24 +136,50 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 						g.Text("View on "+capitalizedPlatform(program.Platform)),
 						g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>`),
 					),
+					// AI toggle
+					Span(
+						ID("detail-ai-toggle"),
+						Class("px-3 py-1 text-xs font-medium rounded-lg transition-all duration-200 bg-cyan-500 text-white shadow-md shadow-cyan-500/20 cursor-pointer flex items-center gap-1.5"),
+						g.Attr("data-platform", program.Platform),
+						g.Attr("data-handle", program.Handle),
+						g.Raw(`<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>`),
+						g.Text("AI Enhanced"),
+					),
 				),
 			),
 			Div(Class("flex gap-4"),
 				Div(Class("text-center px-5 py-3 bg-zinc-800/30 border border-zinc-700/50 rounded-xl"),
-					Div(Class("text-2xl font-extrabold text-emerald-400 tabular-nums"), g.Text(fmt.Sprintf("%d", inScopeCount))),
+					Div(ID("in-scope-count"), Class("text-2xl font-extrabold text-emerald-400 tabular-nums"), g.Text(fmt.Sprintf("%d", inScopeCount))),
 					Div(Class("text-xs uppercase tracking-wider text-zinc-500 mt-1 font-medium"), g.Text("In Scope")),
 				),
 				Div(Class("text-center px-5 py-3 bg-zinc-800/30 border border-zinc-700/50 rounded-xl"),
-					Div(Class("text-2xl font-extrabold text-zinc-400 tabular-nums"), g.Text(fmt.Sprintf("%d", oosCount))),
+					Div(ID("out-scope-count"), Class("text-2xl font-extrabold text-zinc-400 tabular-nums"), g.Text(fmt.Sprintf("%d", oosCount))),
 					Div(Class("text-xs uppercase tracking-wider text-zinc-500 mt-1 font-medium"), g.Text("Out of Scope")),
 				),
 			),
 		),
 	}
 
-	// In-scope assets table
+	// Scope tables container (swapped by JS on AI toggle)
+	scopeTables := scopeTablesNode(inScope, outOfScope)
+	content = append(content, Div(ID("scope-tables-container"), scopeTables))
+
+	// AI toggle script
+	content = append(content, programDetailAIToggleScript())
+
+	return Main(Class("container mx-auto mt-10 mb-20 px-4"),
+		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8"),
+			g.Group(content),
+		),
+	)
+}
+
+// scopeTablesNode renders the in-scope and out-of-scope table sections.
+func scopeTablesNode(inScope, outOfScope []storage.ProgramTarget) g.Node {
+	var nodes []g.Node
+
 	if len(inScope) > 0 {
-		content = append(content,
+		nodes = append(nodes,
 			H2(Class("text-lg font-semibold text-zinc-200 mb-4 flex items-center gap-2"),
 				Span(Class("w-2 h-2 rounded-full bg-emerald-400")),
 				g.Textf("In-Scope Assets (%d)", len(inScope)),
@@ -161,7 +187,7 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 			assetTable(inScope, true),
 		)
 	} else {
-		content = append(content,
+		nodes = append(nodes,
 			H2(Class("text-lg font-semibold text-zinc-200 mb-4 flex items-center gap-2"),
 				Span(Class("w-2 h-2 rounded-full bg-emerald-400")),
 				g.Text("In-Scope Assets"),
@@ -170,9 +196,8 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 		)
 	}
 
-	// Out-of-scope section (collapsible)
 	if len(outOfScope) > 0 {
-		content = append(content,
+		nodes = append(nodes,
 			Details(Class("mt-8"),
 				Summary(Class("text-lg font-semibold text-zinc-200 mb-4 cursor-pointer hover:text-zinc-100 transition-colors flex items-center gap-2"),
 					Span(Class("w-2 h-2 rounded-full bg-zinc-500")),
@@ -185,11 +210,142 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 		)
 	}
 
-	return Main(Class("container mx-auto mt-10 mb-20 px-4"),
-		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8"),
-			g.Group(content),
-		),
-	)
+	return g.Group(nodes)
+}
+
+// programDetailAIToggleScript returns an inline script for toggling AI/raw data on program detail pages.
+func programDetailAIToggleScript() g.Node {
+	return Script(g.Raw(`
+(function(){
+  var btn = document.getElementById('detail-ai-toggle');
+  if (!btn) return;
+  var platform = btn.getAttribute('data-platform');
+  var handle = btn.getAttribute('data-handle');
+  var aiMode = true;
+  var cache = {};
+
+  function escapeHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function normalizeCategory(cat) {
+    return (cat || 'other').toUpperCase();
+  }
+
+  function categoryBadgeClass(cat) {
+    switch (cat.toLowerCase()) {
+      case 'url': return 'bg-blue-900/50 text-blue-300 border border-blue-800';
+      case 'wildcard': return 'bg-purple-900/50 text-purple-300 border border-purple-800';
+      case 'cidr': return 'bg-amber-900/50 text-amber-300 border border-amber-800';
+      case 'android': return 'bg-green-900/50 text-green-300 border border-green-800';
+      case 'ios': return 'bg-gray-900/50 text-gray-300 border border-gray-600';
+      case 'api': return 'bg-cyan-900/50 text-cyan-300 border border-cyan-800';
+      case 'other': return 'bg-zinc-800 text-zinc-400 border border-zinc-700';
+      case 'hardware': return 'bg-orange-900/50 text-orange-300 border border-orange-800';
+      case 'executable': return 'bg-red-900/50 text-red-300 border border-red-800';
+      default: return 'bg-zinc-700 text-zinc-300';
+    }
+  }
+
+  function assetLink(target, cat) {
+    var c = cat.toLowerCase();
+    if (c === 'url' || c === 'wildcard' || c === 'api') {
+      var href = target;
+      if (href.indexOf('http://') !== 0 && href.indexOf('https://') !== 0) {
+        href = href.replace(/^\*\./, '');
+        href = 'https://' + href;
+      }
+      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="text-cyan-400 hover:text-cyan-300 hover:underline transition-colors">' + escapeHtml(target) + '</a>';
+    }
+    return '<span>' + escapeHtml(target) + '</span>';
+  }
+
+  function renderTable(targets, showLinks) {
+    if (!targets || targets.length === 0) return '';
+    var html = '<div class="overflow-x-auto rounded-xl border border-zinc-700/50 mb-6"><table class="min-w-full divide-y divide-zinc-700"><thead class="bg-zinc-800/80"><tr>';
+    html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Asset</th>';
+    html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-28">Category</th>';
+    if (showLinks) html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Quick Links</th>';
+    html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-16"></th>';
+    html += '</tr></thead><tbody class="bg-zinc-900/50 divide-y divide-zinc-800">';
+    for (var i = 0; i < targets.length; i++) {
+      var t = targets[i];
+      var display = t.target || t.target_raw || '';
+      var cat = normalizeCategory(t.category);
+      var rowBg = i % 2 === 1 ? ' bg-zinc-800/20' : '';
+      html += '<tr class="border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors duration-150' + rowBg + '">';
+      html += '<td class="px-4 py-3 text-sm text-zinc-200 break-all">' + assetLink(display, cat) + '</td>';
+      html += '<td class="px-4 py-3 text-sm"><span class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md ' + categoryBadgeClass(cat) + '">' + escapeHtml(cat) + '</span></td>';
+      if (showLinks) html += '<td class="px-4 py-3 text-sm"><span class="text-zinc-500 text-xs">-</span></td>';
+      var esc = display.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n');
+      html += '<td class="px-4 py-3 text-sm"><button type="button" class="p-1.5 text-zinc-500 hover:text-cyan-400 transition-all duration-200 rounded-md hover:bg-zinc-800/50" onclick="navigator.clipboard.writeText(\'' + esc + '\').then(()=>{this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'Copy\',1500)})" title="Copy to clipboard">Copy</button></td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  function renderScopeTables(data) {
+    var inScope = data.in_scope || [];
+    var outScope = data.out_of_scope || [];
+    var html = '';
+
+    // Update counts
+    var isc = document.getElementById('in-scope-count');
+    var osc = document.getElementById('out-scope-count');
+    if (isc) isc.textContent = inScope.length;
+    if (osc) osc.textContent = outScope.length;
+
+    if (inScope.length > 0) {
+      html += '<h2 class="text-lg font-semibold text-zinc-200 mb-4 flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-400"></span>In-Scope Assets (' + inScope.length + ')</h2>';
+      html += renderTable(inScope, true);
+    } else {
+      html += '<h2 class="text-lg font-semibold text-zinc-200 mb-4 flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-400"></span>In-Scope Assets</h2>';
+      html += '<p class="text-zinc-400 text-sm mb-8">No in-scope assets found for this program.</p>';
+    }
+
+    if (outScope.length > 0) {
+      html += '<details class="mt-8"><summary class="text-lg font-semibold text-zinc-200 mb-4 cursor-pointer hover:text-zinc-100 transition-colors flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-zinc-500"></span>Out-of-Scope Assets (' + outScope.length + ')</summary><div class="mt-4">';
+      html += renderTable(outScope, false);
+      html += '</div></details>';
+    }
+
+    return html;
+  }
+
+  function syncToggle() {
+    if (aiMode) {
+      btn.className = 'px-3 py-1 text-xs font-medium rounded-lg transition-all duration-200 bg-cyan-500 text-white shadow-md shadow-cyan-500/20 cursor-pointer flex items-center gap-1.5';
+      btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>AI Enhanced';
+    } else {
+      btn.className = 'px-3 py-1 text-xs font-medium rounded-lg transition-all duration-200 bg-zinc-800/50 text-zinc-400 border border-zinc-700/50 cursor-pointer flex items-center gap-1.5';
+      btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>Raw';
+    }
+  }
+
+  function fetchAndRender() {
+    var key = aiMode ? 'ai' : 'raw';
+    if (cache[key]) {
+      document.getElementById('scope-tables-container').innerHTML = renderScopeTables(cache[key]);
+      return;
+    }
+    var url = '/api/v1/programs/' + encodeURIComponent(platform) + '/' + encodeURIComponent(handle);
+    if (!aiMode) url += '?raw=true';
+    fetch(url).then(function(r){ return r.json(); }).then(function(data){
+      cache[key] = data;
+      document.getElementById('scope-tables-container').innerHTML = renderScopeTables(data);
+    });
+  }
+
+  btn.addEventListener('click', function(){
+    aiMode = !aiMode;
+    syncToggle();
+    fetchAndRender();
+  });
+})();
+`))
 }
 
 // assetTable renders a table of program targets with optional quick links.
