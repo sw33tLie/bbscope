@@ -429,8 +429,8 @@ func ScopeContent(result *storage.ProgramListResult, loadErr error, search, sort
 		),
 	)
 
-	return Main(Class("container mx-auto mt-10 mb-20 px-2 sm:px-4"),
-		Section(Class("bg-slate-900/30 border border-slate-800/50 rounded-2xl shadow-xl shadow-black/10 px-3 py-4 sm:p-6 md:p-8 lg:p-12"),
+	return Main(Class("container mx-auto mt-10 mb-20 px-0 sm:px-4"),
+		Section(Class("sm:bg-slate-900/30 sm:border sm:border-slate-800/50 sm:rounded-2xl sm:shadow-xl sm:shadow-black/10 px-2 py-4 sm:p-6 md:p-8 lg:p-12"),
 			g.Group(pageContent),
 		),
 	)
@@ -590,7 +590,7 @@ func scopeTableInner(result *storage.ProgramListResult, loadErr error, search, s
 		}
 	}
 
-	table := Div(Class("overflow-x-auto rounded-xl border border-slate-700/50 shadow-xl shadow-black/10"),
+	table := Div(Class("overflow-x-auto rounded-none sm:rounded-xl border-y sm:border border-slate-700/50 sm:shadow-xl sm:shadow-black/10"),
 		Table(Class("min-w-full divide-y divide-slate-700"),
 			THead(Class("bg-slate-800/80"),
 				tableHeaders,
@@ -1405,7 +1405,7 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 		}
 	}
 
-	table := Div(Class("overflow-x-auto rounded-xl border border-slate-700/50 shadow-xl shadow-black/10"),
+	table := Div(Class("overflow-x-auto rounded-none sm:rounded-xl border-y sm:border border-slate-700/50 sm:shadow-xl sm:shadow-black/10"),
 		Table(Class("min-w-full divide-y divide-slate-700"),
 			THead(Class("bg-slate-800/80"),
 				Tr(
@@ -1431,8 +1431,8 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 		pageContent = append(pageContent, Div(Class("mt-6 flex justify-center"), paginationBottom))
 	}
 
-	return Main(Class("container mx-auto mt-10 mb-20 px-2 sm:px-4"),
-		Section(Class("bg-slate-900/30 border border-slate-800/50 rounded-2xl shadow-xl shadow-black/10 px-3 py-4 sm:p-6 md:p-8 lg:p-12"),
+	return Main(Class("container mx-auto mt-10 mb-20 px-0 sm:px-4"),
+		Section(Class("sm:bg-slate-900/30 sm:border sm:border-slate-800/50 sm:rounded-2xl sm:shadow-xl sm:shadow-black/10 px-2 py-4 sm:p-6 md:p-8 lg:p-12"),
 			g.Group(pageContent),
 		),
 	)
