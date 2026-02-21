@@ -291,7 +291,7 @@ func platformBadge(platform string) g.Node {
 	case "h1", "hackerone":
 		colors = "bg-blue-900/50 text-blue-300 border border-blue-800"
 	case "bc", "bugcrowd":
-		colors = "bg-emerald-900/50 text-emerald-300 border border-emerald-800"
+		colors = "bg-orange-900/50 text-orange-300 border border-orange-800"
 	case "it", "intigriti":
 		colors = "bg-purple-900/50 text-purple-300 border border-purple-800"
 	case "ywh", "yeswehack":

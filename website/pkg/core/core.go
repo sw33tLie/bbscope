@@ -429,8 +429,8 @@ func ScopeContent(result *storage.ProgramListResult, loadErr error, search, sort
 		),
 	)
 
-	return Main(Class("container mx-auto mt-10 mb-20 px-4"),
-		Section(Class("bg-slate-900/30 border border-slate-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 lg:p-12"),
+	return Main(Class("container mx-auto mt-10 mb-20 px-2 sm:px-4"),
+		Section(Class("bg-slate-900/30 border border-slate-800/50 rounded-2xl shadow-xl shadow-black/10 px-3 py-4 sm:p-6 md:p-8 lg:p-12"),
 			g.Group(pageContent),
 		),
 	)
@@ -836,31 +836,98 @@ func scopePagination(currentPage, totalPages int, search, sortBy, sortOrder stri
 		)
 	}
 
-	// Previous
-	items = append(items, createPageLink(currentPage-1, "Previous", currentPage <= 1, false))
+	// Previous - use arrow on mobile, text on desktop
+	prevHref := fmt.Sprintf("/scope?page=%d&perPage=%d&sortBy=%s&sortOrder=%s", currentPage-1, perPage, sortBy, sortOrder)
+	if search != "" {
+		prevHref += "&search=" + url.QueryEscape(search)
+	}
+	if platform != "" {
+		prevHref += "&platform=" + platform
+	}
+	if currentPage <= 1 {
+		items = append(items, Span(Class("px-2 py-1.5 text-sm font-medium rounded-full bg-slate-800/50 text-slate-600 cursor-not-allowed"),
+			g.Raw(`<span class="hidden sm:inline">Previous</span><span class="sm:hidden">&larr;</span>`),
+		))
+	} else {
+		items = append(items, A(
+			Href(prevHref),
+			g.Attr("hx-get", prevHref),
+			g.Attr("hx-target", "#scope-table-container"),
+			g.Attr("hx-push-url", "true"),
+			Class("px-2 py-1.5 text-sm font-medium rounded-full bg-slate-800/50 text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition-all duration-200"),
+			g.Raw(`<span class="hidden sm:inline">Previous</span><span class="sm:hidden">&larr;</span>`),
+		))
+	}
 
-	// Page numbers
+	// Page numbers - show fewer on mobile
 	start := max(1, currentPage-2)
 	end := min(totalPages, currentPage+2)
 
 	if start > 1 {
 		items = append(items, createPageLink(1, "1", false, false))
 		if start > 2 {
-			items = append(items, Span(Class("px-2 py-1.5 text-sm text-slate-600"), g.Text("...")))
+			items = append(items, Span(Class("px-1 sm:px-2 py-1.5 text-sm text-slate-600"), g.Text("...")))
 		}
 	}
 	for i := start; i <= end; i++ {
-		items = append(items, createPageLink(i, strconv.Itoa(i), false, i == currentPage))
+		// On mobile, only show current page and immediate neighbors
+		hideOnMobile := ""
+		if i != currentPage && (i < currentPage-1 || i > currentPage+1) {
+			hideOnMobile = " hidden sm:inline-flex"
+		}
+		pageClasses := "px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-200"
+		if i == currentPage {
+			pageClasses += " bg-cyan-600 text-white shadow-md shadow-cyan-500/20"
+		} else {
+			pageClasses += " bg-slate-800/50 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+		}
+		pageClasses += hideOnMobile
+
+		pageHref := fmt.Sprintf("/scope?page=%d&perPage=%d&sortBy=%s&sortOrder=%s", i, perPage, sortBy, sortOrder)
+		if search != "" {
+			pageHref += "&search=" + url.QueryEscape(search)
+		}
+		if platform != "" {
+			pageHref += "&platform=" + platform
+		}
+		items = append(items, A(
+			Href(pageHref),
+			g.Attr("hx-get", pageHref),
+			g.Attr("hx-target", "#scope-table-container"),
+			g.Attr("hx-push-url", "true"),
+			Class(pageClasses),
+			g.Text(strconv.Itoa(i)),
+		))
 	}
 	if end < totalPages {
 		if end < totalPages-1 {
-			items = append(items, Span(Class("px-2 py-1.5 text-sm text-slate-600"), g.Text("...")))
+			items = append(items, Span(Class("px-1 sm:px-2 py-1.5 text-sm text-slate-600"), g.Text("...")))
 		}
 		items = append(items, createPageLink(totalPages, strconv.Itoa(totalPages), false, false))
 	}
 
-	// Next
-	items = append(items, createPageLink(currentPage+1, "Next", currentPage >= totalPages, false))
+	// Next - use arrow on mobile, text on desktop
+	nextHref := fmt.Sprintf("/scope?page=%d&perPage=%d&sortBy=%s&sortOrder=%s", currentPage+1, perPage, sortBy, sortOrder)
+	if search != "" {
+		nextHref += "&search=" + url.QueryEscape(search)
+	}
+	if platform != "" {
+		nextHref += "&platform=" + platform
+	}
+	if currentPage >= totalPages {
+		items = append(items, Span(Class("px-2 py-1.5 text-sm font-medium rounded-full bg-slate-800/50 text-slate-600 cursor-not-allowed"),
+			g.Raw(`<span class="hidden sm:inline">Next</span><span class="sm:hidden">&rarr;</span>`),
+		))
+	} else {
+		items = append(items, A(
+			Href(nextHref),
+			g.Attr("hx-get", nextHref),
+			g.Attr("hx-target", "#scope-table-container"),
+			g.Attr("hx-push-url", "true"),
+			Class("px-2 py-1.5 text-sm font-medium rounded-full bg-slate-800/50 text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition-all duration-200"),
+			g.Raw(`<span class="hidden sm:inline">Next</span><span class="sm:hidden">&rarr;</span>`),
+		))
+	}
 
 	return Div(Class("mt-6 flex justify-center"),
 		Nav(Class("inline-flex items-center gap-1 bg-slate-800/30 rounded-full px-1 py-1"), g.Group(items)),
@@ -1364,8 +1431,8 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 		pageContent = append(pageContent, Div(Class("mt-6 flex justify-center"), paginationBottom))
 	}
 
-	return Main(Class("container mx-auto mt-10 mb-20 px-4"),
-		Section(Class("bg-slate-900/30 border border-slate-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 lg:p-12"),
+	return Main(Class("container mx-auto mt-10 mb-20 px-2 sm:px-4"),
+		Section(Class("bg-slate-900/30 border border-slate-800/50 rounded-2xl shadow-xl shadow-black/10 px-3 py-4 sm:p-6 md:p-8 lg:p-12"),
 			g.Group(pageContent),
 		),
 	)
@@ -1395,12 +1462,22 @@ func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platf
 		return A(Href(href), Class(classes), g.Text(text))
 	}
 
-	// Previous button
-	paginationItems = append(paginationItems,
-		createPageLink(currentPage-1, "Previous", currentPage <= 1, false),
-	)
+	// Previous button - arrow on mobile, text on desktop
+	prevHref := fmt.Sprintf("/updates?page=%d&perPage=%d", currentPage-1, perPage)
+	if platform != "" {
+		prevHref += "&platform=" + platform
+	}
+	if currentPage <= 1 {
+		paginationItems = append(paginationItems, Span(Class("px-2 py-1.5 text-sm font-medium rounded-full bg-slate-800/50 text-slate-600 cursor-not-allowed"),
+			g.Raw(`<span class="hidden sm:inline">Previous</span><span class="sm:hidden">&larr;</span>`),
+		))
+	} else {
+		paginationItems = append(paginationItems, A(Href(prevHref), Class("px-2 py-1.5 text-sm font-medium rounded-full bg-slate-800/50 text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition-all duration-200"),
+			g.Raw(`<span class="hidden sm:inline">Previous</span><span class="sm:hidden">&larr;</span>`),
+		))
+	}
 
-	// Page numbers
+	// Page numbers - show fewer on mobile
 	start := max(1, currentPage-2)
 	end := min(totalPages, currentPage+2)
 
@@ -1408,21 +1485,35 @@ func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platf
 		paginationItems = append(paginationItems, createPageLink(1, "1", false, false))
 		if start > 2 {
 			paginationItems = append(paginationItems,
-				Span(Class("px-2 py-1.5 text-sm text-slate-600"), g.Text("...")),
+				Span(Class("px-1 sm:px-2 py-1.5 text-sm text-slate-600"), g.Text("...")),
 			)
 		}
 	}
 
 	for i := start; i <= end; i++ {
-		paginationItems = append(paginationItems,
-			createPageLink(i, strconv.Itoa(i), false, i == currentPage),
-		)
+		hideOnMobile := ""
+		if i != currentPage && (i < currentPage-1 || i > currentPage+1) {
+			hideOnMobile = " hidden sm:inline-flex"
+		}
+		pageClasses := "px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-200"
+		if i == currentPage {
+			pageClasses += " bg-cyan-600 text-white shadow-md shadow-cyan-500/20"
+		} else {
+			pageClasses += " bg-slate-800/50 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+		}
+		pageClasses += hideOnMobile
+
+		pageHref := fmt.Sprintf("/updates?page=%d&perPage=%d", i, perPage)
+		if platform != "" {
+			pageHref += "&platform=" + platform
+		}
+		paginationItems = append(paginationItems, A(Href(pageHref), Class(pageClasses), g.Text(strconv.Itoa(i))))
 	}
 
 	if end < totalPages {
 		if end < totalPages-1 {
 			paginationItems = append(paginationItems,
-				Span(Class("px-2 py-1.5 text-sm text-slate-600"), g.Text("...")),
+				Span(Class("px-1 sm:px-2 py-1.5 text-sm text-slate-600"), g.Text("...")),
 			)
 		}
 		paginationItems = append(paginationItems,
@@ -1430,10 +1521,20 @@ func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platf
 		)
 	}
 
-	// Next button
-	paginationItems = append(paginationItems,
-		createPageLink(currentPage+1, "Next", currentPage >= totalPages, false),
-	)
+	// Next button - arrow on mobile, text on desktop
+	nextHref := fmt.Sprintf("/updates?page=%d&perPage=%d", currentPage+1, perPage)
+	if platform != "" {
+		nextHref += "&platform=" + platform
+	}
+	if currentPage >= totalPages {
+		paginationItems = append(paginationItems, Span(Class("px-2 py-1.5 text-sm font-medium rounded-full bg-slate-800/50 text-slate-600 cursor-not-allowed"),
+			g.Raw(`<span class="hidden sm:inline">Next</span><span class="sm:hidden">&rarr;</span>`),
+		))
+	} else {
+		paginationItems = append(paginationItems, A(Href(nextHref), Class("px-2 py-1.5 text-sm font-medium rounded-full bg-slate-800/50 text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition-all duration-200"),
+			g.Raw(`<span class="hidden sm:inline">Next</span><span class="sm:hidden">&rarr;</span>`),
+		))
+	}
 
 	return Div(Class("mt-6 flex justify-center"),
 		Nav(Class("inline-flex items-center gap-1 bg-slate-800/30 rounded-full px-1 py-1"),

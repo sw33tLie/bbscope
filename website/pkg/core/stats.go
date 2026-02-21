@@ -63,7 +63,7 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 		Div(Class("grid grid-cols-2 md:grid-cols-4 gap-4 mb-10"),
 			statsCard("Total Programs", fmt.Sprintf("%d", totalPrograms), "text-cyan-400"),
 			statsCard("HackerOne", fmt.Sprintf("%d", h1Count), "text-blue-400"),
-			statsCard("Bugcrowd", fmt.Sprintf("%d", bcCount), "text-emerald-400"),
+			statsCard("Bugcrowd", fmt.Sprintf("%d", bcCount), "text-orange-400"),
 			statsCard("In-Scope Assets", fmt.Sprintf("%d", totalAssets), "text-amber-400"),
 		),
 	)
@@ -129,7 +129,7 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 						labels: ['HackerOne', 'Bugcrowd', 'YesWeHack', 'Intigriti'],
 						datasets: [{
 							data: [%d, %d, %d, %d],
-							backgroundColor: ['#3b82f6', '#10b981', '#eab308', '#8b5cf6'],
+							backgroundColor: ['#3b82f6', '#f97316', '#eab308', '#8b5cf6'],
 							borderColor: '#1e293b',
 							borderWidth: 2,
 							hoverOffset: 8
@@ -207,7 +207,7 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 							labels: ['HackerOne', 'Bugcrowd', 'YesWeHack', 'Intigriti'],
 							datasets: [{
 								data: [%d, %d, %d, %d],
-								backgroundColor: ['#3b82f6', '#10b981', '#eab308', '#8b5cf6'],
+								backgroundColor: ['#3b82f6', '#f97316', '#eab308', '#8b5cf6'],
 								borderColor: '#1e293b',
 								borderWidth: 2,
 								hoverOffset: 8
