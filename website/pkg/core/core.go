@@ -110,9 +110,12 @@ func PageLayout(title, description string, navbar g.Node, content g.Node, footer
 				Meta(Name("viewport"), Content("width=device-width, initial-scale=1.0")),
 				Meta(Name("description"), Content(description)),
 				TitleEl(g.Text(title)), // Using TitleEl to avoid conflict
+				Link(Rel("preconnect"), Href("https://fonts.googleapis.com")),
+				Link(Rel("preconnect"), Href("https://fonts.gstatic.com"), g.Attr("crossorigin", "")),
+				Link(Rel("stylesheet"), Href("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap")),
 				Script(Src("https://cdn.tailwindcss.com")),
-			Script(Src("https://unpkg.com/htmx.org@2.0.4")),
-				Script(g.Raw(`tailwind.config={theme:{extend:{colors:{'bb-dark':'#0f172a','bb-blue':'#3b82f6','bb-accent':'#06b6d4','bb-surface':'#1e293b'}}}}`)),
+				Script(Src("https://unpkg.com/htmx.org@2.0.4")),
+				Script(g.Raw(`tailwind.config={theme:{extend:{fontFamily:{sans:['Inter','ui-sans-serif','system-ui','sans-serif']},colors:{'bb-dark':'#0f172a','bb-blue':'#3b82f6','bb-accent':'#06b6d4','bb-surface':'#1e293b'}}}}`)),
 
 				// Favicon links
 				Link(Rel("shortcut icon"), Href("/static/favicon.ico")),
@@ -129,17 +132,32 @@ func PageLayout(title, description string, navbar g.Node, content g.Node, footer
 					Meta(Name("robots"), Content("noindex, follow")),
 				),
 
-				// Custom CSS can be added here if needed
+				// Custom CSS
 				StyleEl(g.Raw(`
+					* { scroll-behavior: smooth; }
+					::selection { background: #0891b2; color: white; }
+					a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
+						outline: 2px solid #06b6d4;
+						outline-offset: 2px;
+					}
 					::-webkit-scrollbar { width: 8px; height: 8px; }
 					::-webkit-scrollbar-track { background: #1e293b; border-radius: 10px; }
 					::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
 					::-webkit-scrollbar-thumb:hover { background: #64748b; }
 					.table-fixed { table-layout: fixed; }
 					.prose { --tw-prose-body: #cbd5e1; --tw-prose-headings: #e2e8f0; --tw-prose-links: #22d3ee; --tw-prose-bold: #e2e8f0; --tw-prose-code: #e2e8f0; --tw-prose-pre-bg: #0f172a; }
+					@keyframes gradient-shift {
+						0%, 100% { background-position: 0% 50%; }
+						50% { background-position: 100% 50%; }
+					}
+					.hero-gradient {
+						background: linear-gradient(135deg, #0f172a 0%, #164e63 25%, #0f172a 50%, #1e1b4b 75%, #0f172a 100%);
+						background-size: 400% 400%;
+						animation: gradient-shift 15s ease infinite;
+					}
 				`)),
 			),
-			Body(Class("bg-slate-950 font-sans leading-normal tracking-normal flex flex-col min-h-screen text-slate-200"),
+			Body(Class("bg-slate-950 font-sans antialiased leading-normal tracking-tight flex flex-col min-h-screen text-slate-300"),
 				navbar,
 				Div(Class("flex-grow"), content), // Ensure content pushes footer down
 				footer,
@@ -196,41 +214,50 @@ func PageLayout(title, description string, navbar g.Node, content g.Node, footer
 }
 
 // Navbar component
-func Navbar() g.Node {
-	return Nav(Class("bg-slate-900 text-white p-4 shadow-lg shadow-slate-950/50 sticky top-0 z-50 border-b border-slate-800"),
+func Navbar(currentPath string) g.Node {
+	navLink := func(href, label string) g.Node {
+		isActive := currentPath == href
+		base := "block text-center md:inline-block transition-all duration-200 px-3 py-2 rounded-md text-sm font-medium "
+		if isActive {
+			base += "text-cyan-400 bg-cyan-400/10"
+		} else {
+			base += "text-slate-400 hover:text-white hover:bg-slate-800/50"
+		}
+		return A(Href(href), Class(base), g.Text(label))
+	}
+
+	return Nav(Class("bg-slate-900/80 backdrop-blur-xl text-white p-4 shadow-lg shadow-black/20 sticky top-0 z-50 border-b border-slate-700/50"),
 		Div(Class("container mx-auto flex justify-between items-center"),
 			// Logo/Site Name
-			A(Href("/"), Class("text-2xl font-bold hover:text-slate-300 transition-colors"), g.Text("bbscope.com")),
+			A(Href("/"), Class("text-xl font-bold tracking-tight hover:text-cyan-400 transition-colors duration-200"), g.Text("bbscope.com")),
 
 			// Mobile Menu Button (Hamburger)
-			Div(Class("md:hidden"), // Visible on small screens, hidden on medium and up
+			Div(Class("md:hidden"),
 				Button(
-					ID("mobile-menu-button"), // ID for JavaScript
+					ID("mobile-menu-button"),
 					Type("button"),
 					Class("inline-flex items-center justify-center p-2 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white"),
 					g.Attr("aria-controls", "mobile-menu"),
-					g.Attr("aria-expanded", "false"), // This would ideally be toggled by JS too
+					g.Attr("aria-expanded", "false"),
 					Span(Class("sr-only"), g.Text("Open main menu")),
-					// Icon when menu is closed (Heroicon: menu)
 					g.Raw(`<svg class="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>`),
-					// Icon when menu is open (Heroicon: x) -  You'd need JS to swap this
-					// RawSVG(`<svg class="hidden h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>`),
 				),
 			),
 
 			// Navigation Links
-			// Hidden on small screens, flex on medium and up.
-			// Added ID for JS, and classes for mobile dropdown appearance.
 			Div(
-				ID("mobile-menu"), // ID for JavaScript
-				Class("hidden md:flex md:items-center md:space-x-1 w-full md:w-auto absolute md:relative top-16 left-0 md:top-auto md:left-auto bg-slate-900 md:bg-transparent shadow-lg md:shadow-none rounded-b-md md:rounded-none py-2 md:py-0"),
-				A(Href("/"), Class("block text-center md:inline-block hover:bg-slate-700 md:hover:bg-transparent hover:text-white md:hover:text-slate-300 transition-colors px-3 py-2 rounded-md text-sm font-medium"), g.Text("Home")),
-				A(Href("/scope"), Class("block text-center md:inline-block hover:bg-slate-700 md:hover:bg-transparent hover:text-white md:hover:text-slate-300 transition-colors px-3 py-2 rounded-md text-sm font-medium"), g.Text("Scope")),     // New Scope Link
-				A(Href("/updates"), Class("block text-center md:inline-block hover:bg-slate-700 md:hover:bg-transparent hover:text-white md:hover:text-slate-300 transition-colors px-3 py-2 rounded-md text-sm font-medium"), g.Text("Updates")), // New Updates Link
-				A(Href("/stats"), Class("block text-center md:inline-block hover:bg-slate-700 md:hover:bg-transparent hover:text-white md:hover:text-slate-300 transition-colors px-3 py-2 rounded-md text-sm font-medium"), g.Text("Stats")),     // New Stats Link
-				A(Href("/docs"), Class("block text-center md:inline-block hover:bg-slate-700 md:hover:bg-transparent hover:text-white md:hover:text-slate-300 transition-colors px-3 py-2 rounded-md text-sm font-medium"), g.Text("Docs")),
-				A(Href("https://github.com/sw33tLie/bbscope"), Target("_blank"), Rel("noopener noreferrer"), Class("block text-center md:inline-block hover:bg-slate-700 md:hover:bg-transparent hover:text-white md:hover:text-slate-300 transition-colors px-3 py-2 rounded-md text-sm font-medium"), g.Text("GitHub")),
-				A(Href("/contact"), Class("block text-center md:inline-block hover:bg-slate-700 md:hover:bg-transparent hover:text-white md:hover:text-slate-300 transition-colors px-3 py-2 rounded-md text-sm font-medium"), g.Text("Contact")),
+				ID("mobile-menu"),
+				Class("hidden md:flex md:items-center md:space-x-1 w-full md:w-auto absolute md:relative top-16 left-0 md:top-auto md:left-auto bg-slate-900/95 backdrop-blur-xl md:bg-transparent shadow-xl md:shadow-none rounded-b-lg md:rounded-none py-3 md:py-0 border-b border-slate-700/50 md:border-0"),
+				navLink("/", "Home"),
+				navLink("/scope", "Scope"),
+				navLink("/updates", "Updates"),
+				navLink("/stats", "Stats"),
+				navLink("/docs", "Docs"),
+				A(Href("https://github.com/sw33tLie/bbscope"), Target("_blank"), Rel("noopener noreferrer"),
+					Class("block text-center md:inline-block text-slate-400 hover:text-white hover:bg-slate-800/50 transition-all duration-200 px-3 py-2 rounded-md text-sm font-medium"),
+					g.Text("GitHub"),
+				),
+				navLink("/contact", "Contact"),
 			),
 		),
 	)
@@ -238,15 +265,15 @@ func Navbar() g.Node {
 
 // MainContent component for the landing page
 func statCounter(value int, label string) g.Node {
-	return Div(Class("text-center"),
-		Div(Class("text-3xl md:text-4xl font-bold text-cyan-400 tabular-nums"), g.Text(fmt.Sprintf("%d", value))),
-		Div(Class("text-sm text-slate-400 mt-1"), g.Text(label)),
+	return Div(Class("text-center px-6"),
+		Div(Class("text-3xl md:text-4xl font-extrabold text-cyan-400 tabular-nums"), g.Text(fmt.Sprintf("%d", value))),
+		Div(Class("text-xs uppercase tracking-wider text-slate-500 mt-2 font-medium"), g.Text(label)),
 	)
 }
 
 func MainContent(totalPrograms, totalAssets, platformCount int) g.Node {
-	newHeroSection := Section(
-		Div(Class("relative items-center w-full px-5 py-12 mx-auto md:px-12 lg:px-16 max-w-7xl lg:py-24"),
+	newHeroSection := Section(Class("hero-gradient rounded-2xl overflow-hidden"),
+		Div(Class("relative items-center w-full px-5 py-16 mx-auto md:px-12 lg:px-16 max-w-7xl lg:py-28"),
 			Div(Class("flex w-full mx-auto text-left"),
 				Div(Class("relative inline-flex items-center mx-auto align-middle"),
 					Div(Class("text-center"),
@@ -255,19 +282,19 @@ func MainContent(totalPrograms, totalAssets, platformCount int) g.Node {
 							Src("/static/images/bbscope-logo.svg"),
 							Alt("bbscope.com logo"),
 						),
-						H1(Class("max-w-5xl text-2xl font-bold leading-none tracking-tighter text-slate-100 md:text-5xl lg:text-6xl lg:max-w-7xl"),
+						H1(Class("max-w-5xl text-3xl font-extrabold leading-tight tracking-tight text-white md:text-5xl lg:text-6xl lg:max-w-7xl"),
 							g.Text("Bug Bounty Scope Data Aggregator"),
 						),
-						P(Class("max-w-xl mx-auto mt-8 text-base leading-relaxed text-slate-400"), g.Raw("This website collects public bug bounty targets fetched with <a href='https://github.com/sw33tLie/bbscope' class='text-cyan-400 hover:text-cyan-300 underline'>bbscope cli</a>.<br>We have a few extra tools too!")),
-						Div(Class("flex justify-center items-center w-full max-w-2xl gap-2 mx-auto mt-6"), // Added items-center for button alignment
+						P(Class("max-w-2xl mx-auto mt-6 text-base md:text-lg leading-relaxed text-slate-400"), g.Raw("This website collects public bug bounty targets fetched with <a href='https://github.com/sw33tLie/bbscope' class='text-cyan-400 hover:text-cyan-300 underline'>bbscope cli</a>.<br>We have a few extra tools too!")),
+						Div(Class("flex justify-center items-center w-full max-w-2xl gap-2 mx-auto mt-6"),
 							Div(Class("mt-3 rounded-lg sm:mt-0"),
-								A(Href("/scope"), Class("px-5 py-4 text-base font-medium text-center text-white transition duration-500 ease-in-out transform bg-cyan-600 lg:px-10 rounded-xl hover:bg-cyan-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-500"), g.Text("View scope")),
+								A(Href("/scope"), Class("px-6 py-3.5 text-base font-semibold text-center text-white transition-all duration-300 bg-cyan-600 lg:px-10 rounded-lg hover:bg-cyan-500 hover:shadow-lg hover:shadow-cyan-500/25 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-950 focus:ring-cyan-500"), g.Text("View scope")),
 							),
 							Div(Class("mt-3 rounded-lg sm:mt-0 sm:ml-3"),
-								A(Href("/updates"), Class("items-center block px-5 lg:px-10 py-3.5 text-base font-medium text-center text-cyan-400 transition duration-500 ease-in-out transform border-2 border-slate-600 shadow-md rounded-xl hover:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500"), g.Text("Latest changes")),
+								A(Href("/updates"), Class("items-center block px-6 lg:px-10 py-3.5 text-base font-semibold text-center text-cyan-400 transition-all duration-300 border border-slate-600 rounded-lg hover:border-cyan-400 hover:bg-cyan-400/5 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-950 focus:ring-cyan-500"), g.Text("Latest changes")),
 							),
 						),
-						Div(Class("flex flex-wrap justify-center gap-8 mt-12"),
+						Div(Class("flex flex-wrap justify-center gap-6 mt-14 divide-x divide-slate-700/50"),
 							statCounter(totalPrograms, "Programs Tracked"),
 							statCounter(totalAssets, "Total Assets"),
 							statCounter(platformCount, "Platforms"),
@@ -278,25 +305,37 @@ func MainContent(totalPrograms, totalAssets, platformCount int) g.Node {
 		),
 	)
 
-	return Main(Class("container mx-auto mt-8 mb-16 p-4"),
-		newHeroSection, // Added the new hero section here
+	return Main(Class("container mx-auto mt-10 mb-20 px-4"),
+		newHeroSection,
 
 		// Features Section
 		Section(Class("py-8 mb-12"),
-			H2(Class("text-3xl font-bold text-center text-slate-100 mb-10"), g.Text("Use cases")),
+			H2(Class("text-2xl font-bold text-center text-slate-100 mb-10"), g.Text("Use cases")),
 			Div(Class("grid md:grid-cols-3 gap-8"),
-				featureCard("Quick Scope", "You can quickly view and download bug bounty scope and use it for your own purposes"),
-				featureCard("Track changes", "We track all scope changes. Hunt on fresh targets!"),
-				featureCard("Stats", "Get platform insights and statistics for bug bounty programs."),
+				featureCard(
+					`<svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>`,
+					"Quick Scope",
+					"You can quickly view and download bug bounty scope and use it for your own purposes",
+				),
+				featureCard(
+					`<svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>`,
+					"Track changes",
+					"We track all scope changes. Hunt on fresh targets!",
+				),
+				featureCard(
+					`<svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>`,
+					"Stats",
+					"Get platform insights and statistics for bug bounty programs.",
+				),
 			),
 		),
 
 		// Call to Action Section
-		Section(Class("py-12 bg-slate-800/50 border border-slate-700 rounded-lg"),
+		Section(Class("py-12 bg-slate-800/20 border border-slate-700/50 rounded-xl"),
 			Div(Class("container mx-auto text-center px-4"),
-				H2(Class("text-3xl font-bold text-slate-100 mb-4"), g.Text("Want to help?")),
+				H2(Class("text-2xl font-bold text-slate-100 mb-4"), g.Text("Want to help?")),
 				P(Class("text-slate-400 mb-8 max-w-xl mx-auto"), g.Text("This tool is powered by the bbscope CLI tool. Pull requests are welcome!")),
-				A(Href("https://github.com/sw33tLie/bbscope"), Target("_blank"), Rel("noopener noreferrer"), Class("bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-3 px-8 rounded-lg text-lg transition duration-300 ease-in-out transform hover:scale-105"),
+				A(Href("https://github.com/sw33tLie/bbscope"), Target("_blank"), Rel("noopener noreferrer"), Class("bg-emerald-500 hover:bg-emerald-400 text-white font-semibold py-3 px-8 rounded-lg text-base transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/25"),
 					g.Text("Go to GitHub"),
 				),
 			),
@@ -323,11 +362,11 @@ func platformFilterTabs(basePath, currentPlatform, extraParams string) g.Node {
 		}
 		href += extraParams
 
-		classes := "px-4 py-2 text-sm font-medium rounded-lg transition-colors "
+		classes := "px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 "
 		if isActive {
-			classes += "bg-cyan-500 text-white shadow-lg shadow-cyan-500/25"
+			classes += "bg-cyan-500 text-white shadow-md shadow-cyan-500/20"
 		} else {
-			classes += "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200 border border-slate-700"
+			classes += "bg-slate-800/50 text-slate-400 hover:bg-slate-700 hover:text-slate-200 border border-slate-700/50"
 		}
 
 		tabs = append(tabs, A(Href(href), Class(classes), g.Text(p.Label)))
@@ -337,22 +376,31 @@ func platformFilterTabs(basePath, currentPlatform, extraParams string) g.Node {
 }
 
 // Helper function for feature cards
-func featureCard(title, description string) g.Node {
-	return Div(Class("bg-slate-800/50 border border-slate-700 shadow-lg rounded-lg p-6 hover:border-cyan-500/50 hover:shadow-cyan-500/10 transition-all duration-300"),
-		H3(Class("text-xl font-semibold text-slate-200 mb-3"), g.Text(title)),
-		P(Class("text-slate-400 text-sm"), g.Text(description)),
+func featureCard(icon, title, description string) g.Node {
+	return Div(Class("group bg-slate-800/30 border border-slate-700/50 shadow-lg rounded-xl p-6 hover:border-cyan-500/40 hover:shadow-cyan-500/5 hover:bg-slate-800/50 transition-all duration-300"),
+		Div(Class("w-10 h-10 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center mb-4 group-hover:bg-cyan-500/20 transition-colors duration-300"),
+			g.Raw(icon),
+		),
+		H3(Class("text-lg font-semibold text-slate-100 mb-2"), g.Text(title)),
+		P(Class("text-slate-400 text-sm leading-relaxed"), g.Text(description)),
 	)
 }
 
 // FooterEl component (using El suffix to avoid conflict with html.Footer)
 func FooterEl() g.Node {
 	currentYear := time.Now().Year()
-	return Footer(Class("bg-slate-900 text-slate-400 text-center p-6 mt-auto border-t border-slate-800"),
-		Div(Class("container mx-auto"),
-			P(g.Raw(fmt.Sprintf("© %d bbscope.com. All rights reserved. Made by <a href='https://x.com/sw33tLie' class='hover:text-cyan-300 underline'>sw33tLie</a>", currentYear))),
-			Div(Class("mt-2"),
-				A(Href("#privacy"), Class("text-slate-500 hover:text-white mx-2 text-sm"), g.Text("Privacy Policy")),
-				A(Href("#terms"), Class("text-slate-500 hover:text-white mx-2 text-sm"), g.Text("Terms of Service")),
+	return Footer(Class("bg-slate-900/50 text-slate-500 mt-auto border-t border-slate-800/50"),
+		Div(Class("container mx-auto px-4 py-8"),
+			Div(Class("flex flex-col md:flex-row justify-between items-center gap-4"),
+				P(Class("text-sm"), g.Raw(fmt.Sprintf("© %d bbscope.com. Made by <a href='https://x.com/sw33tLie' class='text-slate-400 hover:text-cyan-400 transition-colors duration-200'>sw33tLie</a>", currentYear))),
+				Div(Class("flex items-center gap-6"),
+					A(Href("https://github.com/sw33tLie/bbscope"), Target("_blank"), Rel("noopener noreferrer"),
+						Class("text-slate-500 hover:text-slate-300 transition-colors duration-200 text-sm"),
+						g.Text("GitHub"),
+					),
+					A(Href("#privacy"), Class("text-slate-500 hover:text-slate-300 transition-colors duration-200 text-sm"), g.Text("Privacy")),
+					A(Href("#terms"), Class("text-slate-500 hover:text-slate-300 transition-colors duration-200 text-sm"), g.Text("Terms")),
+				),
 			),
 		),
 	)
@@ -361,14 +409,14 @@ func FooterEl() g.Node {
 // ScopeContent renders the full /scope page content (used for non-HTMX requests).
 func ScopeContent(result *storage.ProgramListResult, loadErr error, search, sortBy, sortOrder string, perPage int, platform string) g.Node {
 	pageContent := []g.Node{
-		H1(Class("text-3xl md:text-4xl font-bold text-slate-100 mb-6"), g.Text("Scope Data")),
+		H1(Class("text-2xl md:text-3xl font-bold text-white mb-6"), g.Text("Scope Data")),
 		scopePlatformFilterDropdown(platform, perPage),
 		scopeSearchBar(search, sortBy, sortOrder, perPage, platform),
 	}
 
 	if loadErr != nil {
 		pageContent = append(pageContent,
-			Div(Class("bg-red-900/30 border border-red-700 text-red-400 px-4 py-3 rounded relative mb-4"),
+			Div(Class("bg-red-900/20 border border-red-800/50 text-red-400 px-4 py-3 rounded-lg mb-6"),
 				Strong(g.Text("Error: ")),
 				g.Text("Could not load scope data. "+loadErr.Error()),
 			),
@@ -381,8 +429,8 @@ func ScopeContent(result *storage.ProgramListResult, loadErr error, search, sort
 		),
 	)
 
-	return Main(Class("container mx-auto mt-8 mb-16 p-4"),
-		Section(Class("bg-slate-900/50 border border-slate-800 rounded-lg shadow-xl p-6 md:p-8 lg:p-12"),
+	return Main(Class("container mx-auto mt-10 mb-20 px-4"),
+		Section(Class("bg-slate-900/30 border border-slate-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 lg:p-12"),
 			g.Group(pageContent),
 		),
 	)
@@ -471,16 +519,16 @@ func scopeTableInner(result *storage.ProgramListResult, loadErr error, search, s
 
 	// Table headers
 	tableHeaders := Tr(
-		Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-2/5"),
+		Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-2/5"),
 			A(append(htmxAttrs(buildSortURL("handle")), Class("hover:text-slate-200 transition-colors"), g.Text("Program"+sortIndicator("handle")))...),
 		),
-		Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-1/5"),
+		Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-1/5"),
 			A(append(htmxAttrs(buildSortURL("platform")), Class("hover:text-slate-200 transition-colors"), g.Text("Platform"+sortIndicator("platform")))...),
 		),
-		Th(Class("px-4 py-3 text-center text-xs font-medium text-slate-400 uppercase tracking-wider w-1/5"),
+		Th(Class("px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider w-1/5"),
 			A(append(htmxAttrs(buildSortURL("in_scope_count")), Class("hover:text-slate-200 transition-colors"), g.Text("In Scope"+sortIndicator("in_scope_count")))...),
 		),
-		Th(Class("px-4 py-3 text-center text-xs font-medium text-slate-400 uppercase tracking-wider w-1/5"),
+		Th(Class("px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider w-1/5"),
 			A(append(htmxAttrs(buildSortURL("out_of_scope_count")), Class("hover:text-slate-200 transition-colors"), g.Text("Out of Scope"+sortIndicator("out_of_scope_count")))...),
 		),
 	)
@@ -493,13 +541,18 @@ func scopeTableInner(result *storage.ProgramListResult, loadErr error, search, s
 			noResultsMsg = fmt.Sprintf("No programs found for '%s'.", search)
 		}
 		tableRows = append(tableRows,
-			Tr(Td(ColSpan("4"), Class("text-center py-10 text-slate-400"), g.Text(noResultsMsg))),
+			Tr(Td(ColSpan("4"), Class("text-center py-16 text-slate-500"),
+				Div(Class("flex flex-col items-center gap-3"),
+					g.Raw(`<svg class="w-12 h-12 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>`),
+					Span(g.Text(noResultsMsg)),
+				),
+			)),
 		)
 	} else {
 		for i, p := range result.Programs {
 			rowBg := ""
 			if i%2 == 1 {
-				rowBg = " bg-slate-800/30"
+				rowBg = " bg-slate-800/20"
 			}
 
 			programURL := fmt.Sprintf("/program/%s/%s",
@@ -510,7 +563,7 @@ func scopeTableInner(result *storage.ProgramListResult, loadErr error, search, s
 
 			tableRows = append(tableRows,
 				Tr(
-					Class("border-b border-slate-700/50 hover:bg-slate-800/70 transition-colors cursor-pointer"+rowBg),
+					Class("border-b border-slate-800/50 hover:bg-slate-800/50 transition-colors duration-150 cursor-pointer"+rowBg),
 					g.Attr("onclick", fmt.Sprintf("window.location.href='%s'", programURL)),
 					Td(Class("px-4 py-3 text-sm text-slate-200 w-2/5"),
 						Div(Class("flex items-center gap-2"),
@@ -537,12 +590,12 @@ func scopeTableInner(result *storage.ProgramListResult, loadErr error, search, s
 		}
 	}
 
-	table := Div(Class("overflow-x-auto shadow-lg shadow-slate-950/50 rounded-lg border border-slate-700"),
+	table := Div(Class("overflow-x-auto rounded-xl border border-slate-700/50 shadow-xl shadow-black/10"),
 		Table(Class("min-w-full divide-y divide-slate-700"),
-			THead(Class("bg-slate-800"),
+			THead(Class("bg-slate-800/80"),
 				tableHeaders,
 			),
-			TBody(Class("bg-slate-900 divide-y divide-slate-700"),
+			TBody(Class("bg-slate-900/50 divide-y divide-slate-800"),
 				g.Group(tableRows),
 			),
 		),
@@ -619,7 +672,7 @@ func scopePlatformFilterDropdown(currentPlatform string, perPage int) g.Node {
 		Button(
 			Type("button"),
 			ID("platform-dropdown-btn"),
-			Class("flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-slate-200 transition-colors"),
+			Class("flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg bg-slate-800/50 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-slate-200 hover:border-slate-600 transition-all duration-200"),
 			g.Attr("onclick", "document.getElementById('platform-dropdown-menu').classList.toggle('hidden')"),
 			g.Text(buttonLabel),
 			g.Raw(`<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>`),
@@ -627,7 +680,7 @@ func scopePlatformFilterDropdown(currentPlatform string, perPage int) g.Node {
 		// Dropdown panel
 		Div(
 			ID("platform-dropdown-menu"),
-			Class("hidden absolute z-30 mt-1 w-56 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1"),
+			Class("hidden absolute z-30 mt-2 w-56 bg-slate-800 border border-slate-700/50 rounded-xl shadow-2xl shadow-black/30 py-1.5"),
 			// "All" quick option
 			Button(
 				Type("button"),
@@ -683,12 +736,17 @@ func scopeSearchBar(search, sortBy, sortOrder string, perPage int, platform stri
 			g.Attr("hx-target", "#scope-table-container"),
 			g.Attr("hx-push-url", "true"),
 			g.Attr("hx-include", "[name='search'],[name='perPage'],[name='sortBy'],[name='sortOrder'],[name='platform']"),
-			Input(
-				Type("text"),
-				Name("search"),
-				Value(search),
-				Placeholder("Search programs and assets..."),
-				Class("flex-1 px-4 py-2 border border-slate-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent shadow-sm bg-slate-800 text-slate-200 placeholder-slate-500"),
+			Div(Class("relative flex-1"),
+				Div(Class("absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none"),
+					g.Raw(`<svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>`),
+				),
+				Input(
+					Type("text"),
+					Name("search"),
+					Value(search),
+					Placeholder("Search programs and assets..."),
+					Class("w-full pl-10 pr-4 py-2.5 border border-slate-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-slate-800/50 text-slate-200 placeholder-slate-500 transition-colors duration-200"),
+				),
 			),
 			Input(Type("hidden"), Name("perPage"), Value(strconv.Itoa(perPage))),
 			Input(Type("hidden"), Name("sortBy"), Value(sortBy)),
@@ -697,7 +755,7 @@ func scopeSearchBar(search, sortBy, sortOrder string, perPage int, platform stri
 			Input(Type("hidden"), Name("page"), Value("1")),
 			Button(
 				Type("submit"),
-				Class("px-6 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-500 transition-colors shadow-sm"),
+				Class("px-6 py-2.5 bg-cyan-600 text-white font-medium rounded-lg hover:bg-cyan-500 transition-all duration-200 hover:shadow-md hover:shadow-cyan-500/20"),
 				g.Text("Search"),
 			),
 			g.If(search != "",
@@ -709,7 +767,7 @@ func scopeSearchBar(search, sortBy, sortOrder string, perPage int, platform stri
 						}
 						return u
 					}()),
-					Class("px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500 transition-colors text-center shadow-sm"),
+					Class("px-4 py-2.5 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 hover:text-white transition-all duration-200 text-center"),
 					g.Text("Clear"),
 				),
 			),
@@ -734,7 +792,7 @@ func scopePerPageSelector(search, sortBy, sortOrder string, currentPerPage int, 
 			ID("perPageSelect"),
 			Name("perPage"),
 			g.Attr("onchange", "this.form.submit()"),
-			Class("px-2 py-1 border border-slate-600 rounded-md shadow-sm focus:ring-cyan-500 focus:border-cyan-500 text-sm bg-slate-800 text-slate-200"),
+			Class("px-2.5 py-1.5 border border-slate-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm bg-slate-800/50 text-slate-200 transition-colors duration-200"),
 			g.Group(options),
 		),
 		Input(Type("hidden"), Name("search"), Value(search)),
@@ -758,14 +816,14 @@ func scopePagination(currentPage, totalPages int, search, sortBy, sortOrder stri
 			href += "&platform=" + platform
 		}
 
-		classes := "px-3 py-2 text-sm font-medium border rounded-md shadow-sm"
+		classes := "px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-200"
 		if disabled {
-			classes += " bg-slate-800 text-slate-500 cursor-not-allowed"
+			classes += " bg-slate-800/50 text-slate-600 cursor-not-allowed"
 			return Span(Class(classes), g.Text(text))
 		} else if active {
-			classes += " bg-cyan-600 text-white border-cyan-600"
+			classes += " bg-cyan-600 text-white shadow-md shadow-cyan-500/20"
 		} else {
-			classes += " bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700"
+			classes += " bg-slate-800/50 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
 		}
 
 		return A(
@@ -788,7 +846,7 @@ func scopePagination(currentPage, totalPages int, search, sortBy, sortOrder stri
 	if start > 1 {
 		items = append(items, createPageLink(1, "1", false, false))
 		if start > 2 {
-			items = append(items, Span(Class("px-3 py-2 text-sm text-slate-500"), g.Text("...")))
+			items = append(items, Span(Class("px-2 py-1.5 text-sm text-slate-600"), g.Text("...")))
 		}
 	}
 	for i := start; i <= end; i++ {
@@ -796,7 +854,7 @@ func scopePagination(currentPage, totalPages int, search, sortBy, sortOrder stri
 	}
 	if end < totalPages {
 		if end < totalPages-1 {
-			items = append(items, Span(Class("px-3 py-2 text-sm text-slate-500"), g.Text("...")))
+			items = append(items, Span(Class("px-2 py-1.5 text-sm text-slate-600"), g.Text("...")))
 		}
 		items = append(items, createPageLink(totalPages, strconv.Itoa(totalPages), false, false))
 	}
@@ -805,7 +863,7 @@ func scopePagination(currentPage, totalPages int, search, sortBy, sortOrder stri
 	items = append(items, createPageLink(currentPage+1, "Next", currentPage >= totalPages, false))
 
 	return Div(Class("mt-6 flex justify-center"),
-		Nav(Class("flex space-x-1"), g.Group(items)),
+		Nav(Class("inline-flex items-center gap-1 bg-slate-800/30 rounded-full px-1 py-1"), g.Group(items)),
 	)
 }
 
@@ -845,7 +903,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 	PageLayout(
 		"bbscope.com - A bug bounty scope aggregator",
 		"Find and track bug bounty program scope data from HackerOne, Bugcrowd and other platforms. Search thousands of security targets and monitor scope changes.",
-		Navbar(),
+		Navbar("/"),
 		MainContent(totalPrograms, totalAssets, platformCount),
 		FooterEl(),
 		"",
@@ -956,7 +1014,7 @@ func scopeHandler(w http.ResponseWriter, r *http.Request) {
 	PageLayout(
 		pageTitle,
 		pageDescription,
-		Navbar(),
+		Navbar("/scope"),
 		ScopeContent(result, loadErr, search, sortBy, sortOrder, currentPerPage, platformFilter),
 		FooterEl(),
 		canonicalURL,
@@ -1065,7 +1123,7 @@ func changeTypeBadge(changeType string) g.Node {
 		label = changeType
 		colors = "bg-slate-700 text-slate-300"
 	}
-	return Span(Class("inline-block px-2 py-0.5 text-xs font-medium rounded "+colors), g.Text(label))
+	return Span(Class("inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md "+colors), g.Text(label))
 }
 
 // scopeBadge renders an in-scope or out-of-scope badge.
@@ -1079,29 +1137,34 @@ func scopeBadge(scopeType string) g.Node {
 	} else if scopeType == "Out of Scope" {
 		colors = "bg-slate-800 text-slate-400 border border-slate-700"
 	}
-	return Span(Class("inline-block px-2 py-0.5 text-xs font-medium rounded "+colors), g.Text(scopeType))
+	return Span(Class("inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md "+colors), g.Text(scopeType))
 }
 
 // UpdatesContent renders the main content for the /updates page.
 func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentPerPage int, currentSearch string, isGoogleBot bool, currentPlatform string) g.Node {
 	pageContent := []g.Node{
-		H1(Class("text-3xl font-bold text-slate-100 mb-4"), g.Text("Scope Updates")),
+		H1(Class("text-2xl md:text-3xl font-bold text-white mb-4"), g.Text("Scope Updates")),
 		P(Class("text-slate-400 mb-6"), g.Text("Recent changes to bug bounty program scopes.")),
 		platformFilterTabs("/updates", currentPlatform, fmt.Sprintf("&perPage=%d", currentPerPage)),
 	}
 
 	// Search controls
 	controlsHeader := Form(Method("GET"), Action("/updates"), Class("flex flex-col sm:flex-row gap-2 items-stretch sm:items-center mb-6"),
-		Input(
-			Type("text"),
-			Name("search"),
-			Placeholder("Search updates..."),
-			Value(currentSearch),
-			Class("flex-1 px-4 py-2 border border-slate-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent shadow-sm bg-slate-800 text-slate-200 placeholder-slate-500"),
+		Div(Class("relative flex-1"),
+			Div(Class("absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none"),
+				g.Raw(`<svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>`),
+			),
+			Input(
+				Type("text"),
+				Name("search"),
+				Placeholder("Search updates..."),
+				Value(currentSearch),
+				Class("w-full pl-10 pr-4 py-2.5 border border-slate-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-slate-800/50 text-slate-200 placeholder-slate-500 transition-colors duration-200"),
+			),
 		),
 		Button(
 			Type("submit"),
-			Class("px-6 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-500 transition-colors shadow-sm"),
+			Class("px-6 py-2.5 bg-cyan-600 text-white font-medium rounded-lg hover:bg-cyan-500 transition-all duration-200 hover:shadow-md hover:shadow-cyan-500/20"),
 			g.Text("Search"),
 		),
 		Input(Type("hidden"), Name("perPage"), Value(strconv.Itoa(currentPerPage))),
@@ -1116,7 +1179,12 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 			noResultsMsg = fmt.Sprintf("No updates found for search '%s'.", currentSearch)
 		}
 		tableRows = append(tableRows,
-			Tr(Td(ColSpan("7"), Class("text-center py-10 text-slate-400"), g.Text(noResultsMsg))),
+			Tr(Td(ColSpan("7"), Class("text-center py-16 text-slate-500"),
+				Div(Class("flex flex-col items-center gap-3"),
+					g.Raw(`<svg class="w-12 h-12 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>`),
+					Span(g.Text(noResultsMsg)),
+				),
+			)),
 		)
 	} else {
 		for i, entry := range updates {
@@ -1125,9 +1193,9 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 
 			isProgramLevelChange := entry.Type == "program_added" || entry.Type == "program_removed"
 
-			rowClasses := "border-b border-slate-700/50 hover:bg-slate-800/70 transition-colors"
+			rowClasses := "border-b border-slate-800/50 hover:bg-slate-800/50 transition-colors duration-150"
 			if i%2 == 1 {
-				rowClasses += " bg-slate-800/30"
+				rowClasses += " bg-slate-800/20"
 			}
 
 			// Build program link — link to internal program page if handle is available
@@ -1270,20 +1338,20 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 		}
 	}
 
-	table := Div(Class("overflow-x-auto shadow-lg shadow-slate-950/50 rounded-lg border border-slate-700"),
+	table := Div(Class("overflow-x-auto rounded-xl border border-slate-700/50 shadow-xl shadow-black/10"),
 		Table(Class("min-w-full divide-y divide-slate-700"),
-			THead(Class("bg-slate-800"),
+			THead(Class("bg-slate-800/80"),
 				Tr(
-					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider"), g.Text("Change")),
-					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider"), g.Text("Asset")),
-					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-28"), g.Text("Category")),
-					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-28"), g.Text("Scope")),
-					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider"), g.Text("Program")),
-					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-28"), g.Text("Platform")),
-					Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-36"), g.Text("Time")),
+					Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider"), g.Text("Change")),
+					Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider"), g.Text("Asset")),
+					Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-28"), g.Text("Category")),
+					Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-28"), g.Text("Scope")),
+					Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider"), g.Text("Program")),
+					Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-28"), g.Text("Platform")),
+					Th(Class("px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-36"), g.Text("Time")),
 				),
 			),
-			TBody(Class("bg-slate-900 divide-y divide-slate-700"),
+			TBody(Class("bg-slate-900/50 divide-y divide-slate-800"),
 				g.Group(tableRows),
 			),
 		),
@@ -1296,8 +1364,8 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 		pageContent = append(pageContent, Div(Class("mt-6 flex justify-center"), paginationBottom))
 	}
 
-	return Main(Class("container mx-auto mt-8 mb-16 p-4"),
-		Section(Class("bg-slate-900/50 border border-slate-800 rounded-lg shadow-xl p-6 md:p-8 lg:p-12"),
+	return Main(Class("container mx-auto mt-10 mb-20 px-4"),
+		Section(Class("bg-slate-900/30 border border-slate-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 lg:p-12"),
 			g.Group(pageContent),
 		),
 	)
@@ -1314,14 +1382,14 @@ func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platf
 			href += "&platform=" + platform
 		}
 
-		classes := "px-3 py-2 text-sm font-medium border rounded-md shadow-sm"
+		classes := "px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-200"
 		if disabled {
-			classes += " bg-slate-800 text-slate-500 cursor-not-allowed"
+			classes += " bg-slate-800/50 text-slate-600 cursor-not-allowed"
 			return Span(Class(classes), g.Text(text))
 		} else if active {
-			classes += " bg-cyan-600 text-white border-cyan-600"
+			classes += " bg-cyan-600 text-white shadow-md shadow-cyan-500/20"
 		} else {
-			classes += " bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700"
+			classes += " bg-slate-800/50 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
 		}
 
 		return A(Href(href), Class(classes), g.Text(text))
@@ -1340,7 +1408,7 @@ func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platf
 		paginationItems = append(paginationItems, createPageLink(1, "1", false, false))
 		if start > 2 {
 			paginationItems = append(paginationItems,
-				Span(Class("px-3 py-2 text-sm text-slate-500"), g.Text("...")),
+				Span(Class("px-2 py-1.5 text-sm text-slate-600"), g.Text("...")),
 			)
 		}
 	}
@@ -1354,7 +1422,7 @@ func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platf
 	if end < totalPages {
 		if end < totalPages-1 {
 			paginationItems = append(paginationItems,
-				Span(Class("px-3 py-2 text-sm text-slate-500"), g.Text("...")),
+				Span(Class("px-2 py-1.5 text-sm text-slate-600"), g.Text("...")),
 			)
 		}
 		paginationItems = append(paginationItems,
@@ -1368,7 +1436,7 @@ func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platf
 	)
 
 	return Div(Class("mt-6 flex justify-center"),
-		Nav(Class("flex space-x-1"),
+		Nav(Class("inline-flex items-center gap-1 bg-slate-800/30 rounded-full px-1 py-1"),
 			g.Group(paginationItems),
 		),
 	)
@@ -1553,7 +1621,7 @@ func updatesHandler(w http.ResponseWriter, r *http.Request) {
 	PageLayout(
 		updatesPageTitle,
 		updatesPageDescription,
-		Navbar(),
+		Navbar("/updates"),
 		UpdatesContent(paginatedUpdates, currentPage, totalPages, currentPerPage, searchQuery, isGoogleBot, platformFilter),
 		FooterEl(),
 		updatesCanonicalURL,
