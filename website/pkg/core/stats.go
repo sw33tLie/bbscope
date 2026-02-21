@@ -13,17 +13,25 @@ import (
 	. "maragu.dev/gomponents/html"
 )
 
+// statsCard renders a summary stat card for the stats page.
+func statsCard(label, value, valueColor string) g.Node {
+	return Div(Class("bg-slate-800/30 border border-slate-700/50 rounded-xl p-4 text-center"),
+		Div(Class("text-2xl font-extrabold tabular-nums "+valueColor), g.Text(value)),
+		Div(Class("text-xs uppercase tracking-wider text-slate-500 mt-1 font-medium"), g.Text(label)),
+	)
+}
+
 // StatsContent component for the /stats page
 func StatsContent(platformCounts map[string]int, statsErr error,
 	assetCounts map[string]int, assetErr error) g.Node {
 
 	content := []g.Node{
-		H1(Class("text-3xl md:text-4xl font-bold text-slate-100 mb-8"), g.Text("Program Statistics")),
+		H1(Class("text-2xl md:text-3xl font-bold text-white mb-6"), g.Text("Program Statistics")),
 	}
 
 	if statsErr != nil {
 		content = append(content,
-			Div(Class("bg-red-900/30 border border-red-700 text-red-400 px-4 py-3 rounded relative mb-4"),
+			Div(Class("bg-red-900/20 border border-red-800/50 text-red-400 px-4 py-3 rounded-lg mb-6"),
 				Strong(g.Text("Error loading stats: ")),
 				g.Text(statsErr.Error()),
 			),
@@ -32,7 +40,7 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 
 	if assetErr != nil {
 		content = append(content,
-			Div(Class("bg-orange-900/30 border border-orange-700 text-orange-400 px-4 py-3 rounded relative mb-4"),
+			Div(Class("bg-orange-900/20 border border-orange-800/50 text-orange-400 px-4 py-3 rounded-lg mb-6"),
 				Strong(g.Text("Asset Statistics Information: ")),
 				g.Text(assetErr.Error()),
 			),
@@ -44,9 +52,25 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 	ywhCount := platformCounts["ywh"]
 	itCount := platformCounts["it"]
 
+	// Summary stat cards
+	totalPrograms := h1Count + bcCount + ywhCount + itCount
+	totalAssets := 0
+	for _, c := range assetCounts {
+		totalAssets += c
+	}
+
+	content = append(content,
+		Div(Class("grid grid-cols-2 md:grid-cols-4 gap-4 mb-10"),
+			statsCard("Total Programs", fmt.Sprintf("%d", totalPrograms), "text-cyan-400"),
+			statsCard("HackerOne", fmt.Sprintf("%d", h1Count), "text-blue-400"),
+			statsCard("Bugcrowd", fmt.Sprintf("%d", bcCount), "text-orange-400"),
+			statsCard("In-Scope Assets", fmt.Sprintf("%d", totalAssets), "text-amber-400"),
+		),
+	)
+
 	// Chart.js doughnut chart for program counts
-	programChart := Div(Class("mt-8 p-6 bg-slate-800/50 border border-slate-700 rounded-lg shadow"),
-		H2(Class("text-xl font-semibold text-slate-200 mb-6 text-center"), g.Text("Program Counts by Platform")),
+	programChart := Div(Class("mt-8 p-6 bg-slate-800/20 border border-slate-700/50 rounded-xl"),
+		H2(Class("text-lg font-semibold text-slate-300 mb-6 text-center"), g.Text("Program Counts by Platform")),
 		Div(Class("max-w-md mx-auto"),
 			Canvas(ID("programChart"), g.Attr("height", "300")),
 		),
@@ -87,8 +111,8 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 			chartHeight = 200
 		}
 
-		assetTypeChart := Div(Class("mt-12 p-6 bg-slate-800/50 border border-slate-700 rounded-lg shadow"),
-			H2(Class("text-xl font-semibold text-slate-200 mb-6 text-center"), g.Text("In-Scope Assets by Type")),
+		assetTypeChart := Div(Class("mt-12 p-6 bg-slate-800/20 border border-slate-700/50 rounded-xl"),
+			H2(Class("text-lg font-semibold text-slate-300 mb-6 text-center"), g.Text("In-Scope Assets by Type")),
 			Div(Class("max-w-2xl mx-auto"),
 				Canvas(ID("assetChart"), g.Attr("height", strconv.Itoa(chartHeight))),
 			),
@@ -105,7 +129,7 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 						labels: ['HackerOne', 'Bugcrowd', 'YesWeHack', 'Intigriti'],
 						datasets: [{
 							data: [%d, %d, %d, %d],
-							backgroundColor: ['#3b82f6', '#10b981', '#eab308', '#8b5cf6'],
+							backgroundColor: ['#3b82f6', '#f97316', '#eab308', '#8b5cf6'],
 							borderColor: '#1e293b',
 							borderWidth: 2,
 							hoverOffset: 8
@@ -183,7 +207,7 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 							labels: ['HackerOne', 'Bugcrowd', 'YesWeHack', 'Intigriti'],
 							datasets: [{
 								data: [%d, %d, %d, %d],
-								backgroundColor: ['#3b82f6', '#10b981', '#eab308', '#8b5cf6'],
+								backgroundColor: ['#3b82f6', '#f97316', '#eab308', '#8b5cf6'],
 								borderColor: '#1e293b',
 								borderWidth: 2,
 								hoverOffset: 8
@@ -211,8 +235,8 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 		}
 	}
 
-	return Main(Class("container mx-auto mt-8 mb-16 p-4"),
-		Section(Class("bg-slate-900/50 border border-slate-800 rounded-lg shadow-xl p-6 md:p-8 lg:p-12"),
+	return Main(Class("container mx-auto mt-10 mb-20 px-4"),
+		Section(Class("bg-slate-900/30 border border-slate-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 lg:p-12"),
 			g.Group(content),
 		),
 	)
@@ -252,7 +276,7 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 	PageLayout(
 		"Platform statistics - bbscope.com",
 		"View statistics and analytics for bug bounty programs across different platforms. Compare program counts from HackerOne, Bugcrowd, YesWeHack, Intigriti and other security platforms.",
-		Navbar(),
+		Navbar("/stats"),
 		StatsContent(platformCounts, statsErr, assetCounts, assetErr),
 		FooterEl(),
 		"",
