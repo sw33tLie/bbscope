@@ -306,10 +306,10 @@ func MainContent(totalPrograms, totalAssets, platformCount int) g.Node {
 func platformFilterTabs(basePath, currentPlatform, extraParams string) g.Node {
 	platforms := []struct{ Value, Label string }{
 		{"", "All"},
-		{"hackerone", "HackerOne"},
-		{"bugcrowd", "Bugcrowd"},
-		{"intigriti", "Intigriti"},
-		{"yeswehack", "YesWeHack"},
+		{"h1", "HackerOne"},
+		{"bc", "Bugcrowd"},
+		{"it", "Intigriti"},
+		{"ywh", "YesWeHack"},
 	}
 
 	tabs := []g.Node{}
@@ -560,10 +560,10 @@ func scopeTableInner(result *storage.ProgramListResult, loadErr error, search, s
 // scopePlatformFilterDropdown renders a multiselect dropdown for platform filtering.
 func scopePlatformFilterDropdown(currentPlatform string, perPage int) g.Node {
 	platforms := []struct{ Value, Label string }{
-		{"hackerone", "HackerOne"},
-		{"bugcrowd", "Bugcrowd"},
-		{"intigriti", "Intigriti"},
-		{"yeswehack", "YesWeHack"},
+		{"h1", "HackerOne"},
+		{"bc", "Bugcrowd"},
+		{"it", "Intigriti"},
+		{"ywh", "YesWeHack"},
 	}
 
 	// Parse current selection
@@ -648,7 +648,7 @@ func scopePlatformFilterDropdown(currentPlatform string, perPage int) g.Node {
 			),
 		),
 		// Inline JS for platform filter
-		Script(g.Raw(fmt.Sprintf(`
+		Script(g.Raw(`
 			function applyPlatformFilter(perPage) {
 				var checked = [];
 				document.querySelectorAll('#platform-dropdown-menu input[type=checkbox]:checked').forEach(function(cb) {
@@ -658,13 +658,7 @@ func scopePlatformFilterDropdown(currentPlatform string, perPage int) g.Node {
 				if (checked.length > 0) {
 					url += '&platform=' + checked.join(',');
 				}
-				var container = document.getElementById('scope-table-container');
-				if (container && typeof htmx !== 'undefined') {
-					htmx.ajax('GET', url, {target: '#scope-table-container', pushUrl: true});
-				} else {
-					window.location.href = url;
-				}
-				document.getElementById('platform-dropdown-menu').classList.add('hidden');
+				window.location.href = url;
 			}
 			// Close dropdown when clicking outside
 			document.addEventListener('click', function(e) {
@@ -674,7 +668,7 @@ func scopePlatformFilterDropdown(currentPlatform string, perPage int) g.Node {
 					menu.classList.add('hidden');
 				}
 			});
-		`))),
+		`)),
 	)
 }
 

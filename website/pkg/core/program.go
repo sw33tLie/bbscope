@@ -281,13 +281,13 @@ func categoryBadge(category string) g.Node {
 func platformBadge(platform string) g.Node {
 	colors := "bg-slate-700 text-slate-300"
 	switch strings.ToLower(platform) {
-	case "hackerone":
+	case "h1", "hackerone":
 		colors = "bg-blue-900/50 text-blue-300 border border-blue-800"
-	case "bugcrowd":
+	case "bc", "bugcrowd":
 		colors = "bg-emerald-900/50 text-emerald-300 border border-emerald-800"
-	case "intigriti":
+	case "it", "intigriti":
 		colors = "bg-purple-900/50 text-purple-300 border border-purple-800"
-	case "yeswehack":
+	case "ywh", "yeswehack":
 		colors = "bg-yellow-900/50 text-yellow-300 border border-yellow-800"
 	}
 	return Span(Class("inline-block px-2.5 py-1 text-xs font-medium rounded "+colors), g.Text(capitalizedPlatform(platform)))
@@ -296,13 +296,13 @@ func platformBadge(platform string) g.Node {
 // capitalizedPlatform returns a properly capitalized platform name.
 func capitalizedPlatform(platform string) string {
 	switch strings.ToLower(platform) {
-	case "hackerone":
+	case "h1", "hackerone":
 		return "HackerOne"
-	case "bugcrowd":
+	case "bc", "bugcrowd":
 		return "Bugcrowd"
-	case "intigriti":
+	case "it", "intigriti":
 		return "Intigriti"
-	case "yeswehack":
+	case "ywh", "yeswehack":
 		return "YesWeHack"
 	default:
 		return platform

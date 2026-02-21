@@ -39,10 +39,10 @@ func StatsContent(platformCounts map[string]int, statsErr error,
 		)
 	}
 
-	h1Count := platformCounts["hackerone"]
-	bcCount := platformCounts["bugcrowd"]
-	ywhCount := platformCounts["yeswehack"]
-	itCount := platformCounts["intigriti"]
+	h1Count := platformCounts["h1"]
+	bcCount := platformCounts["bc"]
+	ywhCount := platformCounts["ywh"]
+	itCount := platformCounts["it"]
 
 	// Chart.js doughnut chart for program counts
 	programChart := Div(Class("mt-8 p-6 bg-slate-800/50 border border-slate-700 rounded-lg shadow"),
