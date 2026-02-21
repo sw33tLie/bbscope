@@ -8,11 +8,13 @@ on:
     paths-ignore:
       - 'README.md'
       - '*.md'
+      - 'website/**'
   pull_request:
     branches: [ "main", "refactor/v2" ]
     paths-ignore:
       - 'README.md'
       - '*.md'
+      - 'website/**'
 
 jobs:
 
