@@ -240,21 +240,13 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Count assets by category from scope entries
-	assetCounts := make(map[string]int)
+	// Count assets by category from DB
 	var assetErr error
-	allEntries, err := loadScopeFromDB()
+	assetCounts, err := db.GetAssetCountsByCategory(ctx)
 	if err != nil {
 		assetErr = err
+		assetCounts = make(map[string]int)
 		log.Printf("Error getting asset counts by type: %v", err)
-	} else {
-		for _, entry := range allEntries {
-			if !strings.HasSuffix(entry.Element, " (OOS)") {
-				if entry.Category != "" {
-					assetCounts[entry.Category]++
-				}
-			}
-		}
 	}
 
 	PageLayout(

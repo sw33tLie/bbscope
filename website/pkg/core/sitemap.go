@@ -1,28 +1,22 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"html"
 	"log"
 	"net/http"
-	"sort"
+	"net/url"
+	"strings"
 )
-
-// generatePageURL constructs a URL with a page parameter, omitting it if page is 1.
-func generatePageURL(basePath string, page int) string {
-	if page <= 1 {
-		return basePath
-	}
-	return fmt.Sprintf("%s?page=%d", basePath, page)
-}
 
 func sitemapHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?>`)
 	fmt.Fprint(w, `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`)
 
+	ctx := context.Background()
 	baseURL := fmt.Sprintf("https://%s", serverDomain)
-	sitemapPerPage := 50
 
 	addSitemapURLEntry := func(path string, changefreq string, priority float64) {
 		escapedPath := html.EscapeString(path)
@@ -37,35 +31,17 @@ func sitemapHandler(w http.ResponseWriter, r *http.Request) {
 	addSitemapURLEntry("/docs", "weekly", 0.7)
 	addSitemapURLEntry("/contact", "monthly", 0.6)
 
-	// Dynamic /scope pages (Compact View Only)
-	allEntries, err := loadScopeFromDB()
+	// Individual program pages
+	slugs, err := db.ListAllProgramSlugs(ctx)
 	if err != nil {
-		log.Printf("Sitemap: Error loading scope data: %v. Scope URLs will be incomplete.", err)
+		log.Printf("Sitemap: Error listing program slugs: %v", err)
 	} else {
-		programSummaries := aggregateAndFilterScopeData(allEntries, "")
-		totalResultsCompact := len(programSummaries)
-		if totalResultsCompact > 0 {
-			totalPagesCompact := (totalResultsCompact + sitemapPerPage - 1) / sitemapPerPage
-			for page := 1; page <= totalPagesCompact; page++ {
-				addSitemapURLEntry(generatePageURL("/scope", page), "daily", 0.8)
-			}
-		}
-	}
-
-	// Dynamic /updates pages
-	allUpdates, errUpdates := loadUpdatesFromDB()
-	if errUpdates != nil {
-		log.Printf("Sitemap: Error loading updates data: %v. Update URLs will be incomplete.", errUpdates)
-	} else {
-		sort.SliceStable(allUpdates, func(i, j int) bool {
-			return allUpdates[i].Timestamp.After(allUpdates[j].Timestamp)
-		})
-		totalUpdatesResults := len(allUpdates)
-		if totalUpdatesResults > 0 {
-			totalPagesUpdates := (totalUpdatesResults + sitemapPerPage - 1) / sitemapPerPage
-			for page := 1; page <= totalPagesUpdates; page++ {
-				addSitemapURLEntry(generatePageURL("/updates", page), "daily", 0.8)
-			}
+		for _, s := range slugs {
+			path := fmt.Sprintf("/program/%s/%s",
+				url.PathEscape(strings.ToLower(s.Platform)),
+				url.PathEscape(s.Handle),
+			)
+			addSitemapURLEntry(path, "weekly", 0.7)
 		}
 	}
 

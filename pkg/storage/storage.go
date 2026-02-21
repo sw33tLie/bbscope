@@ -78,6 +78,9 @@ CREATE TABLE IF NOT EXISTS scope_changes (
 );
 CREATE INDEX IF NOT EXISTS idx_changes_time ON scope_changes(occurred_at);
 CREATE INDEX IF NOT EXISTS idx_changes_program ON scope_changes(program_url, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_programs_platform_handle ON programs(platform, handle);
+CREATE INDEX IF NOT EXISTS idx_programs_disabled_ignored ON programs(disabled, is_ignored);
+CREATE INDEX IF NOT EXISTS idx_targets_raw_in_scope ON targets_raw(program_id, in_scope);
 `
 
 func Open(connectionString string) (*DB, error) {

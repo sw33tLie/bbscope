@@ -29,22 +29,6 @@ type ServerConfig struct {
 var db *storage.DB
 var serverDomain string
 
-// ScopeEntry holds data for a single scope item
-type ScopeEntry struct {
-	Element    string
-	ProgramURL string
-	Category   string
-}
-
-// ProgramSummaryEntry holds aggregated data for a program for the compact view
-type ProgramSummaryEntry struct {
-	ProgramURL      string
-	InScopeCount    int
-	OutOfScopeCount int
-	Platform        string
-	Elements        []string // New: Store all elements for comprehensive search
-}
-
 // UpdateEntryAsset represents an asset within an update event.
 type UpdateEntryAsset struct {
 	Category string
@@ -62,57 +46,6 @@ type UpdateEntry struct {
 	AssociatedAssets []UpdateEntryAsset // Populated during processing for program_added/removed
 }
 
-// Sort constants
-const (
-	SortByElement    = "element"
-	SortByCategory   = "category"
-	SortByProgramURL = "programurl" // Used by both views
-	SortOrderAsc     = "asc"
-	SortOrderDesc    = "desc"
-
-	// New Sort constants for compact view
-	SortByInScopeCount    = "inscapecount"
-	SortByOutOfScopeCount = "outscopecount"
-	SortByPlatformName    = "platform"
-)
-
-// loadScopeFromDB loads all scope entries from the database.
-func loadScopeFromDB() ([]ScopeEntry, error) {
-	ctx := context.Background()
-	entries, err := db.ListEntries(ctx, storage.ListOptions{IncludeOOS: true})
-	if err != nil {
-		return nil, fmt.Errorf("failed to load scope from database: %w", err)
-	}
-
-	var result []ScopeEntry
-	for _, e := range entries {
-		element := strings.TrimSpace(e.TargetNormalized)
-		if element == "" {
-			element = strings.TrimSpace(e.TargetRaw)
-		}
-		category := strings.ToUpper(scope.NormalizeCategory(e.Category))
-		programURL := strings.ReplaceAll(e.ProgramURL, "api.yeswehack.com", "yeswehack.com")
-
-		if !e.InScope {
-			if strings.Contains(element, "██") {
-				element = "REDACTED (OOS)"
-			} else {
-				element += " (OOS)"
-			}
-		} else {
-			if strings.Contains(element, "██") {
-				element = "REDACTED"
-			}
-		}
-
-		result = append(result, ScopeEntry{
-			Element:    element,
-			ProgramURL: programURL,
-			Category:   category,
-		})
-	}
-	return result, nil
-}
 
 // loadUpdatesFromDB loads recent changes from the database.
 func loadUpdatesFromDB() ([]UpdateEntry, error) {
@@ -165,52 +98,6 @@ func loadUpdatesFromDB() ([]UpdateEntry, error) {
 	return updates, nil
 }
 
-// sortEntries sorts a slice of ScopeEntry based on the sortBy field and sortOrder.
-// It sorts the slice in place.
-// If sortOrder is an empty string, no sorting is performed for that column.
-func sortEntries(entries []ScopeEntry, sortBy, sortOrder string) {
-	if sortOrder == "" { // If sortOrder is empty, this column is not actively sorted.
-		return // Entries remain in their current order (e.g., natural load order or previously sorted).
-	}
-
-	// If sortBy is empty but sortOrder is 'asc' or 'desc' (which implies an active sort),
-	// default sortBy to Element. This handles direct URL manipulation like ?sortOrder=asc.
-	if sortBy == "" && (sortOrder == SortOrderAsc || sortOrder == SortOrderDesc) {
-		sortBy = SortByElement
-	}
-
-	sort.SliceStable(entries, func(i, j int) bool {
-		var less bool
-		// Ensure case-insensitive comparison for strings
-		elemI := strings.ToLower(entries[i].Element)
-		elemJ := strings.ToLower(entries[j].Element)
-		catI := strings.ToLower(entries[i].Category)
-		catJ := strings.ToLower(entries[j].Category)
-		urlI := strings.ToLower(entries[i].ProgramURL)
-		urlJ := strings.ToLower(entries[j].ProgramURL)
-
-		switch sortBy {
-		case SortByElement:
-			less = elemI < elemJ
-		case SortByCategory:
-			less = catI < catJ
-		case SortByProgramURL:
-			less = urlI < urlJ
-		default:
-			// If sortBy is an unrecognized value, but sortOrder is present (asc/desc),
-			// default to sorting by element.
-			less = elemI < elemJ
-		}
-
-		if sortOrder == SortOrderDesc {
-			return !less
-		}
-		// Assumes SortOrderAsc or any other non-empty, non-desc value means ascending.
-		// scopeHandler normalizes sortOrder, so this primarily covers SortOrderAsc.
-		return less
-	})
-}
-
 // Page layout component
 func PageLayout(title, description string, navbar g.Node, content g.Node, footer g.Node, canonicalURL string, shouldNoIndex bool) g.Node {
 	return g.Group([]g.Node{
@@ -222,6 +109,7 @@ func PageLayout(title, description string, navbar g.Node, content g.Node, footer
 				Meta(Name("description"), Content(description)),
 				TitleEl(g.Text(title)), // Using TitleEl to avoid conflict
 				Script(Src("https://cdn.tailwindcss.com")),
+			Script(Src("https://unpkg.com/htmx.org@2.0.4")),
 				Script(g.Raw(`tailwind.config={theme:{extend:{colors:{'bb-dark':'#0f172a','bb-blue':'#3b82f6','bb-accent':'#06b6d4','bb-surface':'#1e293b'}}}}`)),
 
 				// Favicon links
@@ -468,227 +356,12 @@ func FooterEl() g.Node {
 	)
 }
 
-// filterEntries filters entries based on search query and OOS visibility (for detailed view)
-func filterEntries(entries []ScopeEntry, search string, hideOOS bool) []ScopeEntry {
-	if search == "" && !hideOOS { // If no search and not hiding OOS, return all
-		return entries
-	}
-
-	searchLower := strings.ToLower(strings.TrimSpace(search))
-	var filtered []ScopeEntry
-
-	for _, entry := range entries {
-		// OOS check
-		if hideOOS && strings.Contains(entry.Element, "(OOS)") {
-			continue // Skip OOS items if hideOOS is true
-		}
-
-		// Search check (only if search term is present)
-		if searchLower != "" {
-			if !strings.Contains(strings.ToLower(entry.Element), searchLower) &&
-				!strings.Contains(strings.ToLower(entry.Category), searchLower) &&
-				!strings.Contains(strings.ToLower(entry.ProgramURL), searchLower) {
-				continue // Skip if search term doesn't match
-			}
-		}
-		// If we reach here, the entry passes OOS filter (if active) and search filter (if active)
-		filtered = append(filtered, entry)
-	}
-
-	return filtered
-}
-
-// paginateEntries returns a slice of entries for the given page (for detailed view)
-func paginateEntries(entries []ScopeEntry, page, perPage int) []ScopeEntry {
-	start := (page - 1) * perPage
-	end := start + perPage
-
-	if start >= len(entries) {
-		return []ScopeEntry{}
-	}
-
-	if end > len(entries) {
-		end = len(entries)
-	}
-
-	return entries[start:end]
-}
-
-// paginateProgramSummaries returns a slice of program summaries for the given page (for compact view)
-func paginateProgramSummaries(summaries []ProgramSummaryEntry, page, perPage int) []ProgramSummaryEntry {
-	start := (page - 1) * perPage
-	end := start + perPage
-
-	if start >= len(summaries) {
-		return []ProgramSummaryEntry{}
-	}
-
-	if end > len(summaries) {
-		end = len(summaries)
-	}
-
-	return summaries[start:end]
-}
-
-// getPlatformFromURL determines the platform from the program URL.
-func getPlatformFromURL(programURL string) string {
-	lowerURL := strings.ToLower(programURL)
-	if strings.Contains(lowerURL, "hackerone.com") {
-		return "HackerOne"
-	}
-	if strings.Contains(lowerURL, "bugcrowd.com") {
-		return "Bugcrowd"
-	}
-	if strings.Contains(lowerURL, "intigriti.com") {
-		return "Intigriti"
-	}
-	if strings.Contains(lowerURL, "yeswehack.com") {
-		return "YesWeHack"
-	}
-	// Add more platform checks if needed
-	return "Other" // Default platform
-}
-
-// aggregateAndFilterScopeData processes all scope entries into program summaries for the compact view.
-// Search query applies to ProgramURL, Platform, AND individual scope elements.
-func aggregateAndFilterScopeData(allEntries []ScopeEntry, searchQuery string) []ProgramSummaryEntry {
-	programMap := make(map[string]*ProgramSummaryEntry) // Key: ProgramURL
-	searchLower := strings.ToLower(strings.TrimSpace(searchQuery))
-
-	// First, aggregate counts, identify platforms, and collect all elements per program
-	for _, entry := range allEntries {
-		progURL := strings.TrimSpace(entry.ProgramURL)
-		if progURL == "" {
-			continue
-		}
-
-		summary, exists := programMap[progURL]
-		if !exists {
-			summary = &ProgramSummaryEntry{
-				ProgramURL: progURL,
-				Platform:   getPlatformFromURL(progURL),
-				Elements:   make([]string, 0), // Initialize slice for elements
-			}
-			programMap[progURL] = summary
-		}
-
-		summary.Elements = append(summary.Elements, entry.Element) // Add the raw element
-
-		if strings.Contains(entry.Element, "(OOS)") {
-			summary.OutOfScopeCount++
-		} else {
-			summary.InScopeCount++
-		}
-	}
-
-	// Now, filter the aggregated summaries.
-	summaries := make([]ProgramSummaryEntry, 0, len(programMap))
-
-	if searchLower == "" { // No search query, include all aggregated programs
-		for _, summary := range programMap {
-			summaries = append(summaries, *summary)
-		}
-	} else { // Search query is present
-		for _, summary := range programMap {
-			// Check 1: ProgramURL matches
-			if strings.Contains(strings.ToLower(summary.ProgramURL), searchLower) {
-				summaries = append(summaries, *summary)
-				continue // Program matched, move to next program summary
-			}
-
-			// Check 2: Platform matches
-			if strings.Contains(strings.ToLower(summary.Platform), searchLower) {
-				summaries = append(summaries, *summary)
-				continue // Program matched
-			}
-
-			// Check 3: Any of the program's scope elements match
-			foundElementMatch := false
-			for _, element := range summary.Elements {
-				// Prepare element for search: lowercase and remove "(OOS)" suffix for matching
-				elementSearchable := strings.ToLower(element)
-				if strings.HasSuffix(elementSearchable, " (oos)") {
-					elementSearchable = strings.TrimSuffix(elementSearchable, " (oos)")
-				}
-
-				if strings.Contains(elementSearchable, searchLower) {
-					foundElementMatch = true
-					break // Found a matching element for this program
-				}
-			}
-
-			if foundElementMatch {
-				summaries = append(summaries, *summary)
-			}
-		}
-	}
-	return summaries
-}
-
-// sortProgramSummaries sorts a slice of ProgramSummaryEntry.
-func sortProgramSummaries(summaries []ProgramSummaryEntry, sortBy, sortOrder string) {
-	// Default sort if sortBy is empty but order is present
-	if sortBy == "" && (sortOrder == SortOrderAsc || sortOrder == SortOrderDesc) {
-		sortBy = SortByProgramURL // Default to ProgramURL for compact view
-	}
-
-	sort.SliceStable(summaries, func(i, j int) bool {
-		var less bool
-		progI := summaries[i]
-		progJ := summaries[j]
-
-		switch sortBy {
-		case SortByProgramURL:
-			less = strings.ToLower(progI.ProgramURL) < strings.ToLower(progJ.ProgramURL)
-		case SortByInScopeCount:
-			if progI.InScopeCount == progJ.InScopeCount { // Secondary sort by URL for stable order
-				less = strings.ToLower(progI.ProgramURL) < strings.ToLower(progJ.ProgramURL)
-			} else {
-				less = progI.InScopeCount < progJ.InScopeCount
-			}
-		case SortByOutOfScopeCount:
-			if progI.OutOfScopeCount == progJ.OutOfScopeCount { // Secondary sort by URL
-				less = strings.ToLower(progI.ProgramURL) < strings.ToLower(progJ.ProgramURL)
-			} else {
-				less = progI.OutOfScopeCount < progJ.OutOfScopeCount
-			}
-		case SortByPlatformName:
-			if strings.ToLower(progI.Platform) == strings.ToLower(progJ.Platform) { // Secondary sort by URL
-				less = strings.ToLower(progI.ProgramURL) < strings.ToLower(progJ.ProgramURL)
-			} else {
-				less = strings.ToLower(progI.Platform) < strings.ToLower(progJ.Platform)
-			}
-		default:
-			// Default to sorting by ProgramURL if sortBy is unrecognized but sortOrder is present
-			less = strings.ToLower(progI.ProgramURL) < strings.ToLower(progJ.ProgramURL)
-		}
-
-		if sortOrder == SortOrderDesc {
-			return !less
-		}
-		return less
-	})
-}
-
-// ScopeContent component for the /scope page
-func ScopeContent(
-	paginatedDetailedEntries []ScopeEntry,
-	paginatedProgramSummaries []ProgramSummaryEntry,
-	allScopeEntries []ScopeEntry,
-	loadErr error,
-	currentPage int, totalPages int,
-	totalResults int,
-	search string,
-	currentSortBy, currentSortOrder string,
-	currentPerPage int,
-	hideOOS bool,
-	showDetailedView bool,
-	isGoogleBot bool,
-	currentPlatform string,
-) g.Node {
+// ScopeContent renders the full /scope page content (used for non-HTMX requests).
+func ScopeContent(result *storage.ProgramListResult, loadErr error, search, sortBy, sortOrder string, perPage int, platform string) g.Node {
 	pageContent := []g.Node{
 		H1(Class("text-3xl md:text-4xl font-bold text-slate-100 mb-6"), g.Text("Scope Data")),
-		platformFilterTabs("/scope", currentPlatform, fmt.Sprintf("&perPage=%d&detailedView=%t&sortBy=%s&sortOrder=%s", currentPerPage, showDetailedView, currentSortBy, currentSortOrder)),
+		scopePlatformFilterDropdown(platform, perPage),
+		scopeSearchBar(search, sortBy, sortOrder, perPage, platform),
 	}
 
 	if loadErr != nil {
@@ -698,397 +371,13 @@ func ScopeContent(
 				g.Text("Could not load scope data. "+loadErr.Error()),
 			),
 		)
-	} else {
-		// Search bar - preserve detailedView state
-		searchBar := Div(Class("mb-6"),
-			Form(Method("GET"), Action("/scope"), Class("flex flex-col sm:flex-row gap-2 items-stretch sm:items-center"),
-				Input(
-					Type("text"),
-					Name("search"),
-					Value(search),
-					Placeholder("Search scope..."), // Placeholder can be generic
-					Class("flex-1 px-4 py-2 border border-slate-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent shadow-sm bg-slate-800 text-slate-200 placeholder-slate-500"),
-				),
-				Input(Type("hidden"), Name("perPage"), Value(strconv.Itoa(currentPerPage))),
-				Input(Type("hidden"), Name("sortBy"), Value(currentSortBy)),
-				Input(Type("hidden"), Name("sortOrder"), Value(currentSortOrder)),
-				Input(Type("hidden"), Name("detailedView"), Value(strconv.FormatBool(showDetailedView))),
-				Input(Type("hidden"), Name("platform"), Value(currentPlatform)),
-				g.If(showDetailedView, // Only include hideOOS if in detailed view
-					Input(Type("hidden"), Name("hideOOS"), Value(strconv.FormatBool(hideOOS))),
-				),
-				Button(
-					Type("submit"),
-					Class("px-6 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-500 transition-colors shadow-sm"),
-					g.Text("Search"),
-				),
-				g.If(search != "",
-					A(
-						Href(fmt.Sprintf("/scope?perPage=%d&sortBy=%s&sortOrder=%s&detailedView=%t%s",
-							currentPerPage, currentSortBy, currentSortOrder, showDetailedView,
-							func() string {
-								s := ""
-								if showDetailedView {
-									s += fmt.Sprintf("&hideOOS=%t", hideOOS)
-								}
-								if currentPlatform != "" {
-									s += "&platform=" + currentPlatform
-								}
-								return s
-							}(),
-						)),
-						Class("px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500 transition-colors text-center shadow-sm"),
-						g.Text("Clear"),
-					),
-				),
-			),
-		)
-		pageContent = append(pageContent, searchBar)
-
-		// Results Count Text
-		var resultsCountText string
-		var itemType string
-		if showDetailedView {
-			itemType = "assets"
-		} else {
-			itemType = "programs"
-		}
-
-		if totalResults > 0 {
-			resultsCountText = fmt.Sprintf("Showing %d to %d of %d %s.",
-				min((currentPage-1)*currentPerPage+1, totalResults),
-				min(currentPage*currentPerPage, totalResults),
-				totalResults,
-				itemType,
-			)
-		} else {
-			if search != "" {
-				resultsCountText = fmt.Sprintf("No %s found for '%s'.", itemType, search)
-			} else {
-				resultsCountText = fmt.Sprintf("No %s to display.", itemType)
-			}
-		}
-
-		// View Toggle Button
-		hideOOSQueryParam := ""
-		if !showDetailedView { // If current is compact, next is detailed, preserve hideOOS state for detailed view
-			hideOOSQueryParam = fmt.Sprintf("&hideOOS=%t", hideOOS)
-		} else {
-			// If current is detailed, next is compact, hideOOS is not relevant for compact, so it's empty.
-			// Also, when switching to compact, we might want to reset sort order or use compact view defaults.
-			// For now, let's keep it simple and just toggle detailedView.
-			// The handler will pick default sorts if sortBy/sortOrder are not applicable to the new view.
-		}
-
-		platformParam := ""
-		if currentPlatform != "" {
-			platformParam = "&platform=" + currentPlatform
-		}
-
-		viewToggleURL := fmt.Sprintf("/scope?page=1&search=%s&perPage=%d&detailedView=%t%s%s",
-			url.QueryEscape(search),
-			currentPerPage,
-			!showDetailedView,
-			hideOOSQueryParam,
-			platformParam,
-		)
-
-		viewToggleText := "Show Detailed View"
-		if showDetailedView {
-			viewToggleText = "Show Compact View"
-		}
-		viewToggleButton := A(Href(viewToggleURL), Class("w-full sm:w-auto text-center px-3 py-2 text-sm font-medium border rounded-md shadow-sm bg-slate-700 text-cyan-400 border-slate-600 hover:bg-slate-600 transition-colors"), g.Text(viewToggleText))
-
-		// Hide OOS Toggle (only for detailed view)
-		var hideOOSToggleElement g.Node
-		if showDetailedView {
-			hideOOSToggleURL := fmt.Sprintf("/scope?page=1&search=%s&sortBy=%s&sortOrder=%s&perPage=%d&hideOOS=%t&detailedView=true%s",
-				url.QueryEscape(search),
-				currentSortBy,
-				currentSortOrder,
-				currentPerPage,
-				!hideOOS,
-				platformParam,
-			)
-			hideOOSToggleText := "Hide OOS"
-			hideOOSToggleElementClass := "w-full sm:w-auto text-center px-3 py-2 text-sm font-medium border rounded-md shadow-sm cursor-pointer "
-			if hideOOS {
-				hideOOSToggleText = "Show OOS"
-				hideOOSToggleElementClass += "bg-sky-900/50 text-sky-400 border-sky-700 hover:bg-sky-800/50"
-			} else {
-				hideOOSToggleElementClass += "bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700"
-			}
-			hideOOSToggleElement = A(Href(hideOOSToggleURL), Class(hideOOSToggleElementClass), g.Text(hideOOSToggleText))
-		}
-
-		// Right side controls: View Toggle, [Hide OOS], PerPage selector
-		rightControlsItems := []g.Node{
-			viewToggleButton,
-		}
-		if showDetailedView && hideOOSToggleElement != nil {
-			rightControlsItems = append(rightControlsItems, hideOOSToggleElement)
-		}
-		rightControlsItems = append(rightControlsItems, perPageSelectorForm(search, currentSortBy, currentSortOrder, currentPerPage, hideOOS, showDetailedView, currentPlatform))
-
-		rightControls := Div(Class("flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3 w-full sm:w-auto"),
-			g.Group(rightControlsItems),
-		)
-
-		controlsRow := Div(Class("flex flex-col sm:flex-row justify-between items-center mb-4 gap-4"),
-			Div(Class("text-sm text-slate-400"), g.Text(resultsCountText)),
-			rightControls,
-		)
-		pageContent = append(pageContent, controlsRow)
-
-		// Pagination (Top)
-		if totalPages > 1 {
-			paginationTop := createPagination(currentPage, totalPages, search, currentSortBy, currentSortOrder, currentPerPage, hideOOS, showDetailedView, currentPlatform)
-			pageContent = append(pageContent, Div(Class("mb-6 flex justify-center"), paginationTop))
-		}
-
-		// Helper to build sort URL for table headers
-		buildHeaderSortURL := func(targetSortBy string) string {
-			order := SortOrderAsc
-			if currentSortBy == targetSortBy && currentSortOrder != "" { // Only toggle if it's the same column and already sorted
-				if currentSortOrder == SortOrderAsc {
-					order = SortOrderDesc
-				} else { // Was SortOrderDesc
-					order = "" // Clear sort by making order empty
-				}
-			}
-			// If currentSortBy is different, or currentSortOrder is empty, start with 'asc' for targetSortBy
-
-			u := fmt.Sprintf("/scope?page=1&sortBy=%s&sortOrder=%s&perPage=%d&detailedView=%t",
-				targetSortBy, order, currentPerPage, showDetailedView)
-			if search != "" {
-				u += "&search=" + url.QueryEscape(search)
-			}
-			if showDetailedView {
-				u += "&hideOOS=" + strconv.FormatBool(hideOOS)
-			}
-			if currentPlatform != "" {
-				u += "&platform=" + currentPlatform
-			}
-			return u
-		}
-
-		getSortIndicator := func(targetSortBy string) string {
-			if currentSortBy == targetSortBy {
-				if currentSortOrder == SortOrderAsc {
-					return " ▲"
-				} else if currentSortOrder == SortOrderDesc {
-					return " ▼"
-				}
-			}
-			return ""
-		}
-
-		var tableHeaders []g.Node
-		var tableRows []g.Node
-
-		if showDetailedView {
-			// Table Headers for Detailed View
-			tableHeaders = []g.Node{
-				Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-1/2"), // Element
-					A(Href(buildHeaderSortURL(SortByElement)), Class("hover:text-slate-200 transition-colors"),
-						g.Text("Element"+getSortIndicator(SortByElement)),
-					),
-				),
-				Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-1/12"), // Category
-					A(Href(buildHeaderSortURL(SortByCategory)), Class("hover:text-slate-200 transition-colors"),
-						g.Text("Category"+getSortIndicator(SortByCategory)),
-					),
-				),
-				Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-5/12"), // Program URL
-					A(Href(buildHeaderSortURL(SortByProgramURL)), Class("hover:text-slate-200 transition-colors"),
-						g.Text("Program URL"+getSortIndicator(SortByProgramURL)),
-					),
-				),
-			}
-			// Table Rows for Detailed View
-			if len(paginatedDetailedEntries) == 0 {
-				noResultsMsg := "No scope entries to display."
-				if search != "" {
-					noResultsMsg = fmt.Sprintf("No results found for '%s'.", search)
-				} else if hideOOS {
-					noResultsMsg = "No in-scope entries to display."
-				}
-				tableRows = append(tableRows,
-					Tr(Td(ColSpan("3"), Class("text-center py-10 text-slate-400"), g.Text(noResultsMsg))),
-				)
-			} else {
-				for i, entry := range paginatedDetailedEntries {
-					rowBg := ""
-					if i%2 == 1 {
-						rowBg = " bg-slate-800/30"
-					}
-					tableRows = append(tableRows,
-						Tr(Class("border-b border-slate-700/50 hover:bg-slate-800/70 transition-colors"+rowBg),
-							Td(Class("px-4 py-4 text-sm text-slate-200 w-1/2 break-all"), g.Attr("title", entry.Element), g.Text(entry.Element)),
-							Td(Class("px-4 py-4 text-sm text-slate-200 w-1/12 break-words"), g.Attr("title", entry.Category), g.Text(strings.ToUpper(entry.Category))),
-							Td(Class("px-4 py-4 text-sm text-slate-200 w-5/12 break-words"), // Adjusted width
-								A(Href(entry.ProgramURL), Target("_blank"), Rel("noopener noreferrer"),
-									Class("text-cyan-400 hover:text-cyan-300 hover:underline"),
-									g.Attr("title", entry.ProgramURL),
-									g.Text(entry.ProgramURL),
-								),
-							),
-						),
-					)
-				}
-			}
-		} else { // Compact View
-			// Table Headers for Compact View
-			tableHeaders = []g.Node{
-				Th(Class("px-2 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-10")), // Expander column
-				Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-2/5"), // URL
-					A(Href(buildHeaderSortURL(SortByProgramURL)), Class("hover:text-slate-200 transition-colors"),
-						g.Text("URL"+getSortIndicator(SortByProgramURL)),
-					),
-				),
-				Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-1/5"), // In Scope
-					A(Href(buildHeaderSortURL(SortByInScopeCount)), Class("hover:text-slate-200 transition-colors"),
-						g.Text("In Scope"+getSortIndicator(SortByInScopeCount)),
-					),
-				),
-				Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-1/5"), // Out of Scope
-					A(Href(buildHeaderSortURL(SortByOutOfScopeCount)), Class("hover:text-slate-200 transition-colors"),
-						g.Text("Out of Scope"+getSortIndicator(SortByOutOfScopeCount)),
-					),
-				),
-				Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-1/5"), // Platform
-					A(Href(buildHeaderSortURL(SortByPlatformName)), Class("hover:text-slate-200 transition-colors"),
-						g.Text("Platform"+getSortIndicator(SortByPlatformName)),
-					),
-				),
-			}
-			// Table Rows for Compact View
-			if len(paginatedProgramSummaries) == 0 {
-				noResultsMsg := "No programs to display."
-				if search != "" {
-					noResultsMsg = fmt.Sprintf("No programs found for '%s'.", search)
-				}
-				tableRows = append(tableRows,
-					Tr(Td(ColSpan("5"), Class("text-center py-10 text-slate-400"), g.Text(noResultsMsg))), // ColSpan is now 5
-				)
-			} else {
-				for i, summary := range paginatedProgramSummaries {
-					detailsID := fmt.Sprintf("details-%d-%d", currentPage, i) // Unique ID for the details row
-					iconID := fmt.Sprintf("icon-%d-%d", currentPage, i)       // Unique ID for the icon
-
-					rowBg := ""
-					if i%2 == 1 {
-						rowBg = " bg-slate-800/30"
-					}
-
-					expanderIcon := "+"
-					detailsRowClass := "hidden"
-					if isGoogleBot {
-						expanderIcon = "-"
-						detailsRowClass = "" // Not hidden
-					}
-
-					compactRow := Tr(
-						Class("border-b border-slate-700/50 hover:bg-slate-800/70 transition-colors cursor-pointer"+rowBg), // Added cursor-pointer
-						g.Attr("onclick", fmt.Sprintf("toggleScopeDetails('%s', '%s')", detailsID, iconID)), // Moved onclick here
-						Td(Class("px-2 py-3 text-center"), // Removed cursor-pointer and onclick from here
-							Span(ID(iconID), Class("expand-icon font-mono text-lg text-cyan-400 hover:text-cyan-300"), g.Text(expanderIcon)),
-						),
-						Td(Class("px-4 py-3 text-sm text-slate-200 w-2/5 break-words"),
-							A(Href(summary.ProgramURL), Target("_blank"), Rel("noopener noreferrer"),
-								Class("text-cyan-400 hover:text-cyan-300 hover:underline"),
-								g.Attr("title", summary.ProgramURL),
-								g.Attr("onclick", "event.stopPropagation();"), // Added to prevent row click when link is clicked
-								g.Text(summary.ProgramURL),
-							),
-						),
-						Td(Class("px-4 py-3 text-sm text-slate-200 w-1/5 text-center"), g.Text(strconv.Itoa(summary.InScopeCount))),
-						Td(Class("px-4 py-3 text-sm text-slate-200 w-1/5 text-center"), g.Text(strconv.Itoa(summary.OutOfScopeCount))),
-						Td(Class("px-4 py-3 text-sm text-slate-200 w-1/5"), g.Text(summary.Platform)),
-					)
-					tableRows = append(tableRows, compactRow)
-
-					// Filter allScopeEntries for this program's details
-					var programDetailedEntriesInScope []ScopeEntry
-					var programDetailedEntriesOutOfScope []ScopeEntry
-					for _, entry := range allScopeEntries {
-						if entry.ProgramURL == summary.ProgramURL {
-							// Element field already contains "(OOS)" if it's out of scope, as per current aggregation logic
-							if strings.Contains(strings.ToLower(entry.Element), "(oos)") {
-								programDetailedEntriesOutOfScope = append(programDetailedEntriesOutOfScope, entry)
-							} else {
-								programDetailedEntriesInScope = append(programDetailedEntriesInScope, entry)
-							}
-						}
-					}
-
-					detailsContentNodes := []g.Node{}
-					if len(programDetailedEntriesInScope) > 0 {
-						detailsContentNodes = append(detailsContentNodes, H4(Class("font-semibold text-slate-200 mb-1 text-base"), g.Text("In Scope Assets:")))
-						inScopeListItems := []g.Node{}
-						for _, entry := range programDetailedEntriesInScope {
-							assetText := entry.Element
-							if entry.Category != "" {
-								assetText = fmt.Sprintf("%s: %s", entry.Category, entry.Element)
-							}
-							inScopeListItems = append(inScopeListItems, Li(Class("ml-4 text-sm text-slate-400"), g.Text(assetText)))
-						}
-						detailsContentNodes = append(detailsContentNodes, Ul(Class("list-disc list-inside mb-3"), g.Group(inScopeListItems)))
-					}
-
-					if len(programDetailedEntriesOutOfScope) > 0 {
-						detailsContentNodes = append(detailsContentNodes, H4(Class("font-semibold text-slate-200 mb-1 text-base"), g.Text("Out of Scope Assets:")))
-						outOfScopeListItems := []g.Node{}
-						for _, entry := range programDetailedEntriesOutOfScope {
-							assetText := entry.Element // Element already contains (OOS)
-							if entry.Category != "" {
-								assetText = fmt.Sprintf("%s: %s", entry.Category, entry.Element)
-							}
-							outOfScopeListItems = append(outOfScopeListItems, Li(Class("ml-4 text-sm text-slate-400"), g.Text(assetText)))
-						}
-						detailsContentNodes = append(detailsContentNodes, Ul(Class("list-disc list-inside"), g.Group(outOfScopeListItems)))
-					}
-
-					if len(programDetailedEntriesInScope) == 0 && len(programDetailedEntriesOutOfScope) == 0 {
-						detailsContentNodes = append(detailsContentNodes, P(Class("text-sm text-slate-400 py-2"), g.Text("No detailed asset information available for this program.")))
-					}
-
-					detailsRow := Tr(
-						ID(detailsID),
-						Class(detailsRowClass), // Initially hidden, unless googlebot
-						Td(
-							ColSpan("5"), // Span all 5 columns
-							Class("p-0"), // No padding on td itself, inner div handles it
-							Div(Class("p-4 bg-slate-800/50 border-t border-b border-slate-700"),
-								Div(Class("p-3 rounded bg-slate-900 shadow-inner"),
-									g.Group(detailsContentNodes),
-								),
-							),
-						),
-					)
-					tableRows = append(tableRows, detailsRow)
-				}
-			}
-		}
-
-		table := Div(Class("overflow-x-auto shadow-lg shadow-slate-950/50 rounded-lg mt-0 border border-slate-700"),
-			Table(Class("min-w-full divide-y divide-slate-700 table-fixed"),
-				THead(Class("bg-slate-800"),
-					Tr(tableHeaders...),
-				),
-				TBody(Class("bg-slate-900 divide-y divide-slate-700"),
-					g.Group(tableRows),
-				),
-			),
-		)
-		pageContent = append(pageContent, table)
-
-		// Pagination (Bottom)
-		if totalPages > 1 {
-			paginationBottom := createPagination(currentPage, totalPages, search, currentSortBy, currentSortOrder, currentPerPage, hideOOS, showDetailedView, currentPlatform)
-			pageContent = append(pageContent, Div(Class("mt-6 flex justify-center"), paginationBottom))
-		}
 	}
+
+	pageContent = append(pageContent,
+		Div(ID("scope-table-container"),
+			scopeTableInner(result, loadErr, search, sortBy, sortOrder, perPage, platform),
+		),
+	)
 
 	return Main(Class("container mx-auto mt-8 mb-16 p-4"),
 		Section(Class("bg-slate-900/50 border border-slate-800 rounded-lg shadow-xl p-6 md:p-8 lg:p-12"),
@@ -1097,25 +386,377 @@ func ScopeContent(
 	)
 }
 
-// createPagination creates pagination controls
-func createPagination(currentPage, totalPages int, search string, sortBy string, sortOrder string, perPage int, hideOOS bool, showDetailedView bool, platform string) g.Node {
-	var paginationItems []g.Node
+// ScopeTableFragment renders just the table container content for HTMX partial responses.
+func ScopeTableFragment(result *storage.ProgramListResult, loadErr error, search, sortBy, sortOrder string, perPage int, platform string) g.Node {
+	return scopeTableInner(result, loadErr, search, sortBy, sortOrder, perPage, platform)
+}
 
-	// Helper function to create pagination link
-	createPageLink := func(page int, text string, disabled bool, active bool) g.Node {
-		// Preserve all relevant query parameters
-		href := fmt.Sprintf("/scope?page=%d&perPage=%d&detailedView=%t", page, perPage, showDetailedView)
+// scopeTableInner renders the controls, table, and pagination for the scope page.
+func scopeTableInner(result *storage.ProgramListResult, loadErr error, search, sortBy, sortOrder string, perPage int, platform string) g.Node {
+	if loadErr != nil {
+		return Div()
+	}
+
+	content := []g.Node{}
+
+	// Results count + per-page selector
+	var resultsCountText string
+	if result.TotalCount > 0 {
+		resultsCountText = fmt.Sprintf("Showing %d to %d of %d programs.",
+			min((result.Page-1)*result.PerPage+1, result.TotalCount),
+			min(result.Page*result.PerPage, result.TotalCount),
+			result.TotalCount,
+		)
+	} else if search != "" {
+		resultsCountText = fmt.Sprintf("No programs found for '%s'.", search)
+	} else {
+		resultsCountText = "No programs to display."
+	}
+
+	controlsRow := Div(Class("flex flex-col sm:flex-row justify-between items-center mb-4 gap-4"),
+		Div(Class("text-sm text-slate-400"), g.Text(resultsCountText)),
+		Div(Class("flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3 w-full sm:w-auto"),
+			scopePerPageSelector(search, sortBy, sortOrder, perPage, platform),
+		),
+	)
+	content = append(content, controlsRow)
+
+	// Pagination top
+	if result.TotalPages > 1 {
+		content = append(content, Div(Class("mb-6 flex justify-center"),
+			scopePagination(result.Page, result.TotalPages, search, sortBy, sortOrder, perPage, platform),
+		))
+	}
+
+	// Build sort URL helper
+	buildSortURL := func(targetSortBy string) string {
+		order := "asc"
+		if sortBy == targetSortBy {
+			if sortOrder == "asc" {
+				order = "desc"
+			} else {
+				order = "asc"
+			}
+		}
+		u := fmt.Sprintf("/scope?page=1&sortBy=%s&sortOrder=%s&perPage=%d", targetSortBy, order, perPage)
+		if search != "" {
+			u += "&search=" + url.QueryEscape(search)
+		}
+		if platform != "" {
+			u += "&platform=" + platform
+		}
+		return u
+	}
+
+	sortIndicator := func(col string) string {
+		if sortBy == col {
+			if sortOrder == "asc" {
+				return " ▲"
+			}
+			return " ▼"
+		}
+		return ""
+	}
+
+	htmxAttrs := func(href string) []g.Node {
+		return []g.Node{
+			Href(href),
+			g.Attr("hx-get", href),
+			g.Attr("hx-target", "#scope-table-container"),
+			g.Attr("hx-push-url", "true"),
+		}
+	}
+
+	// Table headers
+	tableHeaders := Tr(
+		Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-2/5"),
+			A(append(htmxAttrs(buildSortURL("handle")), Class("hover:text-slate-200 transition-colors"), g.Text("Program"+sortIndicator("handle")))...),
+		),
+		Th(Class("px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-1/5"),
+			A(append(htmxAttrs(buildSortURL("platform")), Class("hover:text-slate-200 transition-colors"), g.Text("Platform"+sortIndicator("platform")))...),
+		),
+		Th(Class("px-4 py-3 text-center text-xs font-medium text-slate-400 uppercase tracking-wider w-1/5"),
+			A(append(htmxAttrs(buildSortURL("in_scope_count")), Class("hover:text-slate-200 transition-colors"), g.Text("In Scope"+sortIndicator("in_scope_count")))...),
+		),
+		Th(Class("px-4 py-3 text-center text-xs font-medium text-slate-400 uppercase tracking-wider w-1/5"),
+			A(append(htmxAttrs(buildSortURL("out_of_scope_count")), Class("hover:text-slate-200 transition-colors"), g.Text("Out of Scope"+sortIndicator("out_of_scope_count")))...),
+		),
+	)
+
+	// Table rows
+	var tableRows []g.Node
+	if len(result.Programs) == 0 {
+		noResultsMsg := "No programs to display."
+		if search != "" {
+			noResultsMsg = fmt.Sprintf("No programs found for '%s'.", search)
+		}
+		tableRows = append(tableRows,
+			Tr(Td(ColSpan("4"), Class("text-center py-10 text-slate-400"), g.Text(noResultsMsg))),
+		)
+	} else {
+		for i, p := range result.Programs {
+			rowBg := ""
+			if i%2 == 1 {
+				rowBg = " bg-slate-800/30"
+			}
+
+			programURL := fmt.Sprintf("/program/%s/%s",
+				url.PathEscape(strings.ToLower(p.Platform)),
+				url.PathEscape(p.Handle),
+			)
+			externalURL := strings.ReplaceAll(p.URL, "api.yeswehack.com", "yeswehack.com")
+
+			tableRows = append(tableRows,
+				Tr(
+					Class("border-b border-slate-700/50 hover:bg-slate-800/70 transition-colors cursor-pointer"+rowBg),
+					g.Attr("onclick", fmt.Sprintf("window.location.href='%s'", programURL)),
+					Td(Class("px-4 py-3 text-sm text-slate-200 w-2/5"),
+						Div(Class("flex items-center gap-2"),
+							A(Href(externalURL), Target("_blank"), Rel("noopener noreferrer"),
+								Class("text-slate-500 hover:text-cyan-400 transition-colors flex-shrink-0"),
+								g.Attr("onclick", "event.stopPropagation()"),
+								g.Attr("title", "Open program page"),
+								g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>`),
+							),
+							Span(Class("font-medium text-slate-100"), g.Text(p.Handle)),
+						),
+					),
+					Td(Class("px-4 py-3 text-sm w-1/5"),
+						platformBadge(p.Platform),
+					),
+					Td(Class("px-4 py-3 text-sm text-slate-200 w-1/5 text-center"),
+						Span(Class("text-emerald-400 font-medium"), g.Text(strconv.Itoa(p.InScopeCount))),
+					),
+					Td(Class("px-4 py-3 text-sm text-slate-200 w-1/5 text-center"),
+						g.Text(strconv.Itoa(p.OutOfScopeCount)),
+					),
+				),
+			)
+		}
+	}
+
+	table := Div(Class("overflow-x-auto shadow-lg shadow-slate-950/50 rounded-lg border border-slate-700"),
+		Table(Class("min-w-full divide-y divide-slate-700"),
+			THead(Class("bg-slate-800"),
+				tableHeaders,
+			),
+			TBody(Class("bg-slate-900 divide-y divide-slate-700"),
+				g.Group(tableRows),
+			),
+		),
+	)
+	content = append(content, table)
+
+	// Pagination bottom
+	if result.TotalPages > 1 {
+		content = append(content, Div(Class("mt-6 flex justify-center"),
+			scopePagination(result.Page, result.TotalPages, search, sortBy, sortOrder, perPage, platform),
+		))
+	}
+
+	return g.Group(content)
+}
+
+// scopePlatformFilterDropdown renders a multiselect dropdown for platform filtering.
+func scopePlatformFilterDropdown(currentPlatform string, perPage int) g.Node {
+	platforms := []struct{ Value, Label string }{
+		{"hackerone", "HackerOne"},
+		{"bugcrowd", "Bugcrowd"},
+		{"intigriti", "Intigriti"},
+		{"yeswehack", "YesWeHack"},
+	}
+
+	// Parse current selection
+	selectedSet := make(map[string]bool)
+	if currentPlatform != "" {
+		for _, p := range strings.Split(currentPlatform, ",") {
+			selectedSet[strings.TrimSpace(p)] = true
+		}
+	}
+	allSelected := len(selectedSet) == 0
+
+	// Build checkbox items
+	var checkboxItems []g.Node
+	for _, p := range platforms {
+		isChecked := selectedSet[p.Value]
+		attrs := []g.Node{
+			Type("checkbox"),
+			Name("platform"),
+			Value(p.Value),
+			Class("rounded border-slate-600 bg-slate-700 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-0"),
+		}
+		if isChecked {
+			attrs = append(attrs, Checked())
+		}
+		checkboxItems = append(checkboxItems,
+			Label(Class("flex items-center gap-2 px-3 py-1.5 hover:bg-slate-700/50 cursor-pointer text-sm text-slate-300"),
+				Input(attrs...),
+				g.Text(p.Label),
+			),
+		)
+	}
+
+	// "All" button label
+	buttonLabel := "All Platforms"
+	if !allSelected {
+		var names []string
+		for _, p := range platforms {
+			if selectedSet[p.Value] {
+				names = append(names, p.Label)
+			}
+		}
+		if len(names) <= 2 {
+			buttonLabel = strings.Join(names, ", ")
+		} else {
+			buttonLabel = fmt.Sprintf("%d platforms", len(names))
+		}
+	}
+
+	return Div(Class("relative mb-6"), ID("platform-filter"),
+		// Toggle button
+		Button(
+			Type("button"),
+			ID("platform-dropdown-btn"),
+			Class("flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-slate-200 transition-colors"),
+			g.Attr("onclick", "document.getElementById('platform-dropdown-menu').classList.toggle('hidden')"),
+			g.Text(buttonLabel),
+			g.Raw(`<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>`),
+		),
+		// Dropdown panel
+		Div(
+			ID("platform-dropdown-menu"),
+			Class("hidden absolute z-30 mt-1 w-56 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1"),
+			// "All" quick option
+			Button(
+				Type("button"),
+				Class("w-full text-left px-3 py-1.5 text-sm text-cyan-400 hover:bg-slate-700/50 font-medium border-b border-slate-700 mb-1"),
+				g.Attr("onclick", fmt.Sprintf(`
+					document.querySelectorAll('#platform-dropdown-menu input[type=checkbox]').forEach(cb => cb.checked = false);
+					applyPlatformFilter(%d);
+				`, perPage)),
+				g.Text("All Platforms"),
+			),
+			g.Group(checkboxItems),
+			// Apply button
+			Div(Class("px-3 pt-2 pb-1 border-t border-slate-700 mt-1"),
+				Button(
+					Type("button"),
+					Class("w-full px-3 py-1.5 text-sm font-medium rounded bg-cyan-600 text-white hover:bg-cyan-500 transition-colors"),
+					g.Attr("onclick", fmt.Sprintf("applyPlatformFilter(%d)", perPage)),
+					g.Text("Apply"),
+				),
+			),
+		),
+		// Inline JS for platform filter
+		Script(g.Raw(fmt.Sprintf(`
+			function applyPlatformFilter(perPage) {
+				var checked = [];
+				document.querySelectorAll('#platform-dropdown-menu input[type=checkbox]:checked').forEach(function(cb) {
+					checked.push(cb.value);
+				});
+				var url = '/scope?page=1&perPage=' + perPage;
+				if (checked.length > 0) {
+					url += '&platform=' + checked.join(',');
+				}
+				var container = document.getElementById('scope-table-container');
+				if (container && typeof htmx !== 'undefined') {
+					htmx.ajax('GET', url, {target: '#scope-table-container', pushUrl: true});
+				} else {
+					window.location.href = url;
+				}
+				document.getElementById('platform-dropdown-menu').classList.add('hidden');
+			}
+			// Close dropdown when clicking outside
+			document.addEventListener('click', function(e) {
+				var filter = document.getElementById('platform-filter');
+				var menu = document.getElementById('platform-dropdown-menu');
+				if (filter && menu && !filter.contains(e.target)) {
+					menu.classList.add('hidden');
+				}
+			});
+		`))),
+	)
+}
+
+// scopeSearchBar renders the search form for the scope page.
+func scopeSearchBar(search, sortBy, sortOrder string, perPage int, platform string) g.Node {
+	return Div(Class("mb-6"),
+		Form(Method("GET"), Action("/scope"),
+			Class("flex flex-col sm:flex-row gap-2 items-stretch sm:items-center"),
+			g.Attr("hx-get", "/scope"),
+			g.Attr("hx-target", "#scope-table-container"),
+			g.Attr("hx-push-url", "true"),
+			g.Attr("hx-include", "[name='search'],[name='perPage'],[name='sortBy'],[name='sortOrder'],[name='platform']"),
+			Input(
+				Type("text"),
+				Name("search"),
+				Value(search),
+				Placeholder("Search programs and assets..."),
+				Class("flex-1 px-4 py-2 border border-slate-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent shadow-sm bg-slate-800 text-slate-200 placeholder-slate-500"),
+			),
+			Input(Type("hidden"), Name("perPage"), Value(strconv.Itoa(perPage))),
+			Input(Type("hidden"), Name("sortBy"), Value(sortBy)),
+			Input(Type("hidden"), Name("sortOrder"), Value(sortOrder)),
+			Input(Type("hidden"), Name("platform"), Value(platform)),
+			Input(Type("hidden"), Name("page"), Value("1")),
+			Button(
+				Type("submit"),
+				Class("px-6 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-500 transition-colors shadow-sm"),
+				g.Text("Search"),
+			),
+			g.If(search != "",
+				A(
+					Href(func() string {
+						u := fmt.Sprintf("/scope?perPage=%d&sortBy=%s&sortOrder=%s", perPage, sortBy, sortOrder)
+						if platform != "" {
+							u += "&platform=" + platform
+						}
+						return u
+					}()),
+					Class("px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500 transition-colors text-center shadow-sm"),
+					g.Text("Clear"),
+				),
+			),
+		),
+	)
+}
+
+// scopePerPageSelector renders the per-page dropdown for the scope page.
+func scopePerPageSelector(search, sortBy, sortOrder string, currentPerPage int, platform string) g.Node {
+	options := []g.Node{}
+	for _, num := range []int{25, 50, 100, 250, 500} {
+		opt := Option(Value(strconv.Itoa(num)), g.Text(fmt.Sprintf("%d items", num)))
+		if num == currentPerPage {
+			opt = Option(Value(strconv.Itoa(num)), g.Text(fmt.Sprintf("%d items", num)), Selected())
+		}
+		options = append(options, opt)
+	}
+
+	return Form(Method("GET"), Action("/scope"), Class("w-full sm:w-auto flex items-center justify-center sm:justify-start gap-1 sm:gap-2 text-sm"),
+		Label(For("perPageSelect"), Class("text-slate-400 whitespace-nowrap"), g.Text("Items per page:")),
+		Select(
+			ID("perPageSelect"),
+			Name("perPage"),
+			g.Attr("onchange", "this.form.submit()"),
+			Class("px-2 py-1 border border-slate-600 rounded-md shadow-sm focus:ring-cyan-500 focus:border-cyan-500 text-sm bg-slate-800 text-slate-200"),
+			g.Group(options),
+		),
+		Input(Type("hidden"), Name("search"), Value(search)),
+		Input(Type("hidden"), Name("sortBy"), Value(sortBy)),
+		Input(Type("hidden"), Name("sortOrder"), Value(sortOrder)),
+		Input(Type("hidden"), Name("platform"), Value(platform)),
+		Input(Type("hidden"), Name("page"), Value("1")),
+	)
+}
+
+// scopePagination creates pagination controls for the scope page with HTMX support.
+func scopePagination(currentPage, totalPages int, search, sortBy, sortOrder string, perPage int, platform string) g.Node {
+	var items []g.Node
+
+	createPageLink := func(page int, text string, disabled, active bool) g.Node {
+		href := fmt.Sprintf("/scope?page=%d&perPage=%d&sortBy=%s&sortOrder=%s", page, perPage, sortBy, sortOrder)
 		if search != "" {
 			href += "&search=" + url.QueryEscape(search)
-		}
-		if sortBy != "" { // sortBy and sortOrder are passed as current, should be fine
-			href += "&sortBy=" + sortBy
-		}
-		if sortOrder != "" {
-			href += "&sortOrder=" + sortOrder
-		}
-		if showDetailedView {
-			href += "&hideOOS=" + strconv.FormatBool(hideOOS)
 		}
 		if platform != "" {
 			href += "&platform=" + platform
@@ -1131,53 +772,44 @@ func createPagination(currentPage, totalPages int, search string, sortBy string,
 			classes += " bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700"
 		}
 
-		return A(Href(href), Class(classes), g.Text(text))
+		return A(
+			Href(href),
+			g.Attr("hx-get", href),
+			g.Attr("hx-target", "#scope-table-container"),
+			g.Attr("hx-push-url", "true"),
+			Class(classes),
+			g.Text(text),
+		)
 	}
 
-	// Previous button
-	paginationItems = append(paginationItems,
-		createPageLink(currentPage-1, "Previous", currentPage <= 1, false),
-	)
+	// Previous
+	items = append(items, createPageLink(currentPage-1, "Previous", currentPage <= 1, false))
 
 	// Page numbers
 	start := max(1, currentPage-2)
 	end := min(totalPages, currentPage+2)
 
 	if start > 1 {
-		paginationItems = append(paginationItems, createPageLink(1, "1", false, false))
+		items = append(items, createPageLink(1, "1", false, false))
 		if start > 2 {
-			paginationItems = append(paginationItems,
-				Span(Class("px-3 py-2 text-sm text-slate-500"), g.Text("...")),
-			)
+			items = append(items, Span(Class("px-3 py-2 text-sm text-slate-500"), g.Text("...")))
 		}
 	}
-
 	for i := start; i <= end; i++ {
-		paginationItems = append(paginationItems,
-			createPageLink(i, strconv.Itoa(i), false, i == currentPage),
-		)
+		items = append(items, createPageLink(i, strconv.Itoa(i), false, i == currentPage))
 	}
-
 	if end < totalPages {
 		if end < totalPages-1 {
-			paginationItems = append(paginationItems,
-				Span(Class("px-3 py-2 text-sm text-slate-500"), g.Text("...")),
-			)
+			items = append(items, Span(Class("px-3 py-2 text-sm text-slate-500"), g.Text("...")))
 		}
-		paginationItems = append(paginationItems,
-			createPageLink(totalPages, strconv.Itoa(totalPages), false, false),
-		)
+		items = append(items, createPageLink(totalPages, strconv.Itoa(totalPages), false, false))
 	}
 
-	// Next button
-	paginationItems = append(paginationItems,
-		createPageLink(currentPage+1, "Next", currentPage >= totalPages, false),
-	)
+	// Next
+	items = append(items, createPageLink(currentPage+1, "Next", currentPage >= totalPages, false))
 
 	return Div(Class("mt-6 flex justify-center"),
-		Nav(Class("flex space-x-1"),
-			g.Group(paginationItems),
-		),
+		Nav(Class("flex space-x-1"), g.Group(items)),
 	)
 }
 
@@ -1232,159 +864,94 @@ func scopeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get query parameters
+	ctx := context.Background()
+
+	// Parse query parameters
 	query := r.URL.Query()
-	pageStr := query.Get("page")
 	search := strings.TrimSpace(query.Get("search"))
-	sortByParam := strings.ToLower(strings.TrimSpace(query.Get("sortBy")))
-	sortOrderParam := strings.ToLower(strings.TrimSpace(query.Get("sortOrder")))
-	perPageStr := query.Get("perPage")
-	hideOOSStr := query.Get("hideOOS")
-	showDetailedViewStr := query.Get("detailedView")
+	sortBy := strings.ToLower(strings.TrimSpace(query.Get("sortBy")))
+	sortOrder := strings.ToLower(strings.TrimSpace(query.Get("sortOrder")))
 	platformFilter := strings.ToLower(strings.TrimSpace(query.Get("platform")))
 
-	showDetailedView := showDetailedViewStr == "true" // Default to false (compact view)
-
-	// Check if the user agent is Googlebot
-	userAgent := r.Header.Get("User-Agent")
-	isGoogleBot := strings.Contains(strings.ToLower(userAgent), "googlebot")
-
 	page := 1
-	if pageStr != "" {
-		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
-			page = p
-		}
+	if p, err := strconv.Atoi(query.Get("page")); err == nil && p > 0 {
+		page = p
 	}
 
 	currentPerPage := 50
 	allowedPerPages := []int{25, 50, 100, 250, 500}
-	if perPageStr != "" {
-		if p, err := strconv.Atoi(perPageStr); err == nil {
-			isValidPerPage := false
-			for _, allowed := range allowedPerPages {
-				if p == allowed {
-					currentPerPage = p
-					isValidPerPage = true
-					break
-				}
-			}
-			if !isValidPerPage {
-				currentPerPage = 50 // Default if invalid
+	if p, err := strconv.Atoi(query.Get("perPage")); err == nil {
+		for _, allowed := range allowedPerPages {
+			if p == allowed {
+				currentPerPage = p
+				break
 			}
 		}
 	}
 
-	hideOOS := false      // Default for hideOOS
-	if showDetailedView { // Only parse hideOOS if in detailed view mode
-		hideOOS = hideOOSStr == "true"
+	// Validate sortBy
+	validSortCols := map[string]bool{"handle": true, "platform": true, "in_scope_count": true, "out_of_scope_count": true}
+	if !validSortCols[sortBy] {
+		sortBy = "handle"
+	}
+	if sortOrder != "asc" && sortOrder != "desc" {
+		sortOrder = "asc"
 	}
 
-	activeSortBy := sortByParam
-	activeSortOrder := sortOrderParam
-
-	// Validate and default sortBy and sortOrder based on the current view
-	if activeSortOrder == SortOrderAsc || activeSortOrder == SortOrderDesc {
-		if showDetailedView {
-			isValidSortBy := false
-			for _, validCol := range []string{SortByElement, SortByCategory, SortByProgramURL} {
-				if activeSortBy == validCol {
-					isValidSortBy = true
-					break
-				}
-			}
-			if !isValidSortBy {
-				activeSortBy = SortByElement // Default for detailed view
-			}
-		} else { // Compact view
-			isValidSortBy := false
-			for _, validCol := range []string{SortByProgramURL, SortByInScopeCount, SortByOutOfScopeCount, SortByPlatformName} {
-				if activeSortBy == validCol {
-					isValidSortBy = true
-					break
-				}
-			}
-			if !isValidSortBy {
-				activeSortBy = SortByProgramURL // Default for compact view
+	// Parse comma-separated platforms into a slice
+	var platformSlice []string
+	if platformFilter != "" {
+		for _, p := range strings.Split(platformFilter, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				platformSlice = append(platformSlice, p)
 			}
 		}
-	} else if activeSortOrder != "" {
-		activeSortOrder = ""
 	}
 
-	allEntries, err := loadScopeFromDB()
+	// Query DB with SQL-level pagination
+	result, err := db.ListProgramsPaginated(ctx, storage.ProgramListOptions{
+		Platforms: platformSlice,
+		Search:    search,
+		SortBy:    sortBy,
+		SortOrder: sortOrder,
+		Page:      page,
+		PerPage:   currentPerPage,
+	})
 
-	var paginatedDetailedEntries []ScopeEntry
-	var paginatedProgramSummaries []ProgramSummaryEntry
-	var totalResults, totalPages int
-
-	if showDetailedView {
-		processedEntries := filterEntries(allEntries, search, hideOOS)
-		if platformFilter != "" {
-			var filtered []ScopeEntry
-			for _, e := range processedEntries {
-				if strings.ToLower(getPlatformFromURL(e.ProgramURL)) == platformFilter {
-					filtered = append(filtered, e)
-				}
-			}
-			processedEntries = filtered
+	var loadErr error
+	if err != nil {
+		loadErr = err
+		log.Printf("Error listing programs: %v", err)
+		result = &storage.ProgramListResult{
+			Programs:   nil,
+			TotalCount: 0,
+			Page:       page,
+			PerPage:    currentPerPage,
+			TotalPages: 1,
 		}
-		if len(processedEntries) > 0 {
-			sortEntries(processedEntries, activeSortBy, activeSortOrder)
-		}
-		totalResults = len(processedEntries)
-		if totalResults > 0 {
-			totalPages = (totalResults + currentPerPage - 1) / currentPerPage
-			if totalPages == 0 {
-				totalPages = 1
-			}
-		}
-		if page > totalPages && totalPages > 0 {
-			page = totalPages
-		}
-		if page < 1 && totalPages > 0 {
-			page = 1
-		} else if page < 1 {
-			page = 1
-		} // Ensure page is at least 1
-		paginatedDetailedEntries = paginateEntries(processedEntries, page, currentPerPage)
-	} else { // Compact View
-		programSummaries := aggregateAndFilterScopeData(allEntries, search)
-		if platformFilter != "" {
-			var filtered []ProgramSummaryEntry
-			for _, s := range programSummaries {
-				if strings.ToLower(s.Platform) == platformFilter {
-					filtered = append(filtered, s)
-				}
-			}
-			programSummaries = filtered
-		}
-		if len(programSummaries) > 0 {
-			sortProgramSummaries(programSummaries, activeSortBy, activeSortOrder)
-		}
-		totalResults = len(programSummaries)
-		if totalResults > 0 {
-			totalPages = (totalResults + currentPerPage - 1) / currentPerPage
-			if totalPages == 0 {
-				totalPages = 1
-			}
-		}
-		if page > totalPages && totalPages > 0 {
-			page = totalPages
-		}
-		if page < 1 && totalPages > 0 {
-			page = 1
-		} else if page < 1 {
-			page = 1
-		} // Ensure page is at least 1
-		paginatedProgramSummaries = paginateProgramSummaries(programSummaries, page, currentPerPage)
 	}
 
-	canonicalURL := fmt.Sprintf("/scope?page=%d", page) // Canonical URL always points to the compact view without detailedView param
+	// Clamp page
+	if page > result.TotalPages {
+		page = result.TotalPages
+	}
+	if page < 1 {
+		page = 1
+	}
 
-	// Determine page title for /scope based on current page
+	// Check if this is an HTMX request
+	isHTMX := r.Header.Get("HX-Request") == "true"
+
+	if isHTMX {
+		// Return only the table fragment for HTMX swap
+		ScopeTableFragment(result, loadErr, search, sortBy, sortOrder, currentPerPage, platformFilter).Render(w)
+		return
+	}
+
+	// Full page render
+	canonicalURL := fmt.Sprintf("/scope?page=%d", page)
 	pageTitle := fmt.Sprintf("Scope data - bbscope.com (Page %d)", page)
-
-	// Determine page description for /scope based on current page
 	pageDescription := "Browse and download bug bounty scope data from all bug bounty platforms. Find in-scope websites from HackerOne, Bugcrowd, Intigriti and YesWeHack."
 	if page > 1 {
 		pageDescription = fmt.Sprintf("%s (Page %d)", pageDescription, page)
@@ -1394,20 +961,10 @@ func scopeHandler(w http.ResponseWriter, r *http.Request) {
 		pageTitle,
 		pageDescription,
 		Navbar(),
-		ScopeContent(
-			paginatedDetailedEntries,
-			paginatedProgramSummaries,
-			allEntries, // Pass allEntries here
-			err,
-			page, totalPages, totalResults,
-			search, activeSortBy, activeSortOrder, currentPerPage,
-			hideOOS, showDetailedView,
-			isGoogleBot,
-			platformFilter,
-		),
+		ScopeContent(result, loadErr, search, sortBy, sortOrder, currentPerPage, platformFilter),
 		FooterEl(),
 		canonicalURL,
-		showDetailedView, // Pass showDetailedView to PageLayout for noindex
+		page > 1,
 	).Render(w)
 }
 
@@ -1485,6 +1042,7 @@ func Run(cfg ServerConfig) error {
 
 	http.HandleFunc("/", homeHandler)
 	http.HandleFunc("/scope", scopeHandler)
+	http.HandleFunc("/program/", programDetailHandler)
 	http.HandleFunc("/updates", updatesHandler)
 	http.HandleFunc("/docs", docsHandler)
 	http.HandleFunc("/stats", statsHandler)
@@ -1506,40 +1064,6 @@ func Run(cfg ServerConfig) error {
 	}
 
 	return http.ListenAndServe(listenAddr, nil)
-}
-
-// perPageSelectorForm generates the form for selecting items per page
-func perPageSelectorForm(currentSearch, currentSortBy, currentSortOrder string, currentPerPage int, currentHideOOS bool, currentDetailedView bool, currentPlatform string) g.Node {
-	options := []g.Node{}
-	allowedPerPages := []int{25, 50, 100, 250, 500}
-	for _, num := range allowedPerPages {
-		opt := Option(Value(strconv.Itoa(num)), g.Text(fmt.Sprintf("%d items", num)))
-		if num == currentPerPage {
-			opt = Option(Value(strconv.Itoa(num)), g.Text(fmt.Sprintf("%d items", num)), Selected())
-		}
-		options = append(options, opt)
-	}
-
-	return Form(Method("GET"), Action("/scope"), Class("w-full sm:w-auto flex items-center justify-center sm:justify-start gap-1 sm:gap-2 text-sm"), // MODIFIED CLASS
-		Label(For("perPageSelect"), Class("text-slate-400 whitespace-nowrap"), g.Text("Items per page:")),
-		Select(
-			ID("perPageSelect"),
-			Name("perPage"),
-			g.Attr("onchange", "this.form.submit()"),
-			Class("px-2 py-1 border border-slate-600 rounded-md shadow-sm focus:ring-cyan-500 focus:border-cyan-500 text-sm bg-slate-800 text-slate-200"),
-			g.Group(options),
-		),
-		// Hidden fields to preserve other parameters
-		Input(Type("hidden"), Name("search"), Value(currentSearch)),
-		Input(Type("hidden"), Name("sortBy"), Value(currentSortBy)),
-		Input(Type("hidden"), Name("sortOrder"), Value(currentSortOrder)),
-		Input(Type("hidden"), Name("detailedView"), Value(strconv.FormatBool(currentDetailedView))), // Add detailedView
-		g.If(currentDetailedView,
-			Input(Type("hidden"), Name("hideOOS"), Value(strconv.FormatBool(currentHideOOS))),
-		),
-		Input(Type("hidden"), Name("platform"), Value(currentPlatform)),
-		Input(Type("hidden"), Name("page"), Value("1")),
-	)
 }
 
 // UpdatesContent renders the main content for the /updates page.
@@ -1974,6 +1498,6 @@ func updatesHandler(w http.ResponseWriter, r *http.Request) {
 		UpdatesContent(paginatedUpdates, currentPage, totalPages, currentPerPage, searchQuery, isGoogleBot, platformFilter),
 		FooterEl(),
 		updatesCanonicalURL,
-		false, // Not a noindex page
+		currentPage > 1,
 	).Render(w)
 }
