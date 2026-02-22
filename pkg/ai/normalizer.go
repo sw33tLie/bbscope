@@ -350,7 +350,7 @@ Scope intent classification (critical)
 
 Category normalization
 - Map incoming categories to the allowed unified set. If the cleaned target obviously belongs to a different category, override it.
-- URLs / websites / APIs -> "url".
+- URLs / websites / APIs / single IP address (not cidr range) -> "url".
 - Wildcards -> "wildcard" (normalized target should be the cleaned domain without "*.").
 - CIDR/IP ranges -> "cidr".
 - Mobile app IDs / store links -> "android" or "ios" as appropriate (keep http(s):// store URLs intact).
