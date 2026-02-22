@@ -149,15 +149,7 @@ func PageLayout(title, description string, navbar g.Node, content g.Node, footer
 					::-webkit-scrollbar-thumb:hover { background: #71717a; }
 					.table-fixed { table-layout: fixed; }
 					.prose { --tw-prose-body: #d4d4d8; --tw-prose-headings: #e4e4e7; --tw-prose-links: #22d3ee; --tw-prose-bold: #e4e4e7; --tw-prose-code: #e4e4e7; --tw-prose-pre-bg: #18181b; }
-					@keyframes gradient-shift {
-						0%, 100% { background-position: 0% 50%; }
-						50% { background-position: 100% 50%; }
-					}
-					.hero-gradient {
-						background: linear-gradient(135deg, #18181b 0%, #0c2a33 25%, #18181b 50%, #0a2530 75%, #18181b 100%);
-						background-size: 400% 400%;
-						animation: gradient-shift 15s ease infinite;
-					}
+					#hero-particles canvas { border-radius: 1rem; }
 				`)),
 			),
 			Body(Class("bg-zinc-950 font-sans antialiased leading-normal tracking-tight flex flex-col min-h-screen text-zinc-300"),
@@ -275,12 +267,15 @@ func statCounter(value int, label string) g.Node {
 }
 
 func MainContent(totalPrograms, totalAssets, platformCount int) g.Node {
-	newHeroSection := Section(Class("hero-gradient rounded-2xl overflow-hidden"),
-		Div(Class("relative items-center w-full px-5 py-16 mx-auto md:px-12 lg:px-16 max-w-7xl lg:py-28"),
+	newHeroSection := Section(Class("rounded-2xl overflow-hidden relative bg-bb-dark"),
+		// Particles canvas — positioned absolutely behind content
+		Div(ID("hero-particles"), Class("absolute inset-0 z-0")),
+		// Hero content overlays on top
+		Div(Class("relative z-10 items-center w-full px-5 py-16 mx-auto md:px-12 lg:px-16 max-w-7xl lg:py-28"),
 			Div(Class("flex w-full mx-auto text-left"),
 				Div(Class("relative inline-flex items-center mx-auto align-middle"),
 					Div(Class("text-center"),
-						Img( // Added logo here
+						Img(
 							Class("block mx-auto mb-6 h-24 w-auto invert"),
 							Src("/static/images/bbscope-logo.svg"),
 							Alt("bbscope.com logo"),
@@ -306,6 +301,49 @@ func MainContent(totalPrograms, totalAssets, platformCount int) g.Node {
 				),
 			),
 		),
+		// tsParticles — interactive particle links background
+		Script(Src("https://cdn.jsdelivr.net/npm/tsparticles-slim@2/tsparticles.slim.bundle.min.js")),
+		Script(g.Raw(`
+			(async function(){
+				if (typeof tsParticles === 'undefined') return;
+				await tsParticles.load("hero-particles", {
+					fullScreen: { enable: false },
+					background: { color: "transparent" },
+					fpsLimit: 60,
+					particles: {
+						number: { value: 60, density: { enable: true, area: 900 } },
+						color: { value: "#06b6d4" },
+						opacity: { value: 0.3 },
+						size: { value: { min: 1, max: 2 } },
+						links: {
+							enable: true,
+							color: "#06b6d4",
+							distance: 150,
+							opacity: 0.15,
+							width: 1
+						},
+						move: {
+							enable: true,
+							speed: 0.8,
+							direction: "none",
+							outModes: { default: "out" }
+						},
+						shape: { type: "circle" }
+					},
+					interactivity: {
+						events: {
+							onHover: { enable: true, mode: "grab" },
+							onClick: { enable: true, mode: "push" }
+						},
+						modes: {
+							grab: { distance: 180, links: { opacity: 0.5 } },
+							push: { quantity: 3 }
+						}
+					},
+					detectRetina: true
+				});
+			})();
+		`)),
 	)
 
 	return Main(Class("container mx-auto mt-10 mb-20 px-4"),
