@@ -62,21 +62,18 @@
       });
   }
 
-  function toggleAIMode() {
-    aiMode = !aiMode;
-    syncAIToggle();
-    fetchPrograms(true);
-  }
-
   function syncAIToggle() {
-    var btn = document.getElementById('ai-toggle-btn');
-    if (!btn) return;
+    var rawBtn = document.getElementById('scope-toggle-raw');
+    var aiBtn = document.getElementById('scope-toggle-ai');
+    if (!rawBtn || !aiBtn) return;
+    var active = 'px-3 py-1.5 text-sm font-medium cursor-pointer transition-all duration-200 bg-cyan-500 text-white';
+    var inactive = 'px-3 py-1.5 text-sm font-medium cursor-pointer transition-all duration-200 bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200';
     if (aiMode) {
-      btn.className = 'ai-toggle-btn px-4 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 bg-cyan-500 text-white shadow-md shadow-cyan-500/20 cursor-pointer flex items-center gap-1.5';
-      btn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>AI Enhanced';
+      rawBtn.className = inactive;
+      aiBtn.className = active + ' flex items-center gap-1.5';
     } else {
-      btn.className = 'ai-toggle-btn px-4 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-700/50 cursor-pointer flex items-center gap-1.5';
-      btn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>Raw';
+      rawBtn.className = active;
+      aiBtn.className = inactive + ' flex items-center gap-1.5';
     }
   }
 
@@ -526,12 +523,25 @@
       });
     }
 
-    // AI toggle
-    var aiToggleBtn = document.getElementById('ai-toggle-btn');
-    if (aiToggleBtn) {
-      aiToggleBtn.addEventListener('click', function (e) {
+    // Data source toggle (Raw / AI Enhanced)
+    var scopeToggleRaw = document.getElementById('scope-toggle-raw');
+    var scopeToggleAI = document.getElementById('scope-toggle-ai');
+    if (scopeToggleRaw) {
+      scopeToggleRaw.addEventListener('click', function (e) {
         e.preventDefault();
-        toggleAIMode();
+        if (!aiMode) return;
+        aiMode = false;
+        syncAIToggle();
+        fetchPrograms(true);
+      });
+    }
+    if (scopeToggleAI) {
+      scopeToggleAI.addEventListener('click', function (e) {
+        e.preventDefault();
+        if (aiMode) return;
+        aiMode = true;
+        syncAIToggle();
+        fetchPrograms(true);
       });
     }
 

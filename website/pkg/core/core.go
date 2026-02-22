@@ -515,12 +515,22 @@ func scopeProgramTypeFilter() g.Node {
 		g.Group(pills),
 		// Spacer
 		Span(Class("mx-2 hidden sm:inline text-zinc-700"), g.Text("|")),
-		// AI toggle button — managed by scope-table.js
-		Span(
+		// Data source toggle — managed by scope-table.js
+		Span(Class("text-sm text-zinc-500 mr-1"), g.Text("Data:")),
+		Div(
 			ID("ai-toggle-btn"),
-			Class("ai-toggle-btn px-4 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-700/50 cursor-pointer flex items-center gap-1.5"),
-			g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>`),
-			g.Text("Raw"),
+			Class("inline-flex rounded-lg border border-zinc-700/50 overflow-hidden"),
+			Span(
+				ID("scope-toggle-raw"),
+				Class("px-3 py-1.5 text-sm font-medium cursor-pointer transition-all duration-200 bg-cyan-500 text-white"),
+				g.Text("Raw"),
+			),
+			Span(
+				ID("scope-toggle-ai"),
+				Class("px-3 py-1.5 text-sm font-medium cursor-pointer transition-all duration-200 flex items-center gap-1.5 bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"),
+				g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>`),
+				g.Text("AI Enhanced"),
+			),
 		),
 	)
 }

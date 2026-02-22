@@ -136,14 +136,23 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 						g.Text("View on "+capitalizedPlatform(program.Platform)),
 						g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>`),
 					),
-					// AI toggle
-					Span(
+					// Data source toggle (Raw / AI Enhanced)
+					Div(
 						ID("detail-ai-toggle"),
-						Class("px-3 py-1 text-xs font-medium rounded-lg transition-all duration-200 bg-zinc-800/50 text-zinc-400 border border-zinc-700/50 cursor-pointer flex items-center gap-1.5"),
+						Class("inline-flex rounded-lg border border-zinc-700/50 overflow-hidden"),
 						g.Attr("data-platform", program.Platform),
 						g.Attr("data-handle", program.Handle),
-						g.Raw(`<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>`),
-						g.Text("Raw"),
+						Span(
+							ID("detail-toggle-raw"),
+							Class("px-3 py-1 text-xs font-medium cursor-pointer transition-all duration-200 bg-cyan-500 text-white"),
+							g.Text("Raw"),
+						),
+						Span(
+							ID("detail-toggle-ai"),
+							Class("px-3 py-1 text-xs font-medium cursor-pointer transition-all duration-200 flex items-center gap-1 bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"),
+							g.Raw(`<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>`),
+							g.Text("AI Enhanced"),
+						),
 					),
 				),
 			),
@@ -217,10 +226,12 @@ func scopeTablesNode(inScope, outOfScope []storage.ProgramTarget) g.Node {
 func programDetailAIToggleScript() g.Node {
 	return Script(g.Raw(`
 (function(){
-  var btn = document.getElementById('detail-ai-toggle');
-  if (!btn) return;
-  var platform = btn.getAttribute('data-platform');
-  var handle = btn.getAttribute('data-handle');
+  var wrapper = document.getElementById('detail-ai-toggle');
+  if (!wrapper) return;
+  var platform = wrapper.getAttribute('data-platform');
+  var handle = wrapper.getAttribute('data-handle');
+  var rawBtn = document.getElementById('detail-toggle-raw');
+  var aiBtn = document.getElementById('detail-toggle-ai');
   var aiMode = false;
   var cache = {};
 
@@ -341,9 +352,19 @@ func programDetailAIToggleScript() g.Node {
     return html;
   }
 
+  function sortByRaw(arr) {
+    return arr.slice().sort(function(a, b) {
+      var ra = (a.target_raw || '').toLowerCase();
+      var rb = (b.target_raw || '').toLowerCase();
+      if (ra < rb) return -1;
+      if (ra > rb) return 1;
+      return 0;
+    });
+  }
+
   function renderScopeTables(data) {
-    var inScope = data.in_scope || [];
-    var outScope = data.out_of_scope || [];
+    var inScope = sortByRaw(data.in_scope || []);
+    var outScope = sortByRaw(data.out_of_scope || []);
     var html = '';
 
     // Update counts
@@ -369,13 +390,18 @@ func programDetailAIToggleScript() g.Node {
     return html;
   }
 
+  var activeClass = 'px-3 py-1 text-xs font-medium cursor-pointer transition-all duration-200 bg-cyan-500 text-white';
+  var inactiveClass = 'px-3 py-1 text-xs font-medium cursor-pointer transition-all duration-200 bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200';
+  var inactiveAIClass = inactiveClass + ' flex items-center gap-1';
+  var activeAIClass = activeClass + ' flex items-center gap-1';
+
   function syncToggle() {
     if (aiMode) {
-      btn.className = 'px-3 py-1 text-xs font-medium rounded-lg transition-all duration-200 bg-cyan-500 text-white shadow-md shadow-cyan-500/20 cursor-pointer flex items-center gap-1.5';
-      btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>AI Enhanced';
+      rawBtn.className = inactiveClass;
+      aiBtn.className = activeAIClass;
     } else {
-      btn.className = 'px-3 py-1 text-xs font-medium rounded-lg transition-all duration-200 bg-zinc-800/50 text-zinc-400 border border-zinc-700/50 cursor-pointer flex items-center gap-1.5';
-      btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>Raw';
+      rawBtn.className = activeClass;
+      aiBtn.className = inactiveAIClass;
     }
   }
 
@@ -393,8 +419,15 @@ func programDetailAIToggleScript() g.Node {
     });
   }
 
-  btn.addEventListener('click', function(){
-    aiMode = !aiMode;
+  rawBtn.addEventListener('click', function(){
+    if (!aiMode) return;
+    aiMode = false;
+    syncToggle();
+    fetchAndRender();
+  });
+  aiBtn.addEventListener('click', function(){
+    if (aiMode) return;
+    aiMode = true;
     syncToggle();
     fetchAndRender();
   });
