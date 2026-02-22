@@ -15,7 +15,7 @@
   var allPrograms = [];       // currently active dataset (AI or raw)
   var cachedAI = null;        // cached AI-enhanced programs
   var cachedRaw = null;       // cached raw programs
-  var aiMode = true;          // true = AI enhanced, false = raw
+  var aiMode = false;          // true = AI enhanced, false = raw
   var container = document.getElementById('scope-table-container');
   var debounceTimer = null;
 

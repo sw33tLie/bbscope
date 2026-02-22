@@ -47,7 +47,7 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targets, err := db.ListProgramTargets(ctx, program.ID, false)
+	targets, err := db.ListProgramTargets(ctx, program.ID, true)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -139,11 +139,11 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 					// AI toggle
 					Span(
 						ID("detail-ai-toggle"),
-						Class("px-3 py-1 text-xs font-medium rounded-lg transition-all duration-200 bg-cyan-500 text-white shadow-md shadow-cyan-500/20 cursor-pointer flex items-center gap-1.5"),
+						Class("px-3 py-1 text-xs font-medium rounded-lg transition-all duration-200 bg-zinc-800/50 text-zinc-400 border border-zinc-700/50 cursor-pointer flex items-center gap-1.5"),
 						g.Attr("data-platform", program.Platform),
 						g.Attr("data-handle", program.Handle),
 						g.Raw(`<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>`),
-						g.Text("AI Enhanced"),
+						g.Text("Raw"),
 					),
 				),
 			),
@@ -221,7 +221,7 @@ func programDetailAIToggleScript() g.Node {
   if (!btn) return;
   var platform = btn.getAttribute('data-platform');
   var handle = btn.getAttribute('data-handle');
-  var aiMode = true;
+  var aiMode = false;
   var cache = {};
 
   function escapeHtml(s) {
@@ -316,6 +316,7 @@ func programDetailAIToggleScript() g.Node {
     var html = '<div class="overflow-x-auto rounded-xl border border-zinc-700/50 mb-6"><table class="min-w-full divide-y divide-zinc-700"><thead class="bg-zinc-800/80"><tr>';
     html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Asset</th>';
     html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-28">Category</th>';
+    html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-24">Bounty</th>';
     if (showLinks) html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Quick Links</th>';
     html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-16"></th>';
     html += '</tr></thead><tbody class="bg-zinc-900/50 divide-y divide-zinc-800">';
@@ -327,6 +328,10 @@ func programDetailAIToggleScript() g.Node {
       html += '<tr class="border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors duration-150' + rowBg + '">';
       html += '<td class="px-4 py-3 text-sm text-zinc-200 break-all">' + assetLink(display, cat) + '</td>';
       html += '<td class="px-4 py-3 text-sm"><span class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md ' + categoryBadgeClass(cat) + '">' + escapeHtml(cat) + '</span></td>';
+      var bountyBadge = t.is_bbp
+        ? '<span class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md bg-emerald-900/50 text-emerald-300 border border-emerald-800">Yes</span>'
+        : '<span class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md bg-red-900/50 text-red-300 border border-red-800">No</span>';
+      html += '<td class="px-4 py-3 text-sm">' + bountyBadge + '</td>';
       if (showLinks) html += '<td class="px-4 py-3 text-sm">' + quickLinksHtml(display, cat) + '</td>';
       var esc = display.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n');
       html += '<td class="px-4 py-3 text-sm"><button type="button" class="p-1.5 text-zinc-500 hover:text-cyan-400 transition-all duration-200 rounded-md hover:bg-zinc-800/50" onclick="navigator.clipboard.writeText(\'' + esc + '\').then(()=>{this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'Copy\',1500)})" title="Copy to clipboard">Copy</button></td>';
@@ -402,6 +407,7 @@ func assetTable(targets []storage.ProgramTarget, showQuickLinks bool) g.Node {
 	headerCols := []g.Node{
 		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider"), g.Text("Asset")),
 		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-28"), g.Text("Category")),
+		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-24"), g.Text("Bounty")),
 	}
 	if showQuickLinks {
 		headerCols = append(headerCols,
@@ -420,12 +426,22 @@ func assetTable(targets []storage.ProgramTarget, showQuickLinks bool) g.Node {
 			rowBg = " bg-zinc-800/20"
 		}
 
+		var bountyBadge g.Node
+		if t.IsBBP {
+			bountyBadge = Span(Class("inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md bg-emerald-900/50 text-emerald-300 border border-emerald-800"), g.Text("Yes"))
+		} else {
+			bountyBadge = Span(Class("inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md bg-red-900/50 text-red-300 border border-red-800"), g.Text("No"))
+		}
+
 		cols := []g.Node{
 			Td(Class("px-4 py-3 text-sm text-zinc-200 break-all"),
 				assetDisplay(t),
 			),
 			Td(Class("px-4 py-3 text-sm"),
 				categoryBadge(category),
+			),
+			Td(Class("px-4 py-3 text-sm"),
+				bountyBadge,
 			),
 		}
 		if showQuickLinks {

@@ -336,6 +336,7 @@ Baseline cleanup rules
 - Preserve http(s) schemes plus any path/query fragments for real URLs. Do NOT strip protocol, path, or query parameters from URLs—keep them exactly as provided (after trimming whitespace) unless the text actually represents a wildcard.
 - Strip obvious regex artifacts (e.g., "\d+", "(?i)") and remove trailing dots.
 - Pure descriptive text with no actionable target should be returned verbatim (same category).
+- If you see an ASN - always write it in this format: ASN:<number>. Example: "ASN:AS62306"
 
 Wildcard handling (critical)
 - Any target that implies a wildcard (starts with "*.", ends with ".*", or contains wildcard noise) must be categorized as "wildcard".
