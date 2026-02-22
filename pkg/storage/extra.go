@@ -489,3 +489,20 @@ func (d *DB) GetAssetCountsByCategory(ctx context.Context) (map[string]int, erro
 	}
 	return counts, rows.Err()
 }
+
+// TargetCounts holds raw and AI-enhanced target row counts.
+type TargetCounts struct {
+	RawCount int
+	AICount  int
+}
+
+// GetTargetCounts returns the total number of rows in targets_raw and targets_ai_enhanced.
+func (d *DB) GetTargetCounts(ctx context.Context) (TargetCounts, error) {
+	var tc TargetCounts
+	err := d.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM targets_raw`).Scan(&tc.RawCount)
+	if err != nil {
+		return tc, err
+	}
+	err = d.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM targets_ai_enhanced`).Scan(&tc.AICount)
+	return tc, err
+}

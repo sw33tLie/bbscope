@@ -1,7 +1,9 @@
 package core
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -57,6 +59,12 @@ func debugContent() g.Node {
 	uptime := time.Since(serverStartTime).Round(time.Second)
 	uptimeStr := formatDuration(uptime)
 
+	// Target counts
+	tc, err := db.GetTargetCounts(context.Background())
+	if err != nil {
+		log.Printf("Debug: Failed to get target counts: %v", err)
+	}
+
 	return Main(Class("container mx-auto mt-10 mb-20 px-4 max-w-4xl"),
 		H1(Class("text-2xl md:text-3xl font-bold text-white mb-6"), g.Text("Debug")),
 
@@ -73,6 +81,8 @@ func debugContent() g.Node {
 						Span(Class("inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-700 text-zinc-400"), g.Text("Disabled")),
 					),
 				),
+				Div(g.Text(fmt.Sprintf("Targets (raw): %d", tc.RawCount))),
+				Div(g.Text(fmt.Sprintf("Targets (AI enhanced): %d", tc.AICount))),
 			),
 		),
 
