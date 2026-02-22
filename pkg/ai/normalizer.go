@@ -347,6 +347,7 @@ Scope intent classification (critical)
 - If the text contains exclusion phrases ("OUT OF SCOPE", "OOS", "not in scope", "excluded", "test-only", etc.), force "in_scope": false regardless of original flag.
 - If the text clearly states inclusion ("in scope", "eligible", "rewarded"), set "in_scope": true.
 - If unclear, omit the field (let it default).
+- If a description says 3rd-party subdomains are excluded from the scope of a wildcard, still consider it a wildcard and in-scope.
 
 Category normalization
 - Map incoming categories to the allowed unified set. If the cleaned target obviously belongs to a different category, override it.
