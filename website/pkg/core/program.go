@@ -352,19 +352,9 @@ func programDetailAIToggleScript() g.Node {
     return html;
   }
 
-  function sortByRaw(arr) {
-    return arr.slice().sort(function(a, b) {
-      var ra = (a.target_raw || '').toLowerCase();
-      var rb = (b.target_raw || '').toLowerCase();
-      if (ra < rb) return -1;
-      if (ra > rb) return 1;
-      return 0;
-    });
-  }
-
   function renderScopeTables(data) {
-    var inScope = sortByRaw(data.in_scope || []);
-    var outScope = sortByRaw(data.out_of_scope || []);
+    var inScope = data.in_scope || [];
+    var outScope = data.out_of_scope || [];
     var html = '';
 
     // Update counts
