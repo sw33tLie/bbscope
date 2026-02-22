@@ -643,8 +643,8 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 			INSERT INTO targets_ai_enhanced(target_id, target_ai_normalized, category, in_scope, first_seen_at, last_seen_at)
 			VALUES($1,$2,$3,$4,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
 			ON CONFLICT(target_id, target_ai_normalized) DO UPDATE SET
-				category = COALESCE(excluded.category, category),
-				in_scope = COALESCE(excluded.in_scope, in_scope),
+				category = COALESCE(excluded.category, targets_ai_enhanced.category),
+				in_scope = COALESCE(excluded.in_scope, targets_ai_enhanced.in_scope),
 				last_seen_at = CURRENT_TIMESTAMP
 			RETURNING id
 		`)
