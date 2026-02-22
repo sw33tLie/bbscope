@@ -150,6 +150,8 @@ func PageLayout(title, description string, navbar g.Node, content g.Node, footer
 					.table-fixed { table-layout: fixed; }
 					.prose { --tw-prose-body: #d4d4d8; --tw-prose-headings: #e4e4e7; --tw-prose-links: #22d3ee; --tw-prose-bold: #e4e4e7; --tw-prose-code: #e4e4e7; --tw-prose-pre-bg: #18181b; }
 					#hero-particles canvas { border-radius: 1rem; }
+					.hero-title { text-shadow: 0 0 40px rgba(6, 182, 212, 0.15); }
+					.hero-accent { text-shadow: 0 0 30px rgba(6, 182, 212, 0.4), 0 0 60px rgba(6, 182, 212, 0.15); }
 				`)),
 			),
 			Body(Class("bg-zinc-950 font-sans antialiased leading-normal tracking-tight flex flex-col min-h-screen text-zinc-300"),
@@ -280,9 +282,9 @@ func MainContent(totalPrograms, totalAssets, platformCount int) g.Node {
 							Src("/static/images/bbscope-logo.svg"),
 							Alt("bbscope.com logo"),
 						),
-						H1(Class("max-w-5xl text-3xl font-extrabold leading-tight tracking-tight text-white md:text-5xl lg:text-6xl lg:max-w-7xl"),
+						H1(Class("max-w-5xl text-3xl font-extrabold leading-tight tracking-tight text-white md:text-5xl lg:text-6xl lg:max-w-7xl hero-title"),
 							g.Text("All Bug Bounty "),
-							Span(Class("text-cyan-400"), g.Text("Scope")),
+							Span(Class("text-cyan-400 hero-accent"), g.Text("Scope")),
 							g.Text(" in One Place"),
 						),
 						P(Class("max-w-2xl mx-auto mt-6 text-base md:text-lg leading-relaxed text-zinc-400"), g.Raw("This website collects public bug bounty targets fetched with <a href='https://github.com/sw33tLie/bbscope' class='text-cyan-400 hover:text-cyan-300 underline'>bbscope cli</a>.<br>We have a few extra tools too!")),
