@@ -67,7 +67,7 @@
     var aiBtn = document.getElementById('scope-toggle-ai');
     if (!rawBtn || !aiBtn) return;
     var active = 'px-3 py-1.5 text-sm font-medium cursor-pointer transition-all duration-200 bg-cyan-500 text-white';
-    var inactive = 'px-3 py-1.5 text-sm font-medium cursor-pointer transition-all duration-200 bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200';
+    var inactive = 'px-3 py-1.5 text-sm font-medium cursor-pointer transition-all duration-200 text-zinc-400 hover:text-zinc-200';
     if (aiMode) {
       rawBtn.className = inactive;
       aiBtn.className = active + ' flex items-center gap-1.5';
