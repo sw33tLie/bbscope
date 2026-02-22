@@ -409,6 +409,15 @@ func programDetailAIToggleScript() g.Node {
     });
   }
 
+  // Prefetch the other mode's data so toggling is instant
+  (function prefetch() {
+    var otherUrl = '/api/v1/programs/' + encodeURIComponent(platform) + '/' + encodeURIComponent(handle);
+    if (aiMode) otherUrl += '?raw=true';
+    fetch(otherUrl).then(function(r){ return r.json(); }).then(function(data){
+      cache[aiMode ? 'raw' : 'ai'] = data;
+    });
+  })();
+
   rawBtn.addEventListener('click', function(){
     if (!aiMode) return;
     aiMode = false;
