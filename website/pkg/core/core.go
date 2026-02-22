@@ -115,7 +115,7 @@ func PageLayout(title, description string, navbar g.Node, content g.Node, footer
 				TitleEl(g.Text(title)), // Using TitleEl to avoid conflict
 				Link(Rel("preconnect"), Href("https://fonts.googleapis.com")),
 				Link(Rel("preconnect"), Href("https://fonts.gstatic.com"), g.Attr("crossorigin", "")),
-				Link(Rel("stylesheet"), Href("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap")),
+				Link(Rel("stylesheet"), Href("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@700;800&display=swap")),
 				Script(Src("https://cdn.tailwindcss.com")),
 				Script(Src("https://unpkg.com/htmx.org@2.0.4")),
 				Script(g.Raw(`tailwind.config={theme:{extend:{fontFamily:{sans:['Inter','ui-sans-serif','system-ui','sans-serif']},colors:{'bb-dark':'#18181b','bb-blue':'#3b82f6','bb-accent':'#06b6d4','bb-surface':'#27272a'}}}}`)),
@@ -263,7 +263,7 @@ func Navbar(currentPath string) g.Node {
 // MainContent component for the landing page
 func statCounter(value int, label string) g.Node {
 	return Div(Class("text-center px-6"),
-		Div(Class("text-3xl md:text-4xl font-extrabold text-cyan-400 tabular-nums"), g.Text(fmt.Sprintf("%d", value))),
+		Div(Class("text-3xl md:text-4xl font-extrabold text-cyan-400 tabular-nums"), StyleAttr("font-family:'JetBrains Mono',monospace"), g.Text(fmt.Sprintf("%d", value))),
 		Div(Class("text-xs uppercase tracking-wider text-zinc-500 mt-2 font-medium"), g.Text(label)),
 	)
 }
@@ -282,7 +282,7 @@ func MainContent(totalPrograms, totalAssets, platformCount int) g.Node {
 							Src("/static/images/bbscope-logo.svg"),
 							Alt("bbscope.com logo"),
 						),
-						H1(Class("max-w-5xl text-3xl font-extrabold leading-tight tracking-tight text-white md:text-5xl lg:text-6xl lg:max-w-7xl hero-title"),
+						H1(Class("max-w-5xl text-3xl font-extrabold leading-tight text-white md:text-5xl lg:text-6xl lg:max-w-7xl hero-title"), StyleAttr("letter-spacing:-0.02em"),
 							g.Text("All Bug Bounty "),
 							Span(Class("text-cyan-400 hero-accent"), g.Text("Scope")),
 							g.Text(" in One Place"),
