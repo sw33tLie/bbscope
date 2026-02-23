@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -306,12 +307,20 @@ func programDetailAIToggleScript() g.Node {
       links.push({l:'Wayback', u:'https://web.archive.org/web/*/' + target, d:'Wayback Machine archives'});
       links.push({l:'DNSdumpster', u:'https://dnsdumpster.com/?search=' + encodeURIComponent(domain), d:'DNS recon and subdomain discovery'});
       links.push({l:'VirusTotal', u:'https://www.virustotal.com/gui/domain/' + encodeURIComponent(domain), d:'VirusTotal domain analysis'});
+      links.push({l:'AlienVault OTX', u:'https://otx.alienvault.com/indicator/domain/' + encodeURIComponent(domain), d:'AlienVault OTX threat intelligence'});
+      links.push({l:'GitHub', u:'https://github.com/search?q=' + encodeURIComponent(domain) + '&type=code', d:'GitHub code search'});
+      links.push({l:'Fofa', u:'https://en.fofa.info/result?qbase64=' + btoa('domain="' + domain + '"'), d:'Fofa asset search'});
     } else if (c === 'cidr') {
       links.push({l:'Shodan', u:'https://www.shodan.io/search?query=net:' + encodeURIComponent(target), d:'Shodan network search'});
       links.push({l:'Censys', u:'https://search.censys.io/hosts?q=' + encodeURIComponent(target), d:'Censys host search'});
+      links.push({l:'BGP.tools', u:'https://bgp.tools/prefix/' + encodeURIComponent(target), d:'BGP prefix information'});
     } else if (c === 'android') {
       var pkg = extractPackageName(target);
-      if (pkg) links.push({l:'Play Store', u:'https://play.google.com/store/apps/details?id=' + encodeURIComponent(pkg), d:'Google Play Store listing'});
+      if (pkg) {
+        links.push({l:'Play Store', u:'https://play.google.com/store/apps/details?id=' + encodeURIComponent(pkg), d:'Google Play Store listing'});
+        links.push({l:'APKPure', u:'https://apkpure.com/search?q=' + encodeURIComponent(pkg), d:'APKPure app download'});
+        links.push({l:'APKMirror', u:'https://www.apkmirror.com/?post_type=app_release&searchtype=apk&s=' + encodeURIComponent(pkg), d:'APKMirror app download'});
+      }
     }
     if (links.length === 0) return '<span class="text-zinc-500 text-xs">-</span>';
     var html = '<div class="flex flex-wrap gap-1">';
@@ -632,17 +641,23 @@ func generateQuickLinks(target, category string) []QuickLink {
 			{Label: "Wayback", URL: fmt.Sprintf("https://web.archive.org/web/*/%s", target), Description: "Wayback Machine archives"},
 			{Label: "DNSdumpster", URL: fmt.Sprintf("https://dnsdumpster.com/?search=%s", url.QueryEscape(domain)), Description: "DNS recon and subdomain discovery"},
 			{Label: "VirusTotal", URL: fmt.Sprintf("https://www.virustotal.com/gui/domain/%s", url.QueryEscape(domain)), Description: "VirusTotal domain analysis"},
+			{Label: "AlienVault OTX", URL: fmt.Sprintf("https://otx.alienvault.com/indicator/domain/%s", url.QueryEscape(domain)), Description: "AlienVault OTX threat intelligence"},
+			{Label: "GitHub", URL: fmt.Sprintf("https://github.com/search?q=%s&type=code", url.QueryEscape(domain)), Description: "GitHub code search"},
+			{Label: "Fofa", URL: fmt.Sprintf("https://en.fofa.info/result?qbase64=%s", base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf(`domain="%s"`, domain)))), Description: "Fofa asset search"},
 		}
 	case "cidr":
 		return []QuickLink{
 			{Label: "Shodan", URL: fmt.Sprintf("https://www.shodan.io/search?query=net:%s", url.QueryEscape(target)), Description: "Shodan network search"},
 			{Label: "Censys", URL: fmt.Sprintf("https://search.censys.io/hosts?q=%s", url.QueryEscape(target)), Description: "Censys host search"},
+			{Label: "BGP.tools", URL: fmt.Sprintf("https://bgp.tools/prefix/%s", url.QueryEscape(target)), Description: "BGP prefix information"},
 		}
 	case "android":
 		pkg := extractPackageName(target)
 		if pkg != "" {
 			return []QuickLink{
 				{Label: "Play Store", URL: fmt.Sprintf("https://play.google.com/store/apps/details?id=%s", url.QueryEscape(pkg)), Description: "Google Play Store listing"},
+				{Label: "APKPure", URL: fmt.Sprintf("https://apkpure.com/search?q=%s", url.QueryEscape(pkg)), Description: "APKPure app download"},
+				{Label: "APKMirror", URL: fmt.Sprintf("https://www.apkmirror.com/?post_type=app_release&searchtype=apk&s=%s", url.QueryEscape(pkg)), Description: "APKMirror app download"},
 			}
 		}
 	case "ios":
