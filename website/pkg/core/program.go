@@ -313,7 +313,7 @@ func programDetailAIToggleScript() g.Node {
     } else if (c === 'cidr') {
       links.push({l:'Shodan', u:'https://www.shodan.io/search?query=net:' + encodeURIComponent(target), d:'Shodan network search'});
       links.push({l:'Censys', u:'https://search.censys.io/hosts?q=' + encodeURIComponent(target), d:'Censys host search'});
-      links.push({l:'BGP.tools', u:'https://bgp.tools/prefix/' + encodeURIComponent(target), d:'BGP prefix information'});
+      links.push({l:'BGP HE', u:'https://bgp.he.net/net/' + target, d:'Hurricane Electric BGP prefix info'});
     } else if (c === 'android') {
       var pkg = extractPackageName(target);
       if (pkg) {
@@ -649,7 +649,7 @@ func generateQuickLinks(target, category string) []QuickLink {
 		return []QuickLink{
 			{Label: "Shodan", URL: fmt.Sprintf("https://www.shodan.io/search?query=net:%s", url.QueryEscape(target)), Description: "Shodan network search"},
 			{Label: "Censys", URL: fmt.Sprintf("https://search.censys.io/hosts?q=%s", url.QueryEscape(target)), Description: "Censys host search"},
-			{Label: "BGP.tools", URL: fmt.Sprintf("https://bgp.tools/prefix/%s", url.QueryEscape(target)), Description: "BGP prefix information"},
+			{Label: "BGP HE", URL: fmt.Sprintf("https://bgp.he.net/net/%s", target), Description: "Hurricane Electric BGP prefix info"},
 		}
 	case "android":
 		pkg := extractPackageName(target)
