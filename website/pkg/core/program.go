@@ -303,7 +303,7 @@ func programDetailAIToggleScript() g.Node {
       links.push({l:'Google', u:'https://www.google.com/search?q=site:' + encodeURIComponent(domain), d:'Google dorking - site search'});
       links.push({l:'Shodan', u:'https://www.shodan.io/search?query=hostname:' + encodeURIComponent(domain), d:'Shodan host search'});
       links.push({l:'SecurityTrails', u:'https://securitytrails.com/domain/' + encodeURIComponent(domain) + '/dns', d:'DNS and subdomain history'});
-      links.push({l:'Wayback', u:'https://web.archive.org/web/*/' + encodeURIComponent(target), d:'Wayback Machine archives'});
+      links.push({l:'Wayback', u:'https://web.archive.org/web/*/' + target, d:'Wayback Machine archives'});
       links.push({l:'DNSdumpster', u:'https://dnsdumpster.com/?search=' + encodeURIComponent(domain), d:'DNS recon and subdomain discovery'});
       links.push({l:'VirusTotal', u:'https://www.virustotal.com/gui/domain/' + encodeURIComponent(domain), d:'VirusTotal domain analysis'});
     } else if (c === 'cidr') {
@@ -629,7 +629,7 @@ func generateQuickLinks(target, category string) []QuickLink {
 			{Label: "Google", URL: fmt.Sprintf("https://www.google.com/search?q=site:%s", url.QueryEscape(domain)), Description: "Google dorking - site search"},
 			{Label: "Shodan", URL: fmt.Sprintf("https://www.shodan.io/search?query=hostname:%s", url.QueryEscape(domain)), Description: "Shodan host search"},
 			{Label: "SecurityTrails", URL: fmt.Sprintf("https://securitytrails.com/domain/%s/dns", url.QueryEscape(domain)), Description: "DNS and subdomain history"},
-			{Label: "Wayback", URL: fmt.Sprintf("https://web.archive.org/web/*/%s", url.QueryEscape(target)), Description: "Wayback Machine archives"},
+			{Label: "Wayback", URL: fmt.Sprintf("https://web.archive.org/web/*/%s", target), Description: "Wayback Machine archives"},
 			{Label: "DNSdumpster", URL: fmt.Sprintf("https://dnsdumpster.com/?search=%s", url.QueryEscape(domain)), Description: "DNS recon and subdomain discovery"},
 			{Label: "VirusTotal", URL: fmt.Sprintf("https://www.virustotal.com/gui/domain/%s", url.QueryEscape(domain)), Description: "VirusTotal domain analysis"},
 		}
