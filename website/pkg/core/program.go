@@ -71,8 +71,7 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 	programURL := strings.ReplaceAll(program.URL, "api.yeswehack.com", "yeswehack.com")
 
 	title := fmt.Sprintf("%s on %s - Bug Bounty Scope | bbscope.com", program.Handle, capitalizedPlatform(program.Platform))
-	description := fmt.Sprintf("Bug bounty scope for %s on %s. %d in-scope assets, %d out-of-scope assets. View reconnaissance quick links and target details.",
-		program.Handle, capitalizedPlatform(program.Platform), inScopeCount, oosCount)
+	description := buildProgramDescription(program, targets, inScopeCount, isBBP)
 	canonicalURL := fmt.Sprintf("/program/%s/%s", url.PathEscape(strings.ToLower(program.Platform)), url.PathEscape(program.Handle))
 
 	PageLayout(
@@ -621,6 +620,51 @@ func quickLinksForAsset(target, category string) g.Node {
 		)
 	}
 	return Div(Class("flex flex-wrap gap-1"), g.Group(nodes))
+}
+
+// buildProgramDescription builds a unique meta description including actual in-scope targets.
+func buildProgramDescription(program *storage.Program, targets []storage.ProgramTarget, inScopeCount int, isBBP bool) string {
+	programType := "VDP"
+	if isBBP {
+		programType = "BBP"
+	}
+
+	// Collect in-scope target names (prefer domains/wildcards over long descriptions)
+	var assetNames []string
+	for _, t := range targets {
+		if !t.InScope {
+			continue
+		}
+		name := strings.TrimSpace(t.TargetRaw)
+		if len(name) > 60 {
+			continue // skip long descriptive text assets
+		}
+		assetNames = append(assetNames, name)
+		if len(assetNames) >= 5 {
+			break
+		}
+	}
+
+	base := fmt.Sprintf("%s on %s (%s, %d in-scope targets).",
+		program.Handle, capitalizedPlatform(program.Platform), programType, inScopeCount)
+
+	if len(assetNames) == 0 {
+		return base
+	}
+
+	assets := strings.Join(assetNames, ", ")
+	desc := fmt.Sprintf("%s In-scope: %s", base, assets)
+	if len(assetNames) < inScopeCount {
+		desc += ", ..."
+	}
+	desc += "."
+
+	// Google truncates at ~155 chars; keep it under that
+	if len(desc) > 155 {
+		desc = desc[:152] + "..."
+	}
+
+	return desc
 }
 
 // generateQuickLinks produces quick links for a given target and category.
