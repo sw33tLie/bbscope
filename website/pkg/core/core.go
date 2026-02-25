@@ -684,6 +684,8 @@ func robotsTxtHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	fmt.Fprintln(w, "User-agent: *")
 	fmt.Fprintln(w, "Allow: /")
+	fmt.Fprintln(w, "Disallow: /scope?")
+	fmt.Fprintln(w, "Disallow: /updates?")
 	fmt.Fprintf(w, "Sitemap: https://%s/sitemap.xml\n", serverDomain)
 }
 
