@@ -172,19 +172,25 @@ func runPollCycle(aiNormalizer ai.Normalizer) {
 	ctx := context.Background()
 	opts := platforms.PollOptions{Categories: "all"}
 
+	var wg sync.WaitGroup
 	for _, p := range pollers {
-		pStart := time.Now()
-		err := pollPlatform(ctx, p, opts, aiNormalizer)
-		setPollerStatus(&PollerStatus{
-			Platform:  p.Name(),
-			StartedAt: pStart,
-			Duration:  time.Since(pStart),
-			Success:   err == nil,
-		})
-		if err != nil {
-			log.Printf("Poller: Error polling %s: %v", p.Name(), err)
-		}
+		wg.Add(1)
+		go func(p platforms.PlatformPoller) {
+			defer wg.Done()
+			pStart := time.Now()
+			err := pollPlatform(ctx, p, opts, aiNormalizer)
+			setPollerStatus(&PollerStatus{
+				Platform:  p.Name(),
+				StartedAt: pStart,
+				Duration:  time.Since(pStart),
+				Success:   err == nil,
+			})
+			if err != nil {
+				log.Printf("Poller: Error polling %s: %v", p.Name(), err)
+			}
+		}(p)
 	}
+	wg.Wait()
 
 	invalidateProgramsCache()
 	log.Printf("Poll cycle completed in %s", time.Since(start).Round(time.Second))
