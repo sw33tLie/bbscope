@@ -461,12 +461,12 @@ func (d *DB) ListAllProgramSlugs(ctx context.Context) ([]ProgramSlug, error) {
 // GetAssetCountsByCategory returns in-scope asset counts grouped by category.
 // bbpFilter can be "bbp", "vdp", or "" for all.
 func (d *DB) GetAssetCountsByCategory(ctx context.Context, bbpFilter string) (map[string]int, error) {
-	bbpClause := ""
+	programFilter := ""
 	switch bbpFilter {
 	case "bbp":
-		bbpClause = "AND t.is_bbp = 1"
+		programFilter = "AND EXISTS (SELECT 1 FROM targets_raw t2 WHERE t2.program_id = p.id AND t2.is_bbp = 1)"
 	case "vdp":
-		bbpClause = "AND t.is_bbp = 0"
+		programFilter = "AND NOT EXISTS (SELECT 1 FROM targets_raw t2 WHERE t2.program_id = p.id AND t2.is_bbp = 1)"
 	}
 
 	query := fmt.Sprintf(`
@@ -480,7 +480,7 @@ func (d *DB) GetAssetCountsByCategory(ctx context.Context, bbpFilter string) (ma
 		%s
 		GROUP BY cat
 		ORDER BY cnt DESC
-	`, bbpClause)
+	`, programFilter)
 	rows, err := d.sql.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err

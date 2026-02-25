@@ -1304,13 +1304,14 @@ type PlatformStats struct {
 }
 
 // GetStats returns platform statistics. bbpFilter can be "bbp", "vdp", or "" for all.
+// A program is considered BBP if any of its targets has is_bbp = 1, otherwise VDP.
 func (d *DB) GetStats(ctx context.Context, bbpFilter string) ([]PlatformStats, error) {
-	bbpClause := ""
+	programFilter := ""
 	switch bbpFilter {
 	case "bbp":
-		bbpClause = "AND t.is_bbp = 1"
+		programFilter = "AND EXISTS (SELECT 1 FROM targets_raw t2 WHERE t2.program_id = p.id AND t2.is_bbp = 1)"
 	case "vdp":
-		bbpClause = "AND t.is_bbp = 0"
+		programFilter = "AND NOT EXISTS (SELECT 1 FROM targets_raw t2 WHERE t2.program_id = p.id AND t2.is_bbp = 1)"
 	}
 
 	query := fmt.Sprintf(`
@@ -1318,7 +1319,6 @@ func (d *DB) GetStats(ctx context.Context, bbpFilter string) ([]PlatformStats, e
 			SELECT t.program_id, COALESCE(a.in_scope, t.in_scope) AS in_scope
 			FROM targets_raw t
 			LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
-			WHERE 1=1 %s
 		)
 		SELECT
 			p.platform,
@@ -1329,11 +1329,12 @@ func (d *DB) GetStats(ctx context.Context, bbpFilter string) ([]PlatformStats, e
 			programs p JOIN effective_targets et ON p.id = et.program_id
 		WHERE
 			p.is_ignored = 0 AND p.disabled = 0
+			%s
 		GROUP BY
 			p.platform
 		ORDER BY
 			p.platform;
-	`, bbpClause)
+	`, programFilter)
 	rows, err := d.sql.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
