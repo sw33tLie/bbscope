@@ -9,13 +9,19 @@ import (
 )
 
 type Poller struct {
-	token    string
-	bbpSet   map[string]bool // tracks which handles are bug_bounty programs
+	token      string
+	publicOnly bool
+	bbpSet     map[string]bool // tracks which handles are bug_bounty programs
 }
 
 // NewPollerFromToken uses an existing _bugcrowd_session token.
 func NewPollerFromToken(token string) *Poller {
 	return &Poller{token: token, bbpSet: map[string]bool{}}
+}
+
+// NewPollerPublicOnly creates a poller that fetches only public programs without authentication.
+func NewPollerPublicOnly() *Poller {
+	return &Poller{publicOnly: true, bbpSet: map[string]bool{}}
 }
 
 // NewPollerWithLogin logs in using email/password and OTP secret to obtain a session token.
@@ -30,6 +36,9 @@ func NewPollerWithLogin(email, password, otpSecret, proxy string) (*Poller, erro
 func (p *Poller) Name() string { return "bc" }
 
 func (p *Poller) Authenticate(ctx context.Context, cfg platforms.AuthConfig) error {
+	if p.publicOnly {
+		return nil
+	}
 	if cfg.Token != "" {
 		p.token = cfg.Token
 		return nil

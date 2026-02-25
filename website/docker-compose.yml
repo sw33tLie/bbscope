@@ -29,6 +29,7 @@ services:
       BC_EMAIL: ${BC_EMAIL:-}
       BC_PASSWORD: ${BC_PASSWORD:-}
       BC_OTP: ${BC_OTP:-}
+      BC_PUBLIC_ONLY: ${BC_PUBLIC_ONLY:-}
       IT_TOKEN: ${IT_TOKEN:-}
       YWH_EMAIL: ${YWH_EMAIL:-}
       YWH_PASSWORD: ${YWH_PASSWORD:-}

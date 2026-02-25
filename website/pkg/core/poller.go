@@ -104,7 +104,11 @@ func buildPollers() []platforms.PlatformPoller {
 	bcEmail := os.Getenv("BC_EMAIL")
 	bcPass := os.Getenv("BC_PASSWORD")
 	bcOTP := os.Getenv("BC_OTP")
-	if bcEmail != "" && bcPass != "" && bcOTP != "" {
+	bcPublicOnly := os.Getenv("BC_PUBLIC_ONLY")
+	if bcPublicOnly != "" {
+		pollers = append(pollers, bcplatform.NewPollerPublicOnly())
+		log.Println("Poller: Bugcrowd public-only mode (no auth)")
+	} else if bcEmail != "" && bcPass != "" && bcOTP != "" {
 		bcPoller := &bcplatform.Poller{}
 		authCfg := platforms.AuthConfig{Email: bcEmail, Password: bcPass, OtpSecret: bcOTP}
 		if err := bcPoller.Authenticate(ctx, authCfg); err != nil {
@@ -114,7 +118,7 @@ func buildPollers() []platforms.PlatformPoller {
 			pollers = append(pollers, bcPoller)
 		}
 	} else {
-		log.Println("Poller: Skipping Bugcrowd (BC_EMAIL/BC_PASSWORD/BC_OTP not set)")
+		log.Println("Poller: Skipping Bugcrowd (BC_EMAIL/BC_PASSWORD/BC_OTP not set, BC_PUBLIC_ONLY not set)")
 		setPollerStatus(&PollerStatus{Platform: "bc", StartedAt: time.Now(), Skipped: true})
 	}
 

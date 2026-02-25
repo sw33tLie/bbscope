@@ -14,6 +14,7 @@ var pollBcCmd = &cobra.Command{
 	Use:   "bc",
 	Short: "Poll Bugcrowd programs",
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		publicOnly, _ := cmd.Flags().GetBool("public-only")
 		token, _ := cmd.Flags().GetString("token") // Token is CLI-only, not from config
 		email := viper.GetString("bugcrowd.email")
 		password := viper.GetString("bugcrowd.password")
@@ -23,15 +24,19 @@ var pollBcCmd = &cobra.Command{
 			whttp.SetupProxy(proxy)
 		}
 
-		// Validate auth: require either token OR (email+password+otp-secret)
-		if token == "" && (email == "" || password == "" || otpSecret == "") {
-			utils.Log.Error("bugcrowd requires either token or email+password+otp-secret.")
-			return nil
-		}
-
-		poller := &bcplatform.Poller{}
-		if err := poller.Authenticate(cmd.Context(), platforms.AuthConfig{Token: token, Email: email, Password: password, OtpSecret: otpSecret, Proxy: proxy}); err != nil {
-			return err
+		var poller *bcplatform.Poller
+		if publicOnly {
+			poller = bcplatform.NewPollerPublicOnly()
+		} else {
+			// Validate auth: require either token OR (email+password+otp-secret)
+			if token == "" && (email == "" || password == "" || otpSecret == "") {
+				utils.Log.Error("bugcrowd requires either token, email+password+otp-secret, or --public-only.")
+				return nil
+			}
+			poller = &bcplatform.Poller{}
+			if err := poller.Authenticate(cmd.Context(), platforms.AuthConfig{Token: token, Email: email, Password: password, OtpSecret: otpSecret, Proxy: proxy}); err != nil {
+				return err
+			}
 		}
 		return runPollWithPollers(cmd, []platforms.PlatformPoller{poller})
 	},
@@ -39,6 +44,7 @@ var pollBcCmd = &cobra.Command{
 
 func init() {
 	pollCmd.AddCommand(pollBcCmd)
+	pollBcCmd.Flags().BoolP("public-only", "", false, "Fetch only public programs without authentication")
 	pollBcCmd.Flags().StringP("token", "t", "", "Bugcrowd _crowdcontrol_session_key cookie value")
 	pollBcCmd.Flags().StringP("email", "E", "", "Bugcrowd login email")
 	pollBcCmd.Flags().StringP("password", "P", "", "Bugcrowd login password")
