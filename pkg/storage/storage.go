@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS targets_raw (
 	UNIQUE(program_id, category, target)
 );
 CREATE INDEX IF NOT EXISTS idx_targets_raw_program_id ON targets_raw(program_id);
+CREATE INDEX IF NOT EXISTS idx_targets_raw_program_bbp ON targets_raw(program_id, is_bbp);
 CREATE TABLE IF NOT EXISTS targets_ai_enhanced (
 	id                   SERIAL PRIMARY KEY,
 	target_id            INTEGER NOT NULL,
