@@ -637,7 +637,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 	totalPrograms, totalAssets, platformCount := 0, 0, 0
-	stats, err := db.GetStats(ctx)
+	stats, err := db.GetStats(ctx, "")
 	if err == nil {
 		platformCount = len(stats)
 		for _, s := range stats {

@@ -1303,12 +1303,22 @@ type PlatformStats struct {
 	OutOfScopeCount int
 }
 
-func (d *DB) GetStats(ctx context.Context) ([]PlatformStats, error) {
-	query := `
+// GetStats returns platform statistics. bbpFilter can be "bbp", "vdp", or "" for all.
+func (d *DB) GetStats(ctx context.Context, bbpFilter string) ([]PlatformStats, error) {
+	bbpClause := ""
+	switch bbpFilter {
+	case "bbp":
+		bbpClause = "AND t.is_bbp = 1"
+	case "vdp":
+		bbpClause = "AND t.is_bbp = 0"
+	}
+
+	query := fmt.Sprintf(`
 		WITH effective_targets AS (
 			SELECT t.program_id, COALESCE(a.in_scope, t.in_scope) AS in_scope
 			FROM targets_raw t
 			LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
+			WHERE 1=1 %s
 		)
 		SELECT
 			p.platform,
@@ -1323,7 +1333,7 @@ func (d *DB) GetStats(ctx context.Context) ([]PlatformStats, error) {
 			p.platform
 		ORDER BY
 			p.platform;
-	`
+	`, bbpClause)
 	rows, err := d.sql.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err

@@ -21,12 +21,45 @@ func statsCard(label, value, valueColor string) g.Node {
 	)
 }
 
+// statsFilterTabs renders the All / BBP / VDP toggle for the stats page.
+func statsFilterTabs(currentFilter string) g.Node {
+	type tab struct {
+		label  string
+		filter string
+	}
+	tabs := []tab{
+		{"All", ""},
+		{"BBP", "bbp"},
+		{"VDP", "vdp"},
+	}
+
+	var items []g.Node
+	for _, t := range tabs {
+		href := "/stats"
+		if t.filter != "" {
+			href += "?filter=" + t.filter
+		}
+		classes := "px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 "
+		if t.filter == currentFilter {
+			classes += "bg-cyan-600 text-white shadow-md shadow-cyan-500/20"
+		} else {
+			classes += "bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-700/50"
+		}
+		items = append(items, A(Href(href), Class(classes), g.Text(t.label)))
+	}
+
+	return Div(Class("flex gap-2 mb-8"),
+		g.Group(items),
+	)
+}
+
 // StatsContent component for the /stats page
 func StatsContent(platformCounts map[string]int, statsErr error,
-	assetCounts map[string]int, assetErr error) g.Node {
+	assetCounts map[string]int, assetErr error, currentFilter string) g.Node {
 
 	content := []g.Node{
 		H1(Class("text-2xl md:text-3xl font-bold text-white mb-6"), g.Text("Program Statistics")),
+		statsFilterTabs(currentFilter),
 	}
 
 	if statsErr != nil {
@@ -249,12 +282,18 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Read filter: "", "bbp", or "vdp"
+	bbpFilter := r.URL.Query().Get("filter")
+	if bbpFilter != "bbp" && bbpFilter != "vdp" {
+		bbpFilter = ""
+	}
+
 	ctx := context.Background()
 
 	// Get platform stats from DB
 	platformCounts := make(map[string]int)
 	var statsErr error
-	stats, err := db.GetStats(ctx)
+	stats, err := db.GetStats(ctx, bbpFilter)
 	if err != nil {
 		statsErr = err
 		log.Printf("Error getting platform stats: %v", err)
@@ -266,7 +305,7 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Count assets by category from DB
 	var assetErr error
-	assetCounts, err := db.GetAssetCountsByCategory(ctx)
+	assetCounts, err := db.GetAssetCountsByCategory(ctx, bbpFilter)
 	if err != nil {
 		assetErr = err
 		assetCounts = make(map[string]int)
@@ -277,7 +316,7 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 		"Platform statistics - bbscope.com",
 		"View statistics and analytics for bug bounty programs across different platforms. Compare program counts from HackerOne, Bugcrowd, YesWeHack, Intigriti and other security platforms.",
 		Navbar("/stats"),
-		StatsContent(platformCounts, statsErr, assetCounts, assetErr),
+		StatsContent(platformCounts, statsErr, assetCounts, assetErr, bbpFilter),
 		FooterEl(),
 		"",
 		false,

@@ -39,7 +39,7 @@ var statsCmd = &cobra.Command{
 		}
 		defer db.Close()
 
-		stats, err := db.GetStats(context.Background())
+		stats, err := db.GetStats(context.Background(), "")
 		if err != nil {
 			return err
 		}

@@ -458,8 +458,18 @@ func (d *DB) ListAllProgramSlugs(ctx context.Context) ([]ProgramSlug, error) {
 }
 
 // GetAssetCountsByCategory returns a map of category->count for all in-scope assets.
-func (d *DB) GetAssetCountsByCategory(ctx context.Context) (map[string]int, error) {
-	query := `
+// GetAssetCountsByCategory returns in-scope asset counts grouped by category.
+// bbpFilter can be "bbp", "vdp", or "" for all.
+func (d *DB) GetAssetCountsByCategory(ctx context.Context, bbpFilter string) (map[string]int, error) {
+	bbpClause := ""
+	switch bbpFilter {
+	case "bbp":
+		bbpClause = "AND t.is_bbp = 1"
+	case "vdp":
+		bbpClause = "AND t.is_bbp = 0"
+	}
+
+	query := fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(a.category, ''), t.category) AS cat,
 			COUNT(*) AS cnt
 		FROM targets_raw t
@@ -467,9 +477,10 @@ func (d *DB) GetAssetCountsByCategory(ctx context.Context) (map[string]int, erro
 		LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
 		WHERE p.disabled = 0 AND p.is_ignored = 0
 		AND COALESCE(a.in_scope, t.in_scope) = 1
+		%s
 		GROUP BY cat
 		ORDER BY cnt DESC
-	`
+	`, bbpClause)
 	rows, err := d.sql.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
