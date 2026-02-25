@@ -54,7 +54,7 @@ type UpdateEntry struct {
 // loadUpdatesFromDB loads recent changes from the database.
 func loadUpdatesFromDB() ([]UpdateEntry, error) {
 	ctx := context.Background()
-	changes, err := db.ListRecentChanges(ctx, 10000)
+	changes, err := db.ListRecentChanges(ctx, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load updates from database: %w", err)
 	}
@@ -1021,7 +1021,7 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 
 	// Pagination
 	if totalPages > 1 {
-		paginationBottom := createUpdatesPagePagination(currentPage, totalPages, currentPerPage, currentPlatform)
+		paginationBottom := createUpdatesPagePagination(currentPage, totalPages, currentPerPage, currentPlatform, currentSearch)
 		pageContent = append(pageContent, Div(Class("mt-6 flex justify-center"), paginationBottom))
 	}
 
@@ -1033,15 +1033,24 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 }
 
 // createUpdatesPagePagination creates pagination controls for the updates page
-func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platform string) g.Node {
+func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platform string, search string) g.Node {
 	var paginationItems []g.Node
+
+	// Helper to build href with all query params preserved
+	buildHref := func(page int) string {
+		href := fmt.Sprintf("/updates?page=%d&perPage=%d", page, perPage)
+		if platform != "" {
+			href += "&platform=" + url.QueryEscape(platform)
+		}
+		if search != "" {
+			href += "&search=" + url.QueryEscape(search)
+		}
+		return href
+	}
 
 	// Helper function to create pagination link
 	createPageLink := func(page int, text string, disabled bool, active bool) g.Node {
-		href := fmt.Sprintf("/updates?page=%d&perPage=%d", page, perPage)
-		if platform != "" {
-			href += "&platform=" + platform
-		}
+		href := buildHref(page)
 
 		classes := "px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-200"
 		if disabled {
@@ -1057,10 +1066,7 @@ func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platf
 	}
 
 	// Previous button - arrow on mobile, text on desktop
-	prevHref := fmt.Sprintf("/updates?page=%d&perPage=%d", currentPage-1, perPage)
-	if platform != "" {
-		prevHref += "&platform=" + platform
-	}
+	prevHref := buildHref(currentPage - 1)
 	if currentPage <= 1 {
 		paginationItems = append(paginationItems, Span(Class("px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-600 cursor-not-allowed"),
 			g.Raw(`<span class="hidden sm:inline">Previous</span><span class="sm:hidden">&larr;</span>`),
@@ -1097,11 +1103,7 @@ func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platf
 		}
 		pageClasses += hideOnMobile
 
-		pageHref := fmt.Sprintf("/updates?page=%d&perPage=%d", i, perPage)
-		if platform != "" {
-			pageHref += "&platform=" + platform
-		}
-		paginationItems = append(paginationItems, A(Href(pageHref), Class(pageClasses), g.Text(strconv.Itoa(i))))
+		paginationItems = append(paginationItems, A(Href(buildHref(i)), Class(pageClasses), g.Text(strconv.Itoa(i))))
 	}
 
 	if end < totalPages {
@@ -1116,10 +1118,7 @@ func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platf
 	}
 
 	// Next button - arrow on mobile, text on desktop
-	nextHref := fmt.Sprintf("/updates?page=%d&perPage=%d", currentPage+1, perPage)
-	if platform != "" {
-		nextHref += "&platform=" + platform
-	}
+	nextHref := buildHref(currentPage + 1)
 	if currentPage >= totalPages {
 		paginationItems = append(paginationItems, Span(Class("px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-600 cursor-not-allowed"),
 			g.Raw(`<span class="hidden sm:inline">Next</span><span class="sm:hidden">&rarr;</span>`),

@@ -1270,9 +1270,10 @@ func (d *DB) AddCustomTarget(ctx context.Context, target, category, programURL s
 }
 
 // ListRecentChanges returns the most recent N changes across all programs.
+// If limit is 0, a high default is used to return all available data.
 func (d *DB) ListRecentChanges(ctx context.Context, limit int) ([]Change, error) {
 	if limit <= 0 {
-		limit = 50
+		limit = 1000000
 	}
 	q := "SELECT occurred_at, program_url, platform, handle, target_normalized, target_raw, target_ai_normalized, category, in_scope, is_bbp, change_type FROM scope_changes ORDER BY occurred_at DESC LIMIT $1"
 	rows, err := d.sql.QueryContext(ctx, q, limit)
