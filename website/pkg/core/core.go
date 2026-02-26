@@ -811,7 +811,7 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 						),
 						A(Href(internalURL),
 							Class("text-cyan-400 hover:text-cyan-300 hover:underline transition-colors"),
-							g.Text(entry.Handle),
+							g.Text(displayHandle(entry.Platform, entry.Handle)),
 						),
 					),
 				)
