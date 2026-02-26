@@ -91,6 +91,9 @@ func Open(connectionString string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(20)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
 	if err := db.Ping(); err != nil {
 		// Check if database doesn't exist, try to create it
 		if strings.Contains(err.Error(), "does not exist") {

@@ -278,9 +278,10 @@ func setCORSHeaders(w http.ResponseWriter) {
 // --- Targets API ---
 
 var (
-	targetsCacheMu  sync.RWMutex
-	targetsCache    = make(map[string]targetsCacheEntry)
-	targetsCacheTTL = 5 * time.Minute
+	targetsCacheMu   sync.RWMutex
+	targetsCache     = make(map[string]targetsCacheEntry)
+	targetsCacheTTL  = 5 * time.Minute
+	targetsFlight    sync.Map // singleflight: cacheKey -> *sync.Once
 )
 
 type targetsCacheEntry struct {
@@ -332,111 +333,23 @@ func apiTargetsHandler(w http.ResponseWriter, r *http.Request) {
 	// Build cache key from full query
 	cacheKey := fmt.Sprintf("%s|%s|%s|%s", suffix, scopeParam, platformParam, typeParam)
 
+	// Check cache first
 	targetsCacheMu.RLock()
 	entry, ok := targetsCache[cacheKey]
 	targetsCacheMu.RUnlock()
 
-	var results []string
-	if ok && time.Since(entry.time) < targetsCacheTTL {
-		results = nil // will use cached bytes directly below
-	} else {
-		// Load entries from DB
-		ctx := context.Background()
-		opts := storage.ListOptions{
-			Platform:    platformParam,
-			IncludeOOS:  scopeParam == "out" || scopeParam == "all",
-			ProgramType: typeParam,
-		}
-		entries, err := db.ListEntries(ctx, opts)
-		if err != nil {
-			log.Printf("API targets: error listing entries: %v", err)
-			setCORSHeaders(w)
-			http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-			return
-		}
+	if !ok || time.Since(entry.time) >= targetsCacheTTL {
+		// Singleflight: only one goroutine populates cache per key
+		once, _ := targetsFlight.LoadOrStore(cacheKey, &sync.Once{})
+		once.(*sync.Once).Do(func() {
+			defer targetsFlight.Delete(cacheKey)
+			populateTargetsCache(cacheKey, suffix, scopeParam, platformParam, typeParam)
+		})
 
-		// For "all" scope, we need both in and out entries — ListEntries with IncludeOOS=true gives us both.
-		// For "in" scope, we already have only in-scope entries.
-		// For "out" scope, we have all entries but need to call the OOS collector.
-		switch suffix {
-		case "wildcards":
-			if scopeParam == "out" {
-				sorted := targets.CollectOOSWildcardsSorted(entries)
-				for _, r := range sorted {
-					results = append(results, r.Domain)
-				}
-			} else {
-				// "in" or "all": collect in-scope wildcards
-				sorted := targets.CollectWildcardsSorted(entries, targets.WildcardOptions{})
-				for _, r := range sorted {
-					results = append(results, r.Domain)
-				}
-				if scopeParam == "all" {
-					// Also collect out-of-scope wildcards
-					oosSorted := targets.CollectOOSWildcardsSorted(entries)
-					seen := make(map[string]struct{}, len(results))
-					for _, r := range results {
-						seen[r] = struct{}{}
-					}
-					for _, r := range oosSorted {
-						if _, exists := seen[r.Domain]; !exists {
-							results = append(results, r.Domain)
-						}
-					}
-				}
-			}
-		case "domains":
-			switch scopeParam {
-			case "in":
-				results = targets.CollectDomains(entries)
-			case "out":
-				results = targets.CollectOOSDomains(entries)
-			case "all":
-				results = targets.CollectDomains(entries)
-				oos := targets.CollectOOSDomains(entries)
-				results = mergeUniqueSorted(results, oos)
-			}
-		case "urls":
-			switch scopeParam {
-			case "in":
-				results = targets.CollectURLs(entries)
-			case "out":
-				results = targets.CollectOOSURLs(entries)
-			case "all":
-				results = targets.CollectURLs(entries)
-				oos := targets.CollectOOSURLs(entries)
-				results = mergeUniqueSorted(results, oos)
-			}
-		case "ips":
-			switch scopeParam {
-			case "in":
-				results = targets.CollectIPs(entries)
-			case "out":
-				results = targets.CollectOOSIPs(entries)
-			case "all":
-				results = targets.CollectIPs(entries)
-				oos := targets.CollectOOSIPs(entries)
-				results = mergeUniqueSorted(results, oos)
-			}
-		case "cidrs":
-			switch scopeParam {
-			case "in":
-				results = targets.CollectCIDRs(entries)
-			case "out":
-				results = targets.CollectOOSCIDRs(entries)
-			case "all":
-				results = targets.CollectCIDRs(entries)
-				oos := targets.CollectOOSCIDRs(entries)
-				results = mergeUniqueSorted(results, oos)
-			}
-		}
-
-		// Cache the results as newline-delimited bytes
-		data := []byte(strings.Join(results, "\n"))
-		targetsCacheMu.Lock()
-		targetsCache[cacheKey] = targetsCacheEntry{data: data, time: time.Now()}
-		targetsCacheMu.Unlock()
-		entry = targetsCacheEntry{data: data}
+		// Re-read from cache
+		targetsCacheMu.RLock()
+		entry = targetsCache[cacheKey]
+		targetsCacheMu.RUnlock()
 	}
 
 	setCORSHeaders(w)
@@ -460,6 +373,98 @@ func apiTargetsHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write(entry.data)
 		w.Write([]byte("\n"))
 	}
+}
+
+// populateTargetsCache runs the heavy DB query and stores results in cache.
+func populateTargetsCache(cacheKey, suffix, scopeParam, platformParam, typeParam string) {
+	ctx := context.Background()
+	opts := storage.ListOptions{
+		Platform:    platformParam,
+		IncludeOOS:  scopeParam == "out" || scopeParam == "all",
+		ProgramType: typeParam,
+	}
+	entries, err := db.ListEntries(ctx, opts)
+	if err != nil {
+		log.Printf("API targets: error listing entries: %v", err)
+		return
+	}
+
+	var results []string
+	switch suffix {
+	case "wildcards":
+		if scopeParam == "out" {
+			sorted := targets.CollectOOSWildcardsSorted(entries)
+			for _, r := range sorted {
+				results = append(results, r.Domain)
+			}
+		} else {
+			sorted := targets.CollectWildcardsSorted(entries, targets.WildcardOptions{})
+			for _, r := range sorted {
+				results = append(results, r.Domain)
+			}
+			if scopeParam == "all" {
+				oosSorted := targets.CollectOOSWildcardsSorted(entries)
+				seen := make(map[string]struct{}, len(results))
+				for _, r := range results {
+					seen[r] = struct{}{}
+				}
+				for _, r := range oosSorted {
+					if _, exists := seen[r.Domain]; !exists {
+						results = append(results, r.Domain)
+					}
+				}
+			}
+		}
+	case "domains":
+		switch scopeParam {
+		case "in":
+			results = targets.CollectDomains(entries)
+		case "out":
+			results = targets.CollectOOSDomains(entries)
+		case "all":
+			results = targets.CollectDomains(entries)
+			oos := targets.CollectOOSDomains(entries)
+			results = mergeUniqueSorted(results, oos)
+		}
+	case "urls":
+		switch scopeParam {
+		case "in":
+			results = targets.CollectURLs(entries)
+		case "out":
+			results = targets.CollectOOSURLs(entries)
+		case "all":
+			results = targets.CollectURLs(entries)
+			oos := targets.CollectOOSURLs(entries)
+			results = mergeUniqueSorted(results, oos)
+		}
+	case "ips":
+		switch scopeParam {
+		case "in":
+			results = targets.CollectIPs(entries)
+		case "out":
+			results = targets.CollectOOSIPs(entries)
+		case "all":
+			results = targets.CollectIPs(entries)
+			oos := targets.CollectOOSIPs(entries)
+			results = mergeUniqueSorted(results, oos)
+		}
+	case "cidrs":
+		switch scopeParam {
+		case "in":
+			results = targets.CollectCIDRs(entries)
+		case "out":
+			results = targets.CollectOOSCIDRs(entries)
+		case "all":
+			results = targets.CollectCIDRs(entries)
+			oos := targets.CollectOOSCIDRs(entries)
+			results = mergeUniqueSorted(results, oos)
+		}
+	}
+
+	data := []byte(strings.Join(results, "\n"))
+	targetsCacheMu.Lock()
+	targetsCache[cacheKey] = targetsCacheEntry{data: data, time: time.Now()}
+	targetsCacheMu.Unlock()
 }
 
 // mergeUniqueSorted merges two sorted string slices into a single sorted, deduplicated slice.
