@@ -1,3 +1,4 @@
 {$DOMAIN:bbscope.com} {
+    import /etc/caddy/conf.d/*.caddy
     reverse_proxy bbscope-web:8080
 }

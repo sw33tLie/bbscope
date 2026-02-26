@@ -2,5 +2,6 @@
     tls {
         dns cloudflare {env.CF_API_TOKEN}
     }
+    import /etc/caddy/conf.d/*.caddy
     reverse_proxy bbscope-web:8080
 }

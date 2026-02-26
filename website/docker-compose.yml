@@ -48,6 +48,7 @@ services:
       DOMAIN: ${DOMAIN:-bbscope.com}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./conf.d:/etc/caddy/conf.d:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
