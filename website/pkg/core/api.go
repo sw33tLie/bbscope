@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/sw33tLie/bbscope/v2/pkg/scope"
 	"github.com/sw33tLie/bbscope/v2/pkg/storage"
 	"github.com/sw33tLie/bbscope/v2/pkg/targets"
 )
@@ -495,6 +497,180 @@ func populateTargetsCache(cacheKey, suffix, scopeParam, platformParam, typeParam
 	targetsCacheMu.Lock()
 	targetsCache[cacheKey] = targetsCacheEntry{data: data, time: time.Now()}
 	targetsCacheMu.Unlock()
+}
+
+type apiUpdateEntry struct {
+	Type       string `json:"type"`
+	ChangeType string `json:"change_type"`
+	ScopeType  string `json:"scope_type,omitempty"`
+	Target     string `json:"target,omitempty"`
+	Category   string `json:"category,omitempty"`
+	Platform   string `json:"platform"`
+	Handle     string `json:"handle"`
+	ProgramURL string `json:"program_url"`
+	Timestamp  string `json:"timestamp"`
+}
+
+type apiUpdatesResponse struct {
+	Updates     []apiUpdateEntry `json:"updates"`
+	TotalCount  int              `json:"total_count"`
+	Page        int              `json:"page"`
+	PerPage     int              `json:"per_page"`
+	TotalPages  int              `json:"total_pages"`
+	GeneratedAt string           `json:"generated_at"`
+}
+
+func apiUpdatesHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		setCORSHeaders(w)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	query := r.URL.Query()
+
+	currentPage := 1
+	if p, err := strconv.Atoi(query.Get("page")); err == nil && p > 0 {
+		currentPage = p
+	}
+	perPage := 25
+	if p, err := strconv.Atoi(query.Get("per_page")); err == nil && p > 0 && p <= 250 {
+		perPage = p
+	}
+
+	platformFilter := strings.ToLower(strings.TrimSpace(query.Get("platform")))
+	searchQuery := strings.TrimSpace(query.Get("search"))
+
+	sinceParam := strings.TrimSpace(query.Get("since"))
+	var sinceTime time.Time
+	now := time.Now()
+	switch sinceParam {
+	case "today":
+		sinceTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	case "yesterday":
+		y := now.AddDate(0, 0, -1)
+		sinceTime = time.Date(y.Year(), y.Month(), y.Day(), 0, 0, 0, 0, y.Location())
+	case "7d":
+		sinceTime = now.AddDate(0, 0, -7)
+	case "30d":
+		sinceTime = now.AddDate(0, 0, -30)
+	case "90d":
+		sinceTime = now.AddDate(0, 0, -90)
+	case "1y":
+		sinceTime = now.AddDate(-1, 0, 0)
+	case "":
+	default:
+		if t, err := time.Parse("2006-01-02", sinceParam); err == nil {
+			sinceTime = t
+		}
+	}
+
+	untilParam := strings.TrimSpace(query.Get("until"))
+	var untilTime time.Time
+	if untilParam != "" {
+		if t, err := time.Parse("2006-01-02", untilParam); err == nil {
+			untilTime = t.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+		}
+	}
+
+	ctx := context.Background()
+	page, err := db.ListChangesPaginated(ctx, storage.ChangesPageOptions{
+		Page:     currentPage,
+		PerPage:  perPage,
+		Platform: platformFilter,
+		Search:   searchQuery,
+		Since:    sinceTime,
+		Until:    untilTime,
+	})
+	if err != nil {
+		log.Printf("API updates: error listing changes: %v", err)
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"internal server error"}`))
+		return
+	}
+
+	var updates []apiUpdateEntry
+	for _, c := range page.Changes {
+		programURL := strings.ReplaceAll(c.ProgramURL, "api.yeswehack.com", "yeswehack.com")
+		category := strings.ToUpper(scope.NormalizeCategory(c.Category))
+
+		var entryType string
+		var scopeType string
+		if c.Category == "program" {
+			if c.ChangeType == "added" {
+				entryType = "program_added"
+			} else {
+				entryType = "program_removed"
+			}
+		} else {
+			if c.ChangeType == "added" {
+				entryType = "asset_added"
+			} else {
+				entryType = "asset_removed"
+			}
+			if c.InScope {
+				scopeType = "in"
+			} else {
+				scopeType = "out"
+			}
+		}
+
+		target := c.TargetNormalized
+		if target == "" {
+			target = c.TargetRaw
+		}
+
+		updates = append(updates, apiUpdateEntry{
+			Type:       entryType,
+			ChangeType: c.ChangeType,
+			ScopeType:  scopeType,
+			Target:     target,
+			Category:   category,
+			Platform:   c.Platform,
+			Handle:     c.Handle,
+			ProgramURL: programURL,
+			Timestamp:  c.OccurredAt.UTC().Format(time.RFC3339),
+		})
+	}
+
+	if updates == nil {
+		updates = []apiUpdateEntry{}
+	}
+
+	totalPages := 0
+	if page.TotalCount > 0 {
+		totalPages = (page.TotalCount + perPage - 1) / perPage
+	}
+
+	resp := apiUpdatesResponse{
+		Updates:     updates,
+		TotalCount:  page.TotalCount,
+		Page:        currentPage,
+		PerPage:     perPage,
+		TotalPages:  totalPages,
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	respJSON, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("API updates: error marshaling response: %v", err)
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"internal server error"}`))
+		return
+	}
+
+	setCORSHeaders(w)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=60")
+	w.Write(respJSON)
 }
 
 // mergeUniqueSorted merges two sorted string slices into a single sorted, deduplicated slice.
