@@ -62,7 +62,21 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if program == nil {
-		http.NotFound(w, r)
+		// For Bugcrowd, try the /engagements/ prefix and redirect if found
+		if strings.ToLower(platform) == "bc" && !strings.HasPrefix(handle, "/engagements/") {
+			engHandle := "/engagements/" + handle
+			redir, err := db.GetProgramByPlatformHandle(ctx, platform, engHandle)
+			if err == nil && redir == nil {
+				redir, err = db.GetProgramByPlatformHandleAny(ctx, platform, engHandle)
+			}
+			if err == nil && redir != nil {
+				newPath := fmt.Sprintf("/program/%s/%s", url.PathEscape(strings.ToLower(redir.Platform)), url.PathEscape(redir.Handle))
+				http.Redirect(w, r, newPath, http.StatusMovedPermanently)
+				return
+			}
+		}
+		// No match at all — return 410 Gone so search engines drop the URL
+		w.WriteHeader(http.StatusGone)
 		return
 	}
 
