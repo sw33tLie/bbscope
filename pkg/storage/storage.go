@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS scope_changes (
 );
 CREATE INDEX IF NOT EXISTS idx_changes_time ON scope_changes(occurred_at);
 CREATE INDEX IF NOT EXISTS idx_changes_program ON scope_changes(program_url, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_changes_category_program ON scope_changes(category, program_url, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_programs_platform_handle ON programs(platform, handle);
 CREATE INDEX IF NOT EXISTS idx_programs_disabled_ignored ON programs(disabled, is_ignored);
 CREATE INDEX IF NOT EXISTS idx_targets_raw_in_scope ON targets_raw(program_id, in_scope);
@@ -1298,6 +1299,110 @@ func (d *DB) ListRecentChanges(ctx context.Context, limit int) ([]Change, error)
 		changes = append(changes, c)
 	}
 	return changes, rows.Err()
+}
+
+// ChangesPageOptions controls paginated change queries.
+type ChangesPageOptions struct {
+	Page     int
+	PerPage  int
+	Platform string
+	Search   string
+}
+
+// ChangesPage holds a page of changes plus total count.
+type ChangesPage struct {
+	Changes    []Change
+	TotalCount int
+}
+
+// ListChangesPaginated returns a page of changes with DB-level pagination.
+// It excludes asset-level rows that share a (program_url, occurred_at) with a
+// program-level row (category='program'), so program add/remove events appear
+// as a single row instead of duplicated per-asset.
+func (d *DB) ListChangesPaginated(ctx context.Context, opts ChangesPageOptions) (*ChangesPage, error) {
+	if opts.Page < 1 {
+		opts.Page = 1
+	}
+	if opts.PerPage < 1 {
+		opts.PerPage = 25
+	}
+
+	// Build WHERE clause: always exclude asset rows covered by a program event
+	where := `WHERE (
+		c.category = 'program'
+		OR NOT EXISTS (
+			SELECT 1 FROM scope_changes c2
+			WHERE c2.category = 'program'
+			AND c2.program_url = c.program_url
+			AND c2.occurred_at = c.occurred_at
+		)
+	)`
+	args := []interface{}{}
+	argIdx := 1
+
+	if opts.Platform != "" {
+		where += fmt.Sprintf(" AND LOWER(c.platform) = LOWER($%d)", argIdx)
+		args = append(args, opts.Platform)
+		argIdx++
+	}
+	if opts.Search != "" {
+		pattern := fmt.Sprintf("%%%s%%", strings.ToLower(opts.Search))
+		where += fmt.Sprintf(` AND (
+			LOWER(c.target_normalized) LIKE $%d
+			OR LOWER(c.target_raw) LIKE $%d
+			OR LOWER(c.program_url) LIKE $%d
+			OR LOWER(c.handle) LIKE $%d
+			OR LOWER(c.category) LIKE $%d
+			OR LOWER(c.change_type) LIKE $%d
+		)`, argIdx, argIdx, argIdx, argIdx, argIdx, argIdx)
+		args = append(args, pattern)
+		argIdx++
+	}
+
+	// Count total matching rows
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM scope_changes c %s", where)
+	var totalCount int
+	if err := d.sql.QueryRowContext(ctx, countQuery, args...).Scan(&totalCount); err != nil {
+		return nil, fmt.Errorf("counting changes: %w", err)
+	}
+
+	// Fetch page
+	offset := (opts.Page - 1) * opts.PerPage
+	dataQuery := fmt.Sprintf(`SELECT c.occurred_at, c.program_url, c.platform, c.handle,
+		c.target_normalized, c.target_raw, c.target_ai_normalized,
+		c.category, c.in_scope, c.is_bbp, c.change_type
+		FROM scope_changes c %s
+		ORDER BY c.occurred_at DESC
+		LIMIT $%d OFFSET $%d`, where, argIdx, argIdx+1)
+	args = append(args, opts.PerPage, offset)
+
+	rows, err := d.sql.QueryContext(ctx, dataQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying changes: %w", err)
+	}
+	defer rows.Close()
+
+	var changes []Change
+	for rows.Next() {
+		var c Change
+		var inScopeInt, isBBPInt int
+		if err := rows.Scan(&c.OccurredAt, &c.ProgramURL, &c.Platform, &c.Handle,
+			&c.TargetNormalized, &c.TargetRaw, &c.TargetAINormalized,
+			&c.Category, &inScopeInt, &isBBPInt, &c.ChangeType); err != nil {
+			return nil, fmt.Errorf("scanning change row: %w", err)
+		}
+		c.InScope = inScopeInt == 1
+		c.IsBBP = isBBPInt == 1
+		changes = append(changes, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return &ChangesPage{
+		Changes:    changes,
+		TotalCount: totalCount,
+	}, nil
 }
 
 type PlatformStats struct {

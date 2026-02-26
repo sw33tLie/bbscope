@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -46,62 +45,10 @@ type UpdateEntry struct {
 	ProgramURL       string
 	Platform         string
 	Handle           string
-	Timestamp        time.Time
-	AssociatedAssets []UpdateEntryAsset // Populated during processing for program_added/removed
+	Timestamp time.Time
 }
 
 
-// loadUpdatesFromDB loads recent changes from the database.
-func loadUpdatesFromDB() ([]UpdateEntry, error) {
-	ctx := context.Background()
-	changes, err := db.ListRecentChanges(ctx, 0)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load updates from database: %w", err)
-	}
-
-	var updates []UpdateEntry
-	for _, c := range changes {
-		programURL := strings.ReplaceAll(c.ProgramURL, "api.yeswehack.com", "yeswehack.com")
-		category := strings.ToUpper(scope.NormalizeCategory(c.Category))
-
-		var entryType string
-		var scopeType string
-		if c.Category == "program" {
-			if c.ChangeType == "added" {
-				entryType = "program_added"
-			} else {
-				entryType = "program_removed"
-			}
-		} else {
-			if c.ChangeType == "added" {
-				entryType = "asset_added"
-			} else {
-				entryType = "asset_removed"
-			}
-			if c.InScope {
-				scopeType = "In Scope"
-			} else {
-				scopeType = "Out of Scope"
-			}
-		}
-
-		target := c.TargetNormalized
-		if target == "" {
-			target = c.TargetRaw
-		}
-
-		updates = append(updates, UpdateEntry{
-			Type:       entryType,
-			ScopeType:  scopeType,
-			Asset:      UpdateEntryAsset{Category: category, Value: target},
-			ProgramURL: programURL,
-			Platform:   c.Platform,
-			Handle:     c.Handle,
-			Timestamp:  c.OccurredAt,
-		})
-	}
-	return updates, nil
-}
 
 // Page layout component
 func PageLayout(title, description string, navbar g.Node, content g.Node, footer g.Node, canonicalURL string, shouldNoIndex bool) g.Node {
@@ -1072,171 +1019,87 @@ func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platf
 
 // updatesHandler handles requests for the /updates page.
 func updatesHandler(w http.ResponseWriter, r *http.Request) {
-	allUpdates, err := loadUpdatesFromDB()
+	query := r.URL.Query()
+	searchQuery := strings.TrimSpace(query.Get("search"))
+	platformFilter := strings.ToLower(strings.TrimSpace(query.Get("platform")))
+
+	currentPage := 1
+	if p, err := strconv.Atoi(query.Get("page")); err == nil && p > 0 {
+		currentPage = p
+	}
+
+	currentPerPage := 25
+	allowedPerPages := map[int]bool{25: true, 50: true, 100: true, 250: true}
+	if p, err := strconv.Atoi(query.Get("perPage")); err == nil && allowedPerPages[p] {
+		currentPerPage = p
+	}
+
+	ctx := context.Background()
+	page, err := db.ListChangesPaginated(ctx, storage.ChangesPageOptions{
+		Page:     currentPage,
+		PerPage:  currentPerPage,
+		Platform: platformFilter,
+		Search:   searchQuery,
+	})
 	if err != nil {
 		log.Printf("Error loading updates data: %v", err)
 		http.Error(w, "Could not load updates data", http.StatusInternalServerError)
 		return
 	}
 
-	// Preprocessing logic
-	assetEventsByProgramAndTimestamp := make(map[string]map[time.Time][]UpdateEntryAsset)
-	programLevelEventTimestamps := make(map[string]map[time.Time]bool) // To track if a program-level event exists for a given program/timestamp
+	// Convert DB changes to display entries
+	var updates []UpdateEntry
+	for _, c := range page.Changes {
+		programURL := strings.ReplaceAll(c.ProgramURL, "api.yeswehack.com", "yeswehack.com")
+		category := strings.ToUpper(scope.NormalizeCategory(c.Category))
 
-	for _, entry := range allUpdates {
-		if entry.Type == "asset_added" || entry.Type == "asset_removed" {
-			if _, ok := assetEventsByProgramAndTimestamp[entry.ProgramURL]; !ok {
-				assetEventsByProgramAndTimestamp[entry.ProgramURL] = make(map[time.Time][]UpdateEntryAsset)
+		var entryType string
+		var scopeType string
+		if c.Category == "program" {
+			if c.ChangeType == "added" {
+				entryType = "program_added"
+			} else {
+				entryType = "program_removed"
 			}
-			assetEventsByProgramAndTimestamp[entry.ProgramURL][entry.Timestamp] = append(
-				assetEventsByProgramAndTimestamp[entry.ProgramURL][entry.Timestamp],
-				entry.Asset,
-			)
-		} else if entry.Type == "program_added" || entry.Type == "program_removed" {
-			if _, ok := programLevelEventTimestamps[entry.ProgramURL]; !ok {
-				programLevelEventTimestamps[entry.ProgramURL] = make(map[time.Time]bool)
+		} else {
+			if c.ChangeType == "added" {
+				entryType = "asset_added"
+			} else {
+				entryType = "asset_removed"
 			}
-			programLevelEventTimestamps[entry.ProgramURL][entry.Timestamp] = true
-		}
-	}
-
-	var processedUpdates []UpdateEntry
-	for _, entry := range allUpdates {
-		if entry.Type == "program_added" || entry.Type == "program_removed" {
-			displayEntry := entry // Create a copy
-			if assets, ok := assetEventsByProgramAndTimestamp[entry.ProgramURL][entry.Timestamp]; ok {
-				displayEntry.AssociatedAssets = assets
-			}
-			processedUpdates = append(processedUpdates, displayEntry)
-		} else if entry.Type == "asset_added" || entry.Type == "asset_removed" {
-			// Check if this asset event is part of a program-level event
-			isStandaloneAssetEvent := true
-			if programTimestamps, ok := programLevelEventTimestamps[entry.ProgramURL]; ok {
-				if _, programEventExists := programTimestamps[entry.Timestamp]; programEventExists {
-					isStandaloneAssetEvent = false // This asset change is covered by a program_added/removed event
-				}
-			}
-			if isStandaloneAssetEvent {
-				processedUpdates = append(processedUpdates, entry)
+			if c.InScope {
+				scopeType = "In Scope"
+			} else {
+				scopeType = "Out of Scope"
 			}
 		}
-	}
-	// Sort the final list by timestamp descending
-	sort.SliceStable(processedUpdates, func(i, j int) bool {
-		return processedUpdates[i].Timestamp.After(processedUpdates[j].Timestamp)
-	})
 
-	// Get query parameters
-	query := r.URL.Query()
-	pageStr := query.Get("page")
-	searchQuery := strings.TrimSpace(query.Get("search"))
-	platformFilter := strings.ToLower(strings.TrimSpace(query.Get("platform")))
-	perPageStr := query.Get("perPage")
-
-	// Apply search filter if searchQuery is present
-	if searchQuery != "" {
-		searchLower := strings.ToLower(searchQuery)
-		var filteredUpdates []UpdateEntry
-		for _, entry := range processedUpdates {
-			match := false
-			// Check common fields
-			if strings.Contains(strings.ToLower(entry.Type), searchLower) ||
-				strings.Contains(strings.ToLower(entry.ProgramURL), searchLower) ||
-				strings.Contains(strings.ToLower(entry.Platform), searchLower) {
-				match = true
-			}
-
-			if !match { // If not matched yet, check type-specific fields
-				if entry.Type == "program_added" || entry.Type == "program_removed" {
-					for _, asset := range entry.AssociatedAssets {
-						if strings.Contains(strings.ToLower(asset.Category), searchLower) ||
-							strings.Contains(strings.ToLower(asset.Value), searchLower) {
-							match = true
-							break
-						}
-					}
-				} else { // asset_added or asset_removed (standalone)
-					if strings.Contains(strings.ToLower(entry.ScopeType), searchLower) ||
-						strings.Contains(strings.ToLower(entry.Asset.Category), searchLower) ||
-						strings.Contains(strings.ToLower(entry.Asset.Value), searchLower) {
-						match = true
-					}
-				}
-			}
-
-			if match {
-				filteredUpdates = append(filteredUpdates, entry)
-			}
-
+		target := c.TargetNormalized
+		if target == "" {
+			target = c.TargetRaw
 		}
-		processedUpdates = filteredUpdates
-	}
 
-	// Platform filter
-	if platformFilter != "" {
-		var platformFiltered []UpdateEntry
-		for _, entry := range processedUpdates {
-			if strings.ToLower(entry.Platform) == platformFilter {
-				platformFiltered = append(platformFiltered, entry)
-			}
-		}
-		processedUpdates = platformFiltered
-	}
-
-	// Pagination logic (using processedUpdates)
-	// Use existing query and pageStr variables already declared above
-	// pageStr is re-read here because the search filtering might have changed the effective page number
-	currentPage := 1 // Reset to 1 for updates pagination start
-	if pageStr != "" {
-		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
-			currentPage = p
-		}
-	}
-
-	currentPerPage := 25 // Default items per page
-	allowedPerPages := []int{25, 50, 100, 250}
-	if perPageStr != "" {
-		if p, err := strconv.Atoi(perPageStr); err == nil {
-			for _, allowed := range allowedPerPages {
-				if p == allowed {
-					currentPerPage = p
-					break
-				}
-			}
-		}
+		updates = append(updates, UpdateEntry{
+			Type:       entryType,
+			ScopeType:  scopeType,
+			Asset:      UpdateEntryAsset{Category: category, Value: target},
+			ProgramURL: programURL,
+			Platform:   c.Platform,
+			Handle:     c.Handle,
+			Timestamp:  c.OccurredAt,
+		})
 	}
 
 	totalPages := 0
-	if len(processedUpdates) > 0 {
-		totalPages = (len(processedUpdates) + currentPerPage - 1) / currentPerPage
-		if totalPages == 0 && len(processedUpdates) > 0 { // Ensure at least one page if there are items
-			totalPages = 1
-		}
+	if page.TotalCount > 0 {
+		totalPages = (page.TotalCount + currentPerPage - 1) / currentPerPage
 	}
-
-	// Ensure currentPage is not out of bounds
 	if currentPage > totalPages && totalPages > 0 {
 		currentPage = totalPages
 	}
-	if currentPage < 1 {
-		currentPage = 1
-	}
 
-	startIndex := (currentPage - 1) * currentPerPage
-	endIndex := startIndex + currentPerPage
-	if endIndex > len(processedUpdates) {
-		endIndex = len(processedUpdates)
-	}
-
-	paginatedUpdates := processedUpdates[startIndex:endIndex]
-
-	// Canonical URL for updates page (only page parameter)
 	updatesCanonicalURL := fmt.Sprintf("/updates?page=%d", currentPage)
-
-	// Determine page title for /updates based on current page
 	updatesPageTitle := fmt.Sprintf("Scope Updates - bbscope.com (Page %d)", currentPage)
-
-	// Determine page description for /updates based on current page
 	updatesPageDescription := "Recent changes to bug bounty program scopes from HackerOne, Bugcrowd, Intigriti and YesWeHack."
 	if currentPage > 1 {
 		updatesPageDescription = fmt.Sprintf("%s (Page %d)", updatesPageDescription, currentPage)
@@ -1246,7 +1109,7 @@ func updatesHandler(w http.ResponseWriter, r *http.Request) {
 		updatesPageTitle,
 		updatesPageDescription,
 		Navbar("/updates"),
-		UpdatesContent(paginatedUpdates, currentPage, totalPages, currentPerPage, searchQuery, platformFilter),
+		UpdatesContent(updates, currentPage, totalPages, currentPerPage, searchQuery, platformFilter),
 		FooterEl(),
 		updatesCanonicalURL,
 		currentPage > 1,
