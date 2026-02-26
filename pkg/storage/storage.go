@@ -1076,6 +1076,7 @@ type ListOptions struct {
 	IncludeOOS     bool
 	IncludeIgnored bool
 	ProgramType    string // "bbp", "vdp", or "" (all)
+	RawMode        bool   // skip AI enhancements, use only raw target data
 }
 
 // ListEntries returns current entries matching filters.
@@ -1096,13 +1097,21 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 		argIdx++
 	}
 	if !opts.IncludeOOS {
-		where += " AND COALESCE(a.in_scope, t.in_scope) = 1"
+		if opts.RawMode {
+			where += " AND t.in_scope = 1"
+		} else {
+			where += " AND COALESCE(a.in_scope, t.in_scope) = 1"
+		}
 	}
 	if !opts.IncludeIgnored {
 		where += " AND p.is_ignored = 0"
 	}
 	if !opts.Since.IsZero() {
-		where += fmt.Sprintf(" AND COALESCE(a.last_seen_at, t.last_seen_at) >= $%d", argIdx)
+		if opts.RawMode {
+			where += fmt.Sprintf(" AND t.last_seen_at >= $%d", argIdx)
+		} else {
+			where += fmt.Sprintf(" AND COALESCE(a.last_seen_at, t.last_seen_at) >= $%d", argIdx)
+		}
 		args = append(args, opts.Since.UTC())
 		argIdx++
 	}
@@ -1113,26 +1122,45 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 		where += " AND NOT EXISTS (SELECT 1 FROM targets_raw t2 WHERE t2.program_id = p.id AND t2.is_bbp = 1)"
 	}
 
-	query := fmt.Sprintf(`
-		SELECT 
-			p.url,
-			p.platform,
-			p.handle,
-			t.target,
-			t.category,
-			t.description,
-			t.in_scope,
-			t.is_bbp,
-			a.target_ai_normalized,
-			a.category,
-			a.in_scope,
-			a.id
-		FROM targets_raw t
-		JOIN programs p ON t.program_id = p.id
-		LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
-		%s
-		ORDER BY p.url, COALESCE(a.target_ai_normalized, t.target)
-	`, where)
+	var query string
+	if opts.RawMode {
+		query = fmt.Sprintf(`
+			SELECT
+				p.url,
+				p.platform,
+				p.handle,
+				t.target,
+				t.category,
+				t.description,
+				t.in_scope,
+				t.is_bbp
+			FROM targets_raw t
+			JOIN programs p ON t.program_id = p.id
+			%s
+			ORDER BY p.url, t.target
+		`, where)
+	} else {
+		query = fmt.Sprintf(`
+			SELECT
+				p.url,
+				p.platform,
+				p.handle,
+				t.target,
+				t.category,
+				t.description,
+				t.in_scope,
+				t.is_bbp,
+				a.target_ai_normalized,
+				a.category,
+				a.in_scope,
+				a.id
+			FROM targets_raw t
+			JOIN programs p ON t.program_id = p.id
+			LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
+			%s
+			ORDER BY p.url, COALESCE(a.target_ai_normalized, t.target)
+		`, where)
+	}
 
 	rows, err := d.sql.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -1151,66 +1179,87 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 			descNS       sql.NullString
 			baseInScope  int
 			isBBPInt     int
-			aiTargetNS   sql.NullString
-			aiCategoryNS sql.NullString
-			aiInScopeNS  sql.NullInt64
-			aiIDNS       sql.NullInt64
 		)
-		if err := rows.Scan(
-			&programURL,
-			&platform,
-			&handle,
-			&rawTarget,
-			&baseCategory,
-			&descNS,
-			&baseInScope,
-			&isBBPInt,
-			&aiTargetNS,
-			&aiCategoryNS,
-			&aiInScopeNS,
-			&aiIDNS,
-		); err != nil {
-			return nil, err
-		}
 
-		baseNorm := NormalizeTarget(rawTarget)
-		entry := Entry{
-			ProgramURL:           programURL,
-			Platform:             platform,
-			Handle:               handle,
-			BaseTargetRaw:        rawTarget,
-			BaseTargetNormalized: baseNorm,
-			TargetRaw:            rawTarget,
-			Description:          descNS.String,
-			IsBBP:                isBBPInt == 1,
-			Category:             baseCategory,
-			Source:               "raw",
-		}
+		if opts.RawMode {
+			if err := rows.Scan(
+				&programURL, &platform, &handle,
+				&rawTarget, &baseCategory, &descNS,
+				&baseInScope, &isBBPInt,
+			); err != nil {
+				return nil, err
+			}
 
-		if aiIDNS.Valid {
-			entry.Source = "ai"
-			if aiTargetNS.Valid && aiTargetNS.String != "" {
-				entry.TargetNormalized = aiTargetNS.String
+			baseNorm := NormalizeTarget(rawTarget)
+			out = append(out, Entry{
+				ProgramURL:           programURL,
+				Platform:             platform,
+				Handle:               handle,
+				BaseTargetRaw:        rawTarget,
+				BaseTargetNormalized: baseNorm,
+				TargetRaw:            rawTarget,
+				TargetNormalized:     baseNorm,
+				Description:          descNS.String,
+				IsBBP:                isBBPInt == 1,
+				Category:             baseCategory,
+				InScope:              baseInScope == 1,
+				Source:               "raw",
+			})
+		} else {
+			var (
+				aiTargetNS   sql.NullString
+				aiCategoryNS sql.NullString
+				aiInScopeNS  sql.NullInt64
+				aiIDNS       sql.NullInt64
+			)
+			if err := rows.Scan(
+				&programURL, &platform, &handle,
+				&rawTarget, &baseCategory, &descNS,
+				&baseInScope, &isBBPInt,
+				&aiTargetNS, &aiCategoryNS, &aiInScopeNS, &aiIDNS,
+			); err != nil {
+				return nil, err
+			}
+
+			baseNorm := NormalizeTarget(rawTarget)
+			entry := Entry{
+				ProgramURL:           programURL,
+				Platform:             platform,
+				Handle:               handle,
+				BaseTargetRaw:        rawTarget,
+				BaseTargetNormalized: baseNorm,
+				TargetRaw:            rawTarget,
+				Description:          descNS.String,
+				IsBBP:                isBBPInt == 1,
+				Category:             baseCategory,
+				Source:               "raw",
+			}
+
+			if aiIDNS.Valid {
+				entry.Source = "ai"
+				if aiTargetNS.Valid && aiTargetNS.String != "" {
+					entry.TargetNormalized = aiTargetNS.String
+				} else {
+					entry.TargetNormalized = baseNorm
+				}
+				if aiCategoryNS.Valid {
+					cat := strings.ToLower(strings.TrimSpace(aiCategoryNS.String))
+					if scope.IsUnifiedCategory(cat) && !strings.EqualFold(cat, baseCategory) {
+						entry.Category = cat
+					}
+				}
+				if aiInScopeNS.Valid {
+					entry.InScope = aiInScopeNS.Int64 == 1
+				} else {
+					entry.InScope = baseInScope == 1
+				}
 			} else {
 				entry.TargetNormalized = baseNorm
-			}
-			if aiCategoryNS.Valid {
-				cat := strings.ToLower(strings.TrimSpace(aiCategoryNS.String))
-				if scope.IsUnifiedCategory(cat) && !strings.EqualFold(cat, baseCategory) {
-					entry.Category = cat
-				}
-			}
-			if aiInScopeNS.Valid {
-				entry.InScope = aiInScopeNS.Int64 == 1
-			} else {
 				entry.InScope = baseInScope == 1
 			}
-		} else {
-			entry.TargetNormalized = baseNorm
-			entry.InScope = baseInScope == 1
-		}
 
-		out = append(out, entry)
+			out = append(out, entry)
+		}
 	}
 	return out, rows.Err()
 }

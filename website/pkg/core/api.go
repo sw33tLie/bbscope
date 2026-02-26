@@ -353,9 +353,14 @@ func apiTargetsHandler(w http.ResponseWriter, r *http.Request) {
 	platformParam := strings.ToLower(query.Get("platform"))
 	typeParam := strings.ToLower(query.Get("type"))
 	formatParam := strings.ToLower(query.Get("format"))
+	rawParam := query.Get("raw") == "true"
 
 	// Build cache key from full query
-	cacheKey := fmt.Sprintf("%s|%s|%s|%s", suffix, scopeParam, platformParam, typeParam)
+	rawKey := "ai"
+	if rawParam {
+		rawKey = "raw"
+	}
+	cacheKey := fmt.Sprintf("%s|%s|%s|%s|%s", suffix, scopeParam, platformParam, typeParam, rawKey)
 
 	// Check cache first
 	targetsCacheMu.RLock()
@@ -367,7 +372,7 @@ func apiTargetsHandler(w http.ResponseWriter, r *http.Request) {
 		once, _ := targetsFlight.LoadOrStore(cacheKey, &sync.Once{})
 		once.(*sync.Once).Do(func() {
 			defer targetsFlight.Delete(cacheKey)
-			populateTargetsCache(cacheKey, suffix, scopeParam, platformParam, typeParam)
+			populateTargetsCache(cacheKey, suffix, scopeParam, platformParam, typeParam, rawParam)
 		})
 
 		// Re-read from cache
@@ -400,12 +405,13 @@ func apiTargetsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // populateTargetsCache runs the heavy DB query and stores results in cache.
-func populateTargetsCache(cacheKey, suffix, scopeParam, platformParam, typeParam string) {
+func populateTargetsCache(cacheKey, suffix, scopeParam, platformParam, typeParam string, rawMode bool) {
 	ctx := context.Background()
 	opts := storage.ListOptions{
 		Platform:    platformParam,
 		IncludeOOS:  scopeParam == "out" || scopeParam == "all",
 		ProgramType: typeParam,
+		RawMode:     rawMode,
 	}
 	entries, err := db.ListEntries(ctx, opts)
 	if err != nil {

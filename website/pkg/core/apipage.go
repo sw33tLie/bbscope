@@ -29,70 +29,16 @@ func APIPageContent() g.Node {
 	return Main(Class("container mx-auto mt-10 mb-20 px-4 max-w-4xl"),
 		// Page header
 		Div(Class("mb-10"),
-			H1(Class("text-2xl md:text-3xl font-bold text-white mb-3"), g.Text("API Documentation")),
+			H1(Class("text-2xl md:text-3xl font-bold text-white mb-3"), g.Text("API")),
 			P(Class("text-zinc-400 text-lg"), g.Text("Access bug bounty scope data programmatically. All endpoints are public and require no authentication.")),
 		),
 
-		// Quick start
+		// Try it — front and center
 		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
-			H2(Class("text-lg font-semibold text-white mb-4"), g.Text("Quick Start")),
-			P(Class("text-zinc-400 mb-4 text-sm leading-relaxed"), g.Text("All target endpoints return newline-delimited text by default, perfect for piping into other tools. Add ?format=json for JSON array output.")),
-			Div(Class("bg-zinc-950 rounded-lg p-4 font-mono text-sm text-cyan-400 overflow-x-auto"),
-				g.Raw(`<span class="text-zinc-500"># Get all in-scope wildcard domains</span><br>curl -s https://bbscope.com/api/v1/targets/wildcards<br><br><span class="text-zinc-500"># Pipe directly into your tools</span><br>curl -s https://bbscope.com/api/v1/targets/wildcards | subfinder -silent<br><br><span class="text-zinc-500"># Filter by platform and get JSON</span><br>curl -s "https://bbscope.com/api/v1/targets/domains?platform=h1&amp;format=json"`),
-			),
-		),
+			H2(Class("text-lg font-semibold text-white mb-2"), g.Text("Try It")),
+			P(Class("text-zinc-400 mb-5 text-sm"), g.Text("Build a request, preview the results, or download them as a file.")),
 
-		// Programs API section
-		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
-			H2(Class("text-lg font-semibold text-white mb-5"), g.Text("Programs")),
-
-			apiEndpointCard(
-				"GET", "/api/v1/programs",
-				"Returns the full list of bug bounty programs with their scope data as JSON.",
-				[]apiParam{
-					{"raw", "boolean", "Set to true for raw target data without AI enhancements"},
-				},
-			),
-
-			apiEndpointCard(
-				"GET", "/api/v1/programs/{platform}/{handle}",
-				"Returns details for a single program including in-scope and out-of-scope targets.",
-				[]apiParam{
-					{"raw", "boolean", "Set to true for raw target data without AI enhancements"},
-				},
-			),
-		),
-
-		// Targets API section
-		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
-			H2(Class("text-lg font-semibold text-white mb-2"), g.Text("Targets")),
-			P(Class("text-zinc-400 mb-5 text-sm"), g.Text("Extract specific target types from all programs. Returns newline-delimited text (or JSON array with ?format=json).")),
-
-			// Shared params note
-			Div(Class("bg-zinc-800/50 border border-zinc-700/50 rounded-lg p-4 mb-5"),
-				H3(Class("text-sm font-semibold text-zinc-300 mb-2"), g.Text("Shared Query Parameters")),
-				Div(Class("space-y-1.5"),
-					apiParamRow("scope", "string", "in (default), out, or all"),
-					apiParamRow("platform", "string", "h1, bc, it, or ywh"),
-					apiParamRow("type", "string", "bbp or vdp"),
-					apiParamRow("format", "string", "json for JSON array output"),
-				),
-			),
-
-			apiTargetEndpointCard("wildcards", "In-scope wildcard root domains, useful for subdomain enumeration."),
-			apiTargetEndpointCard("domains", "In-scope domains (non-URL, non-wildcard targets)."),
-			apiTargetEndpointCard("urls", "In-scope URL targets (http:// or https://)."),
-			apiTargetEndpointCard("ips", "In-scope IP addresses (extracted from IPs and URLs)."),
-			apiTargetEndpointCard("cidrs", "In-scope CIDR ranges and IP ranges."),
-		),
-
-		// Interactive try-it section
-		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
-			H2(Class("text-lg font-semibold text-white mb-5"), g.Text("Try It")),
-			P(Class("text-zinc-400 mb-5 text-sm"), g.Text("Build a request and download the results.")),
-
-			// Endpoint selector
-			Div(Class("grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4"),
+			Div(Class("grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4"),
 				Div(
 					Label(Class("block text-sm font-medium text-zinc-400 mb-1.5"), g.Text("Endpoint")),
 					Select(
@@ -137,6 +83,15 @@ func APIPageContent() g.Node {
 						Option(Value("vdp"), g.Text("VDP")),
 					),
 				),
+				Div(
+					Label(Class("block text-sm font-medium text-zinc-400 mb-1.5"), g.Text("Data Source")),
+					Select(
+						ID("api-try-raw"),
+						Class("w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"),
+						Option(Value(""), g.Text("AI Enhanced (default)")),
+						Option(Value("true"), g.Text("Raw")),
+					),
+				),
 			),
 
 			// URL preview
@@ -147,16 +102,16 @@ func APIPageContent() g.Node {
 			// Action buttons
 			Div(Class("flex flex-wrap gap-3"),
 				Button(
-					ID("api-try-download"),
-					Type("button"),
-					Class("px-5 py-2.5 bg-cyan-600 text-white font-medium rounded-lg hover:bg-cyan-500 transition-all duration-200 hover:shadow-md hover:shadow-cyan-500/20 text-sm"),
-					g.Text("Download .txt"),
-				),
-				Button(
 					ID("api-try-preview"),
 					Type("button"),
+					Class("px-5 py-2.5 bg-cyan-600 text-white font-medium rounded-lg hover:bg-cyan-500 transition-all duration-200 hover:shadow-md hover:shadow-cyan-500/20 text-sm"),
+					g.Text("Preview"),
+				),
+				Button(
+					ID("api-try-download"),
+					Type("button"),
 					Class("px-5 py-2.5 bg-zinc-700 text-zinc-200 font-medium rounded-lg hover:bg-zinc-600 transition-all duration-200 text-sm"),
-					g.Text("Preview (first 50 lines)"),
+					g.Text("Download .txt"),
 				),
 				Button(
 					ID("api-try-copy"),
@@ -170,6 +125,60 @@ func APIPageContent() g.Node {
 			Pre(
 				ID("api-try-output"),
 				Class("hidden mt-4 bg-zinc-950 rounded-lg p-4 font-mono text-xs text-zinc-300 overflow-x-auto max-h-96 overflow-y-auto border border-zinc-800"),
+			),
+		),
+
+		// Quick start / usage examples
+		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
+			H2(Class("text-lg font-semibold text-white mb-4"), g.Text("Usage Examples")),
+			Div(Class("bg-zinc-950 rounded-lg p-4 font-mono text-sm text-cyan-400 overflow-x-auto"),
+				g.Raw(`<span class="text-zinc-500"># Get all in-scope wildcard domains</span><br>curl -s https://bbscope.com/api/v1/targets/wildcards<br><br><span class="text-zinc-500"># Pipe directly into your tools</span><br>curl -s https://bbscope.com/api/v1/targets/wildcards | subfinder -silent<br><br><span class="text-zinc-500"># Filter by platform and get JSON</span><br>curl -s "https://bbscope.com/api/v1/targets/domains?platform=h1&amp;format=json"<br><br><span class="text-zinc-500"># Raw data without AI enhancements</span><br>curl -s "https://bbscope.com/api/v1/targets/wildcards?raw=true"`),
+			),
+		),
+
+		// Endpoint reference
+		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
+			H2(Class("text-lg font-semibold text-white mb-5"), g.Text("Endpoint Reference")),
+
+			// Targets
+			H3(Class("text-sm font-semibold text-zinc-300 uppercase tracking-wider mb-4"), g.Text("Targets")),
+			P(Class("text-zinc-400 mb-4 text-sm"), g.Text("Returns newline-delimited text by default. Add ?format=json for a JSON array.")),
+
+			apiTargetEndpointCard("wildcards", "Wildcard root domains, useful for subdomain enumeration."),
+			apiTargetEndpointCard("domains", "Domains (non-URL, non-wildcard targets)."),
+			apiTargetEndpointCard("urls", "URL targets (http:// or https://)."),
+			apiTargetEndpointCard("ips", "IP addresses (extracted from IPs and URLs)."),
+			apiTargetEndpointCard("cidrs", "CIDR ranges and IP ranges."),
+
+			// Shared params
+			Div(Class("bg-zinc-800/50 border border-zinc-700/50 rounded-lg p-4 mt-5 mb-6"),
+				H4(Class("text-sm font-semibold text-zinc-300 mb-2"), g.Text("Query Parameters")),
+				Div(Class("space-y-1.5"),
+					apiParamRow("scope", "string", "in (default), out, or all"),
+					apiParamRow("platform", "string", "h1, bc, it, or ywh"),
+					apiParamRow("type", "string", "bbp or vdp"),
+					apiParamRow("raw", "boolean", "true to skip AI enhancements and use raw platform data"),
+					apiParamRow("format", "string", "json for JSON array output"),
+				),
+			),
+
+			// Programs
+			H3(Class("text-sm font-semibold text-zinc-300 uppercase tracking-wider mb-4"), g.Text("Programs")),
+
+			apiEndpointCard(
+				"GET", "/api/v1/programs",
+				"Returns the full list of bug bounty programs with scope data as JSON.",
+				[]apiParam{
+					{"raw", "boolean", "Set to true for raw target data without AI enhancements"},
+				},
+			),
+
+			apiEndpointCard(
+				"GET", "/api/v1/programs/{platform}/{handle}",
+				"Returns details for a single program including in-scope and out-of-scope targets.",
+				[]apiParam{
+					{"raw", "boolean", "Set to true for raw target data without AI enhancements"},
+				},
 			),
 		),
 
@@ -231,6 +240,7 @@ const apiPageScript = `
 	const scope = document.getElementById('api-try-scope');
 	const platform = document.getElementById('api-try-platform');
 	const ptype = document.getElementById('api-try-type');
+	const rawMode = document.getElementById('api-try-raw');
 	const urlPreview = document.getElementById('api-try-url');
 	const downloadBtn = document.getElementById('api-try-download');
 	const previewBtn = document.getElementById('api-try-preview');
@@ -243,6 +253,7 @@ const apiPageScript = `
 		if (scope.value !== 'in') params.push('scope=' + scope.value);
 		if (platform.value) params.push('platform=' + platform.value);
 		if (ptype.value) params.push('type=' + ptype.value);
+		if (rawMode.value) params.push('raw=true');
 		if (params.length > 0) url += '?' + params.join('&');
 		return url;
 	}
@@ -251,7 +262,7 @@ const apiPageScript = `
 		urlPreview.textContent = buildURL();
 	}
 
-	[endpoint, scope, platform, ptype].forEach(function(el) {
+	[endpoint, scope, platform, ptype, rawMode].forEach(function(el) {
 		el.addEventListener('change', updatePreview);
 	});
 
