@@ -62,6 +62,15 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// For removed programs with no targets in targets_raw, reconstruct from scope_changes history
+	if len(targets) == 0 && program.Disabled {
+		targets, err = db.ListProgramTargetsFromHistory(ctx, program.Platform, program.Handle)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	// Count in-scope and out-of-scope; derive isBBP
 	inScopeCount, oosCount := 0, 0
 	isBBP := false
@@ -127,7 +136,7 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 				),
 				Div(
 					Div(Class("font-semibold text-red-300 text-sm"), g.Text("Program Removed")),
-					P(Class("text-red-200/70 text-sm mt-1 leading-relaxed"), g.Text("This program is no longer available on "+capitalizedPlatform(program.Platform)+". The scope data shown below is the last known state before removal.")),
+					P(Class("text-red-200/70 text-sm mt-1 leading-relaxed"), g.Text("This program is no longer available on "+capitalizedPlatform(program.Platform)+". The scope data shown below is historical and may not reflect the final state of the program.")),
 				),
 			),
 		),

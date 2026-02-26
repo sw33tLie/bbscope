@@ -448,6 +448,57 @@ func (d *DB) ListProgramTargets(ctx context.Context, programID int64, rawMode bo
 	return targets, rows.Err()
 }
 
+// ListProgramTargetsFromHistory reconstructs a program's scope from scope_changes
+// for removed programs whose targets have been hard-deleted from targets_raw.
+// It picks the most recent "added" entry per (target_raw, category) pair,
+// excluding category='program' rows.
+func (d *DB) ListProgramTargetsFromHistory(ctx context.Context, platform, handle string) ([]ProgramTarget, error) {
+	query := `
+		SELECT
+			COALESCE(NULLIF(c.target_ai_normalized, ''), NULLIF(c.target_normalized, ''), c.target_raw) AS target_display,
+			c.target_raw,
+			c.category,
+			c.in_scope,
+			c.is_bbp
+		FROM scope_changes c
+		INNER JOIN (
+			SELECT target_raw, category, MAX(occurred_at) AS max_time
+			FROM scope_changes
+			WHERE LOWER(platform) = LOWER($1)
+			AND LOWER(handle) = LOWER($2)
+			AND category != 'program'
+			AND change_type = 'added'
+			GROUP BY target_raw, category
+		) latest ON c.target_raw = latest.target_raw
+			AND c.category = latest.category
+			AND c.occurred_at = latest.max_time
+		WHERE LOWER(c.platform) = LOWER($1)
+		AND LOWER(c.handle) = LOWER($2)
+		AND c.category != 'program'
+		AND c.change_type = 'added'
+		ORDER BY c.in_scope DESC, target_display
+	`
+
+	rows, err := d.sql.QueryContext(ctx, query, platform, handle)
+	if err != nil {
+		return nil, fmt.Errorf("listing program targets from history: %w", err)
+	}
+	defer rows.Close()
+
+	var targets []ProgramTarget
+	for rows.Next() {
+		var t ProgramTarget
+		var inScope, isBBP int
+		if err := rows.Scan(&t.TargetDisplay, &t.TargetRaw, &t.Category, &inScope, &isBBP); err != nil {
+			return nil, err
+		}
+		t.InScope = inScope == 1
+		t.IsBBP = isBBP == 1
+		targets = append(targets, t)
+	}
+	return targets, rows.Err()
+}
+
 // CountPrograms returns the number of active programs, optionally filtered by platform.
 func (d *DB) CountPrograms(ctx context.Context, platform string) (int, error) {
 	query := "SELECT COUNT(*) FROM programs WHERE disabled = 0 AND is_ignored = 0"

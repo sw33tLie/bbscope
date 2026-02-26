@@ -188,6 +188,17 @@ func apiProgramDetailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if program == nil {
+		program, err = db.GetProgramByPlatformHandleAny(ctx, platform, handle)
+		if err != nil {
+			log.Printf("API: Error fetching program %s/%s: %v", platform, handle, err)
+			setCORSHeaders(w)
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"internal server error"}`))
+			return
+		}
+	}
+	if program == nil {
 		setCORSHeaders(w)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusNotFound)
@@ -203,6 +214,19 @@ func apiProgramDetailHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"error":"internal server error"}`))
 		return
+	}
+
+	// For removed programs, reconstruct scope from change history
+	if len(targets) == 0 && program.Disabled {
+		targets, err = db.ListProgramTargetsFromHistory(ctx, program.Platform, program.Handle)
+		if err != nil {
+			log.Printf("API: Error fetching historical targets for %s/%s: %v", platform, handle, err)
+			setCORSHeaders(w)
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"internal server error"}`))
+			return
+		}
 	}
 
 	// Derive isBBP and split in/out of scope
