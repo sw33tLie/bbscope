@@ -7,7 +7,6 @@ import (
 	. "maragu.dev/gomponents/html"
 )
 
-// apiPageHandler serves the /api documentation page.
 func apiPageHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/api" {
 		http.NotFound(w, r)
@@ -24,16 +23,13 @@ func apiPageHandler(w http.ResponseWriter, r *http.Request) {
 	).Render(w)
 }
 
-// APIPageContent renders the /api documentation page.
 func APIPageContent() g.Node {
 	return Main(Class("container mx-auto mt-10 mb-20 px-4 max-w-4xl"),
-		// Page header
 		Div(Class("mb-10"),
 			H1(Class("text-2xl md:text-3xl font-bold text-white mb-3"), g.Text("API")),
 			P(Class("text-zinc-400 text-lg"), g.Text("Access bug bounty scope data programmatically. All endpoints are public and require no authentication.")),
 		),
 
-		// Try it — front and center
 		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
 			H2(Class("text-lg font-semibold text-white mb-2"), g.Text("Try It")),
 			P(Class("text-zinc-400 mb-5 text-sm"), g.Text("Build a request, preview the results, or download them as a file.")),
@@ -94,12 +90,10 @@ func APIPageContent() g.Node {
 				),
 			),
 
-			// URL preview
 			Div(Class("bg-zinc-950 rounded-lg p-3 font-mono text-sm text-cyan-400 mb-4 overflow-x-auto"),
 				Span(ID("api-try-url"), g.Text("/api/v1/targets/wildcards")),
 			),
 
-			// Action buttons
 			Div(Class("flex flex-wrap gap-3"),
 				Button(
 					ID("api-try-preview"),
@@ -121,26 +115,22 @@ func APIPageContent() g.Node {
 				),
 			),
 
-			// Preview area
 			Pre(
 				ID("api-try-output"),
 				Class("hidden mt-4 bg-zinc-950 rounded-lg p-4 font-mono text-xs text-zinc-300 overflow-x-auto max-h-96 overflow-y-auto border border-zinc-800"),
 			),
 		),
 
-		// Quick start / usage examples
 		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
 			H2(Class("text-lg font-semibold text-white mb-4"), g.Text("Usage Examples")),
 			Div(Class("bg-zinc-950 rounded-lg p-4 font-mono text-sm text-cyan-400 overflow-x-auto"),
-				g.Raw(`<span class="text-zinc-500"># Get all in-scope wildcard domains</span><br>curl -s https://bbscope.com/api/v1/targets/wildcards<br><br><span class="text-zinc-500"># Pipe directly into your tools</span><br>curl -s https://bbscope.com/api/v1/targets/wildcards | subfinder -silent<br><br><span class="text-zinc-500"># Filter by platform and get JSON</span><br>curl -s "https://bbscope.com/api/v1/targets/domains?platform=h1&amp;format=json"<br><br><span class="text-zinc-500"># Raw data without AI enhancements</span><br>curl -s "https://bbscope.com/api/v1/targets/wildcards?raw=true"`),
+				g.Raw(`<span class="text-zinc-500"># Get all in-scope wildcard domains</span><br>curl -s https://bbscope.com/api/v1/targets/wildcards<br><br><span class="text-zinc-500"># Pipe directly into your tools</span><br>curl -s https://bbscope.com/api/v1/targets/wildcards | subfinder -silent<br><br><span class="text-zinc-500"># Filter by platform and get JSON</span><br>curl -s "https://bbscope.com/api/v1/targets/domains?platform=h1&amp;format=json"<br><br><span class="text-zinc-500"># Raw data without AI enhancements</span><br>curl -s "https://bbscope.com/api/v1/targets/wildcards?raw=true"<br><br><span class="text-zinc-500"># Get scope updates (since: today, yesterday, 7d, 30d, 90d, 1y, or YYYY-MM-DD)</span><br>curl -s "https://bbscope.com/api/v1/updates?since=7d"<br><br><span class="text-zinc-500"># Filter updates by platform and date range</span><br>curl -s "https://bbscope.com/api/v1/updates?since=2025-01-01&amp;until=2025-01-31&amp;platform=h1"<br><br><span class="text-zinc-500"># Search updates and paginate</span><br>curl -s "https://bbscope.com/api/v1/updates?search=example.com&amp;per_page=50&amp;page=2"`),
 			),
 		),
 
-		// Endpoint reference
 		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
 			H2(Class("text-lg font-semibold text-white mb-5"), g.Text("Endpoint Reference")),
 
-			// Targets
 			H3(Class("text-sm font-semibold text-zinc-300 uppercase tracking-wider mb-4"), g.Text("Targets")),
 			P(Class("text-zinc-400 mb-4 text-sm"), g.Text("Returns newline-delimited text by default. Add ?format=json for a JSON array.")),
 
@@ -150,7 +140,6 @@ func APIPageContent() g.Node {
 			apiTargetEndpointCard("ips", "IP addresses (extracted from IPs and URLs)."),
 			apiTargetEndpointCard("cidrs", "CIDR ranges and IP ranges."),
 
-			// Shared params
 			Div(Class("bg-zinc-800/50 border border-zinc-700/50 rounded-lg p-4 mt-5 mb-6"),
 				H4(Class("text-sm font-semibold text-zinc-300 mb-2"), g.Text("Query Parameters")),
 				Div(Class("space-y-1.5"),
@@ -162,7 +151,6 @@ func APIPageContent() g.Node {
 				),
 			),
 
-			// Programs
 			H3(Class("text-sm font-semibold text-zinc-300 uppercase tracking-wider mb-4"), g.Text("Programs")),
 
 			apiEndpointCard(
@@ -180,9 +168,23 @@ func APIPageContent() g.Node {
 					{"raw", "boolean", "Set to true for raw target data without AI enhancements"},
 				},
 			),
+
+			H3(Class("text-sm font-semibold text-zinc-300 uppercase tracking-wider mb-4 mt-6"), g.Text("Updates")),
+
+			apiEndpointCard(
+				"GET", "/api/v1/updates",
+				"Returns paginated scope changes (assets and programs added/removed) with time range filtering.",
+				[]apiParam{
+					{"page", "integer", "Page number (default: 1)"},
+					{"per_page", "integer", "Results per page, max 250 (default: 25)"},
+					{"platform", "string", "h1, bc, it, or ywh"},
+					{"search", "string", "Search in targets, handles, categories"},
+					{"since", "string", "Start of time range: today, yesterday, 7d, 30d, 90d, 1y, or YYYY-MM-DD"},
+					{"until", "string", "End of time range: YYYY-MM-DD"},
+				},
+			),
 		),
 
-		// JavaScript for interactive functionality
 		Script(g.Raw(apiPageScript)),
 	)
 }
