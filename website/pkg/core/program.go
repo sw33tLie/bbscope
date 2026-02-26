@@ -38,10 +38,18 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 
+	// Try active programs first, then fall back to disabled/ignored
 	program, err := db.GetProgramByPlatformHandle(ctx, platform, handle)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
+	}
+	if program == nil {
+		program, err = db.GetProgramByPlatformHandleAny(ctx, platform, handle)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 	}
 	if program == nil {
 		http.NotFound(w, r)
@@ -81,7 +89,7 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 		ProgramDetailContent(program, targets, programURL, inScopeCount, oosCount, isBBP),
 		FooterEl(),
 		canonicalURL,
-		false,
+		program.Disabled,
 	).Render(w)
 }
 
@@ -109,6 +117,19 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 			),
 			Span(Class("mx-2 text-zinc-600"), g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>`)),
 			Span(Class("text-zinc-200"), g.Text(program.Handle)),
+		),
+
+		// Program removed banner
+		g.If(program.Disabled,
+			Div(Class("mb-8 rounded-xl border border-red-800/50 bg-red-900/20 px-5 py-4 flex items-start gap-3"),
+				Div(Class("flex-shrink-0 mt-0.5"),
+					g.Raw(`<svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>`),
+				),
+				Div(
+					Div(Class("font-semibold text-red-300 text-sm"), g.Text("Program Removed")),
+					P(Class("text-red-200/70 text-sm mt-1 leading-relaxed"), g.Text("This program is no longer available on "+capitalizedPlatform(program.Platform)+". The scope data shown below is the last known state before removal.")),
+				),
+			),
 		),
 
 		// VDP info banner

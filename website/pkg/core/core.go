@@ -192,18 +192,6 @@ func PageLayout(title, description string, navbar g.Node, content g.Node, footer
 							// TODO: Optionally swap hamburger/close icons here if you add them back
 						});
 					}
-
-					// Scope details toggle function for compact view
-					function toggleScopeDetails(detailsId, iconId) {
-						const detailsRow = document.getElementById(detailsId);
-						const icon = document.getElementById(iconId);
-						if (detailsRow) {
-							detailsRow.classList.toggle('hidden');
-							if (icon) {
-								icon.textContent = detailsRow.classList.contains('hidden') ? '+' : '-';
-							}
-						}
-					}
 				`)),
 			),
 		),
@@ -805,7 +793,7 @@ func scopeBadge(scopeType string) g.Node {
 }
 
 // UpdatesContent renders the main content for the /updates page.
-func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentPerPage int, currentSearch string, isGoogleBot bool, currentPlatform string) g.Node {
+func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentPerPage int, currentSearch string, currentPlatform string) g.Node {
 	pageContent := []g.Node{
 		H1(Class("text-2xl md:text-3xl font-bold text-white mb-4"), g.Text("Scope Updates")),
 		P(Class("text-zinc-400 mb-6"), g.Text("Recent changes to bug bounty program scopes.")),
@@ -852,15 +840,12 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 		)
 	} else {
 		for i, entry := range updates {
-			detailsID := fmt.Sprintf("update-details-%d-%d", currentPage, i)
-			iconID := fmt.Sprintf("update-icon-%d-%d", currentPage, i)
-
-			isProgramLevelChange := entry.Type == "program_added" || entry.Type == "program_removed"
-
 			rowClasses := "border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors duration-150"
 			if i%2 == 1 {
 				rowClasses += " bg-zinc-800/20"
 			}
+
+			isProgramLevelChange := entry.Type == "program_added" || entry.Type == "program_removed"
 
 			// Build program link — link to internal program page if handle is available
 			var programCell g.Node
@@ -874,12 +859,10 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 						A(Href(entry.ProgramURL), Target("_blank"), Rel("noopener noreferrer"),
 							Class("text-zinc-500 hover:text-cyan-400 transition-colors flex-shrink-0"),
 							g.Attr("title", "Open on "+capitalizedPlatform(entry.Platform)),
-							g.If(isProgramLevelChange, g.Attr("onclick", "event.stopPropagation();")),
 							g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>`),
 						),
 						A(Href(internalURL),
 							Class("text-cyan-400 hover:text-cyan-300 hover:underline transition-colors"),
-							g.If(isProgramLevelChange, g.Attr("onclick", "event.stopPropagation();")),
 							g.Text(entry.Handle),
 						),
 					),
@@ -889,28 +872,17 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 					A(Href(entry.ProgramURL), Target("_blank"), Rel("noopener noreferrer"),
 						Class("text-cyan-400 hover:text-cyan-300 hover:underline transition-colors"),
 						g.Attr("title", entry.ProgramURL),
-						g.If(isProgramLevelChange, g.Attr("onclick", "event.stopPropagation();")),
 						g.Text(truncateMiddle(entry.ProgramURL, 40)),
 					),
 				)
 			}
 
 			if isProgramLevelChange {
-				expanderIcon := "+"
-				if isGoogleBot {
-					expanderIcon = "-"
-				}
-				rowClasses += " cursor-pointer"
-
 				tableRows = append(tableRows,
 					Tr(Class(rowClasses),
-						g.Attr("onclick", fmt.Sprintf("toggleScopeDetails('%s', '%s')", detailsID, iconID)),
 						// Change type
 						Td(Class("px-4 py-3 text-sm"),
-							Div(Class("flex items-center gap-2"),
-								Span(ID(iconID), Class("font-mono text-sm text-cyan-400 hover:text-cyan-300 flex-shrink-0"), g.Text(expanderIcon)),
-								changeTypeBadge(entry.Type),
-							),
+							changeTypeBadge(entry.Type),
 						),
 						// Asset (empty for program-level)
 						Td(Class("px-4 py-3 text-sm text-zinc-500"), g.Text("—")),
@@ -924,47 +896,6 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 						Td(Class("px-4 py-3 text-sm"), platformBadge(entry.Platform)),
 						// Time
 						Td(Class("px-4 py-3 text-sm text-zinc-400 whitespace-nowrap"), g.Text(entry.Timestamp.Format("2006-01-02 15:04"))),
-					),
-				)
-
-				// Expandable details row
-				detailsRowClass := "hidden bg-zinc-800/50"
-				if isGoogleBot {
-					detailsRowClass = "bg-zinc-800/50"
-				}
-
-				var detailsRowContent g.Node
-				if len(entry.AssociatedAssets) > 0 {
-					var assetItems []g.Node
-					for _, asset := range entry.AssociatedAssets {
-						cat := strings.ToUpper(asset.Category)
-						if cat == "" {
-							cat = "OTHER"
-						}
-						assetItems = append(assetItems,
-							Div(Class("flex items-center gap-2 py-1"),
-								categoryBadge(cat),
-								Span(Class("text-sm text-zinc-300 break-all"), g.Text(asset.Value)),
-							),
-						)
-					}
-					detailsRowContent = Div(
-						H4(Class("font-semibold text-zinc-300 text-sm mb-2"), g.Text("Associated Assets:")),
-						Div(Class("space-y-0.5"), g.Group(assetItems)),
-					)
-				} else {
-					detailsRowContent = P(Class("text-sm text-zinc-400 py-2"), g.Text("No specific asset details were logged for this program change."))
-				}
-
-				tableRows = append(tableRows,
-					Tr(ID(detailsID), Class(detailsRowClass),
-						Td(ColSpan("7"), Class("p-0"),
-							Div(Class("p-3 border-t border-b border-zinc-700"),
-								Div(Class("p-3 rounded bg-zinc-900/80 shadow-inner"),
-									detailsRowContent,
-								),
-							),
-						),
 					),
 				)
 			} else {
@@ -1141,10 +1072,6 @@ func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platf
 
 // updatesHandler handles requests for the /updates page.
 func updatesHandler(w http.ResponseWriter, r *http.Request) {
-	// Check if the user agent is Googlebot
-	userAgent := r.Header.Get("User-Agent")
-	isGoogleBot := strings.Contains(strings.ToLower(userAgent), "googlebot")
-
 	allUpdates, err := loadUpdatesFromDB()
 	if err != nil {
 		log.Printf("Error loading updates data: %v", err)
@@ -1319,7 +1246,7 @@ func updatesHandler(w http.ResponseWriter, r *http.Request) {
 		updatesPageTitle,
 		updatesPageDescription,
 		Navbar("/updates"),
-		UpdatesContent(paginatedUpdates, currentPage, totalPages, currentPerPage, searchQuery, isGoogleBot, platformFilter),
+		UpdatesContent(paginatedUpdates, currentPage, totalPages, currentPerPage, searchQuery, platformFilter),
 		FooterEl(),
 		updatesCanonicalURL,
 		currentPage > 1,

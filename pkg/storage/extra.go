@@ -368,6 +368,30 @@ func (d *DB) GetProgramByPlatformHandle(ctx context.Context, platform, handle st
 	return &p, nil
 }
 
+// GetProgramByPlatformHandleAny fetches a program by platform and handle,
+// including disabled/ignored programs. Returns nil if not found.
+func (d *DB) GetProgramByPlatformHandleAny(ctx context.Context, platform, handle string) (*Program, error) {
+	query := `SELECT id, platform, handle, url, is_ignored, disabled
+		FROM programs
+		WHERE LOWER(platform) = LOWER($1) AND LOWER(handle) = LOWER($2)
+		LIMIT 1`
+
+	var p Program
+	var ignored, disabled int
+	err := d.sql.QueryRowContext(ctx, query, platform, handle).Scan(
+		&p.ID, &p.Platform, &p.Handle, &p.URL, &ignored, &disabled,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	p.IsIgnored = ignored == 1
+	p.Disabled = disabled == 1
+	return &p, nil
+}
+
 // ListProgramTargets returns all targets for a specific program.
 // When rawMode is true, AI enhancements are ignored.
 func (d *DB) ListProgramTargets(ctx context.Context, programID int64, rawMode bool) ([]ProgramTarget, error) {
