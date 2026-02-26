@@ -1,6 +1,29 @@
 // 1. Get the requested hostname from Burp's requestResponse object
 String requestHost = requestResponse.httpService().host();
 
+// --- ROOT DOMAIN EXTRACTOR ---
+// This safely extracts the base domain (e.g., "codebig2.net" from "sub.codebig2.net")
+// and accounts for common compound TLDs (like "example.co.uk").
+java.util.function.Function<String, String> extractRoot = (host) -> {
+    if (host == null) return "";
+    String[] parts = host.split("\\.");
+    if (parts.length <= 2) return host;
+    
+    String tld = parts[parts.length - 1];
+    String sld = parts[parts.length - 2];
+    
+    // Check for common compound TLDs (e.g., .co.uk, .com.au)
+    if ((tld.length() == 2 && (sld.equals("co") || sld.equals("com") || sld.equals("org") || sld.equals("net"))) || (sld.length() <= 3 && tld.length() == 2)) {
+        if (parts.length >= 3) {
+            return parts[parts.length - 3] + "." + sld + "." + tld;
+        }
+    }
+    return sld + "." + tld;
+};
+
+String requestRoot = extractRoot.apply(requestHost);
+// -----------------------------
+
 // 2. Fetch the JSON from BBScope
 StringBuilder jsonResponse = new StringBuilder();
 try {
@@ -28,7 +51,7 @@ java.util.regex.Matcher programMatcher = programPattern.matcher(json);
 
 while (programMatcher.find()) {
     String programUrl = programMatcher.group(1);
-    String targetsString = programMatcher.group(2); // Looks like: "https://target1.com","https://target2.com"
+    String targetsString = programMatcher.group(2);
 
     // Extract individual target URLs from the array
     java.util.regex.Pattern targetUrlPattern = java.util.regex.Pattern.compile("\"([^\"]+)\"");
@@ -42,8 +65,11 @@ while (programMatcher.find()) {
             String targetHost = uri.getHost();
             
             if (targetHost != null) {
-                // Root Domain / Subdomain check:
-                if (requestHost.equalsIgnoreCase(targetHost) || requestHost.endsWith("." + targetHost)) {
+                String targetRoot = extractRoot.apply(targetHost);
+                
+                // Broad Check: Do they share the same root domain?
+                // e.g., requestRoot (codebig2.net) == targetRoot (codebig2.net)
+                if (requestRoot.equalsIgnoreCase(targetRoot)) {
                     foundProgramUrl = programUrl;
                     break;
                 }
