@@ -501,18 +501,28 @@ func (d *DB) ListProgramTargetsFromHistory(ctx context.Context, platform, handle
 
 // ListProgramChanges returns recent scope changes for a specific program.
 func (d *DB) ListProgramChanges(ctx context.Context, platform, handle string, limit int) ([]Change, error) {
-	if limit <= 0 {
-		limit = 50
+	var query string
+	var args []interface{}
+	if limit > 0 {
+		query = `SELECT occurred_at, program_url, platform, handle,
+			target_normalized, target_raw, target_ai_normalized,
+			category, in_scope, is_bbp, change_type
+			FROM scope_changes
+			WHERE LOWER(platform) = LOWER($1) AND LOWER(handle) = LOWER($2)
+			ORDER BY occurred_at DESC
+			LIMIT $3`
+		args = []interface{}{platform, handle, limit}
+	} else {
+		query = `SELECT occurred_at, program_url, platform, handle,
+			target_normalized, target_raw, target_ai_normalized,
+			category, in_scope, is_bbp, change_type
+			FROM scope_changes
+			WHERE LOWER(platform) = LOWER($1) AND LOWER(handle) = LOWER($2)
+			ORDER BY occurred_at DESC`
+		args = []interface{}{platform, handle}
 	}
-	query := `SELECT occurred_at, program_url, platform, handle,
-		target_normalized, target_raw, target_ai_normalized,
-		category, in_scope, is_bbp, change_type
-		FROM scope_changes
-		WHERE LOWER(platform) = LOWER($1) AND LOWER(handle) = LOWER($2)
-		ORDER BY occurred_at DESC
-		LIMIT $3`
 
-	rows, err := d.sql.QueryContext(ctx, query, platform, handle, limit)
+	rows, err := d.sql.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("listing program changes: %w", err)
 	}
