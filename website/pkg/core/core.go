@@ -153,7 +153,7 @@ func Navbar(currentPath string) g.Node {
 		if isActive {
 			base += "text-cyan-400 bg-cyan-400/10"
 		} else {
-			base += "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
+			base += "text-zinc-400 hover:text-white"
 		}
 		return A(Href(href), Class(base), g.Text(label))
 	}
@@ -179,7 +179,7 @@ func Navbar(currentPath string) g.Node {
 			// Navigation Links
 			Div(
 				ID("mobile-menu"),
-				Class("hidden md:flex md:items-center md:space-x-1 w-full md:w-auto absolute md:relative top-16 left-0 md:top-auto md:left-auto bg-zinc-900/95 backdrop-blur-xl md:bg-transparent shadow-xl md:shadow-none rounded-b-lg md:rounded-none py-3 md:py-0 border-b border-zinc-700/50 md:border-0"),
+				Class("hidden md:flex md:items-center md:space-x-1 w-full md:w-auto absolute md:relative top-16 left-0 md:top-auto md:left-auto bg-zinc-900/95 md:bg-transparent md:backdrop-blur-none backdrop-blur-xl shadow-xl md:shadow-none rounded-b-lg md:rounded-none py-3 md:py-0 border-b border-zinc-700/50 md:border-0"),
 				navLink("/", "Home"),
 				navLink("/scope", "Scope"),
 				navLink("/updates", "Updates"),
