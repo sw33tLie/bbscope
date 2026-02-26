@@ -514,7 +514,7 @@ func (d *DB) CountPrograms(ctx context.Context, platform string) (int, error) {
 
 // ListAllProgramSlugs returns platform+handle pairs for all active programs (used for sitemap).
 func (d *DB) ListAllProgramSlugs(ctx context.Context) ([]ProgramSlug, error) {
-	query := `SELECT platform, handle FROM programs WHERE disabled = 0 AND is_ignored = 0 ORDER BY platform, handle`
+	query := `SELECT platform, handle FROM programs WHERE is_ignored = 0 ORDER BY platform, handle`
 	rows, err := d.sql.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err

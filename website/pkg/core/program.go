@@ -98,7 +98,7 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 		ProgramDetailContent(program, targets, programURL, inScopeCount, oosCount, isBBP),
 		FooterEl(),
 		canonicalURL,
-		program.Disabled,
+		false,
 	).Render(w)
 }
 
