@@ -499,6 +499,41 @@ func (d *DB) ListProgramTargetsFromHistory(ctx context.Context, platform, handle
 	return targets, rows.Err()
 }
 
+// ListProgramChanges returns recent scope changes for a specific program.
+func (d *DB) ListProgramChanges(ctx context.Context, platform, handle string, limit int) ([]Change, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	query := `SELECT occurred_at, program_url, platform, handle,
+		target_normalized, target_raw, target_ai_normalized,
+		category, in_scope, is_bbp, change_type
+		FROM scope_changes
+		WHERE LOWER(platform) = LOWER($1) AND LOWER(handle) = LOWER($2)
+		ORDER BY occurred_at DESC
+		LIMIT $3`
+
+	rows, err := d.sql.QueryContext(ctx, query, platform, handle, limit)
+	if err != nil {
+		return nil, fmt.Errorf("listing program changes: %w", err)
+	}
+	defer rows.Close()
+
+	var changes []Change
+	for rows.Next() {
+		var c Change
+		var inScopeInt, isBBPInt int
+		if err := rows.Scan(&c.OccurredAt, &c.ProgramURL, &c.Platform, &c.Handle,
+			&c.TargetNormalized, &c.TargetRaw, &c.TargetAINormalized,
+			&c.Category, &inScopeInt, &isBBPInt, &c.ChangeType); err != nil {
+			return nil, fmt.Errorf("scanning program change: %w", err)
+		}
+		c.InScope = inScopeInt == 1
+		c.IsBBP = isBBPInt == 1
+		changes = append(changes, c)
+	}
+	return changes, rows.Err()
+}
+
 // CountPrograms returns the number of active programs, optionally filtered by platform.
 func (d *DB) CountPrograms(ctx context.Context, platform string) (int, error) {
 	query := "SELECT COUNT(*) FROM programs WHERE disabled = 0 AND is_ignored = 0"

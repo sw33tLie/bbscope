@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 
+	"time"
+
 	"github.com/sw33tLie/bbscope/v2/pkg/scope"
 	"github.com/sw33tLie/bbscope/v2/pkg/storage"
 	g "maragu.dev/gomponents"
@@ -85,6 +87,12 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Fetch recent scope changes for this program
+	changes, err := db.ListProgramChanges(ctx, program.Platform, program.Handle, 100)
+	if err != nil {
+		changes = nil // non-fatal, just skip the section
+	}
+
 	programURL := strings.ReplaceAll(program.URL, "api.yeswehack.com", "yeswehack.com")
 
 	title := fmt.Sprintf("%s on %s - Bug Bounty Scope | bbscope.com", program.Handle, capitalizedPlatform(program.Platform))
@@ -95,7 +103,7 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 		title,
 		description,
 		Navbar("/scope"),
-		ProgramDetailContent(program, targets, programURL, inScopeCount, oosCount, isBBP),
+		ProgramDetailContent(program, targets, changes, programURL, inScopeCount, oosCount, isBBP),
 		FooterEl(),
 		canonicalURL,
 		false,
@@ -103,7 +111,7 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // ProgramDetailContent renders the program detail page content.
-func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTarget, programURL string, inScopeCount, oosCount int, isBBP bool) g.Node {
+func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTarget, changes []storage.Change, programURL string, inScopeCount, oosCount int, isBBP bool) g.Node {
 	var inScope, outOfScope []storage.ProgramTarget
 	for _, t := range targets {
 		if t.InScope {
@@ -206,6 +214,11 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 	// AI toggle script
 	content = append(content, programDetailAIToggleScript())
 
+	// Scope changes section
+	if len(changes) > 0 {
+		content = append(content, scopeChangesSection(changes))
+	}
+
 	return Main(Class("container mx-auto mt-10 mb-20 px-4"),
 		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8"),
 			g.Group(content),
@@ -219,11 +232,15 @@ func scopeTablesNode(inScope, outOfScope []storage.ProgramTarget) g.Node {
 
 	if len(inScope) > 0 {
 		nodes = append(nodes,
-			H2(Class("text-lg font-semibold text-zinc-200 mb-4 flex items-center gap-2"),
-				Span(Class("w-2 h-2 rounded-full bg-emerald-400")),
-				g.Textf("In-Scope Assets (%d)", len(inScope)),
+			Details(Class(""), g.Attr("open", ""),
+				Summary(Class("text-lg font-semibold text-zinc-200 mb-4 cursor-pointer hover:text-zinc-100 transition-colors flex items-center gap-2"),
+					Span(Class("w-2 h-2 rounded-full bg-emerald-400")),
+					g.Textf("In-Scope Assets (%d)", len(inScope)),
+				),
+				Div(Class("mt-2"),
+					assetTable(inScope, true),
+				),
 			),
-			assetTable(inScope, true),
 		)
 	} else {
 		nodes = append(nodes,
@@ -250,6 +267,120 @@ func scopeTablesNode(inScope, outOfScope []storage.ProgramTarget) g.Node {
 	}
 
 	return g.Group(nodes)
+}
+
+// scopeChangesSection renders the collapsible scope changes timeline for a program.
+func scopeChangesSection(changes []storage.Change) g.Node {
+	// Group changes by date for the timeline
+	type dayGroup struct {
+		date    string
+		changes []storage.Change
+	}
+	var groups []dayGroup
+	var currentDate string
+	for _, c := range changes {
+		d := c.OccurredAt.Format("2006-01-02")
+		if d != currentDate {
+			groups = append(groups, dayGroup{date: d})
+			currentDate = d
+		}
+		groups[len(groups)-1].changes = append(groups[len(groups)-1].changes, c)
+	}
+
+	var timelineNodes []g.Node
+	for _, group := range groups {
+		// Parse date for display
+		t, _ := time.Parse("2006-01-02", group.date)
+		dateLabel := t.Format("Jan 2, 2006")
+
+		var rows []g.Node
+		for i, c := range group.changes {
+			rowBg := ""
+			if i%2 == 1 {
+				rowBg = " bg-zinc-800/20"
+			}
+
+			var changeType string
+			if c.Category == "program" {
+				if c.ChangeType == "added" {
+					changeType = "program_added"
+				} else {
+					changeType = "program_removed"
+				}
+			} else {
+				if c.ChangeType == "added" {
+					changeType = "asset_added"
+				} else {
+					changeType = "asset_removed"
+				}
+			}
+
+			target := c.TargetNormalized
+			if target == "" {
+				target = c.TargetRaw
+			}
+			category := strings.ToUpper(scope.NormalizeCategory(c.Category))
+
+			isProgramLevel := c.Category == "program"
+
+			var scopeNode g.Node
+			if isProgramLevel {
+				scopeNode = Span(Class("text-zinc-500"), g.Text("—"))
+			} else if c.InScope {
+				scopeNode = Span(Class("inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md bg-emerald-900/50 text-emerald-300 border border-emerald-800"), g.Text("In Scope"))
+			} else {
+				scopeNode = Span(Class("inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md bg-zinc-800 text-zinc-400 border border-zinc-700"), g.Text("Out of Scope"))
+			}
+
+			rows = append(rows,
+				Tr(Class("border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors duration-150"+rowBg),
+					Td(Class("px-4 py-2.5 text-sm"), changeTypeBadge(changeType)),
+					Td(Class("px-4 py-2.5 text-sm text-zinc-200 break-all"),
+						g.If(isProgramLevel, Span(Class("text-zinc-500"), g.Text("—"))),
+						g.If(!isProgramLevel, g.Text(target)),
+					),
+					Td(Class("px-4 py-2.5 text-sm"),
+						g.If(isProgramLevel, Span(Class("text-zinc-500"), g.Text("—"))),
+						g.If(!isProgramLevel, categoryBadge(category)),
+					),
+					Td(Class("px-4 py-2.5 text-sm"), scopeNode),
+					Td(Class("px-4 py-2.5 text-sm text-zinc-500 whitespace-nowrap"), g.Text(c.OccurredAt.Format("15:04"))),
+				),
+			)
+		}
+
+		timelineNodes = append(timelineNodes,
+			Div(Class("mb-4"),
+				Div(Class("text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 px-1"), g.Text(dateLabel)),
+				Div(Class("overflow-x-auto rounded-lg border border-zinc-700/50"),
+					Table(Class("min-w-full divide-y divide-zinc-700"),
+						THead(Class("bg-zinc-800/80"),
+							Tr(
+								Th(Class("px-4 py-2 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-32"), g.Text("Change")),
+								Th(Class("px-4 py-2 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider"), g.Text("Asset")),
+								Th(Class("px-4 py-2 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-28"), g.Text("Category")),
+								Th(Class("px-4 py-2 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-28"), g.Text("Scope")),
+								Th(Class("px-4 py-2 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-16"), g.Text("Time")),
+							),
+						),
+						TBody(Class("bg-zinc-900/50 divide-y divide-zinc-800"),
+							g.Group(rows),
+						),
+					),
+				),
+			),
+		)
+	}
+
+	return Details(Class("mt-10"),
+		Summary(Class("text-lg font-semibold text-zinc-200 mb-4 cursor-pointer hover:text-zinc-100 transition-colors flex items-center gap-2"),
+			g.Raw(`<svg class="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`),
+			g.Textf("Scope Changes (%d)", len(changes)),
+		),
+		Div(Class("mt-2"),
+			g.Group(timelineNodes),
+		),
+	)
 }
 
 // programDetailAIToggleScript returns an inline script for toggling AI/raw data on program detail pages.
@@ -402,8 +533,9 @@ func programDetailAIToggleScript() g.Node {
     if (osc) osc.textContent = outScope.length;
 
     if (inScope.length > 0) {
-      html += '<h2 class="text-lg font-semibold text-zinc-200 mb-4 flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-400"></span>In-Scope Assets (' + inScope.length + ')</h2>';
+      html += '<details open><summary class="text-lg font-semibold text-zinc-200 mb-4 cursor-pointer hover:text-zinc-100 transition-colors flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-400"></span>In-Scope Assets (' + inScope.length + ')</summary><div class="mt-2">';
       html += renderTable(inScope, true);
+      html += '</div></details>';
     } else {
       html += '<h2 class="text-lg font-semibold text-zinc-200 mb-4 flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-400"></span>In-Scope Assets</h2>';
       html += '<p class="text-zinc-400 text-sm mb-8">No in-scope assets found for this program.</p>';
