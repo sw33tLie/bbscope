@@ -206,9 +206,9 @@ func apiEndpointCard(method, path, description string, params []apiParam) g.Node
 	}
 
 	children := []g.Node{
-		Div(Class("flex items-center gap-3 mb-2"),
-			Span(Class("px-2 py-0.5 bg-emerald-900/50 text-emerald-400 border border-emerald-800 rounded text-xs font-semibold font-mono"), g.Text(method)),
-			Code(Class("text-sm text-zinc-200 font-mono"), g.Text(path)),
+		Div(Class("flex items-center gap-3 mb-2 min-w-0"),
+			Span(Class("px-2 py-0.5 bg-emerald-900/50 text-emerald-400 border border-emerald-800 rounded text-xs font-semibold font-mono flex-shrink-0"), g.Text(method)),
+			Code(Class("text-sm text-zinc-200 font-mono break-all"), g.Text(path)),
 		),
 		P(Class("text-sm text-zinc-400 mb-3"), g.Text(description)),
 	}
@@ -226,9 +226,9 @@ func apiEndpointCard(method, path, description string, params []apiParam) g.Node
 
 func apiTargetEndpointCard(targetType, description string) g.Node {
 	return Div(Class("border-b border-zinc-800/50 pb-4 mb-4 last:border-0 last:pb-0 last:mb-0"),
-		Div(Class("flex items-center gap-3 mb-1.5"),
-			Span(Class("px-2 py-0.5 bg-emerald-900/50 text-emerald-400 border border-emerald-800 rounded text-xs font-semibold font-mono"), g.Text("GET")),
-			Code(Class("text-sm text-zinc-200 font-mono"), g.Text("/api/v1/targets/"+targetType)),
+		Div(Class("flex items-center gap-3 mb-1.5 min-w-0"),
+			Span(Class("px-2 py-0.5 bg-emerald-900/50 text-emerald-400 border border-emerald-800 rounded text-xs font-semibold font-mono flex-shrink-0"), g.Text("GET")),
+			Code(Class("text-sm text-zinc-200 font-mono break-all"), g.Text("/api/v1/targets/"+targetType)),
 		),
 		P(Class("text-sm text-zinc-400"), g.Text(description)),
 	)

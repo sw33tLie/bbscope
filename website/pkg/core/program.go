@@ -493,7 +493,7 @@ func programDetailAIToggleScript() g.Node {
 
   function renderTable(targets, showLinks) {
     if (!targets || targets.length === 0) return '';
-    var html = '<div class="overflow-x-auto rounded-xl border border-zinc-700/50 mb-6"><table class="min-w-full divide-y divide-zinc-700"><thead class="bg-zinc-800/80"><tr>';
+    var html = '<div class="overflow-x-auto rounded-xl border border-zinc-700/50 mb-6"><table class="min-w-[640px] w-full divide-y divide-zinc-700"><thead class="bg-zinc-800/80"><tr>';
     html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Asset</th>';
     html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-28">Category</th>';
     html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-24">Bounty</th>';
@@ -665,7 +665,7 @@ func assetTable(targets []storage.ProgramTarget, showQuickLinks bool) g.Node {
 	}
 
 	return Div(Class("overflow-x-auto rounded-xl border border-zinc-700/50 mb-6"),
-		Table(Class("min-w-full divide-y divide-zinc-700"),
+		Table(Class("min-w-[640px] w-full divide-y divide-zinc-700"),
 			THead(Class("bg-zinc-800/80"),
 				Tr(g.Group(headerCols)),
 			),

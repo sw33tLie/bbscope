@@ -450,6 +450,8 @@ func scopeProgramTypeFilter() g.Node {
 		g.Group(pills),
 		// Spacer
 		Span(Class("mx-2 hidden sm:inline text-zinc-700"), g.Text("|")),
+		// Line break on mobile so Data: goes to new line
+		Div(Class("basis-full h-0 sm:hidden")),
 		// Data source toggle — managed by scope-table.js
 		Span(Class("text-sm text-zinc-500 mr-1"), g.Text("Data:")),
 		Div(
@@ -735,7 +737,7 @@ func scopeBadge(scopeType string) g.Node {
 	} else if scopeType == "Out of Scope" {
 		colors = "bg-zinc-800 text-zinc-400 border border-zinc-700"
 	}
-	return Span(Class("inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md "+colors), g.Text(scopeType))
+	return Span(Class("inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md whitespace-nowrap "+colors), g.Text(scopeType))
 }
 
 // UpdatesContent renders the main content for the /updates page.
