@@ -1356,6 +1356,8 @@ type ChangesPageOptions struct {
 	PerPage  int
 	Platform string
 	Search   string
+	Since    time.Time
+	Until    time.Time
 }
 
 // ChangesPage holds a page of changes plus total count.
@@ -1405,6 +1407,16 @@ func (d *DB) ListChangesPaginated(ctx context.Context, opts ChangesPageOptions) 
 			OR LOWER(c.change_type) LIKE $%d
 		)`, argIdx, argIdx, argIdx, argIdx, argIdx, argIdx)
 		args = append(args, pattern)
+		argIdx++
+	}
+	if !opts.Since.IsZero() {
+		where += fmt.Sprintf(" AND c.occurred_at >= $%d", argIdx)
+		args = append(args, opts.Since)
+		argIdx++
+	}
+	if !opts.Until.IsZero() {
+		where += fmt.Sprintf(" AND c.occurred_at <= $%d", argIdx)
+		args = append(args, opts.Until)
 		argIdx++
 	}
 

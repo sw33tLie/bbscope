@@ -39,16 +39,14 @@ type UpdateEntryAsset struct {
 
 // UpdateEntry represents a single change event.
 type UpdateEntry struct {
-	Type             string
-	ScopeType        string // "In Scope", "Out of Scope", "" for program types
-	Asset            UpdateEntryAsset
-	ProgramURL       string
-	Platform         string
-	Handle           string
-	Timestamp time.Time
+	Type       string
+	ScopeType  string // "In Scope", "Out of Scope", "" for program types
+	Asset      UpdateEntryAsset
+	ProgramURL string
+	Platform   string
+	Handle     string
+	Timestamp  time.Time
 }
-
-
 
 // Page layout component
 func PageLayout(title, description string, navbar g.Node, content g.Node, footer g.Node, canonicalURL string, shouldNoIndex bool) g.Node {
@@ -346,6 +344,84 @@ func platformFilterTabs(basePath, currentPlatform, extraParams string) g.Node {
 	}
 
 	return Div(Class("flex flex-wrap gap-2 mb-6"), g.Group(tabs))
+}
+
+func dateFilterDropdown(basePath, currentSince, currentUntil, extraParams string) g.Node {
+	presets := []struct{ Value, Label string }{
+		{"", "All time"},
+		{"today", "Today"},
+		{"yesterday", "Yesterday"},
+		{"7d", "Last 7 days"},
+		{"30d", "Last 30 days"},
+		{"90d", "Last 90 days"},
+		{"1y", "Last year"},
+	}
+
+	hasCustomRange := currentSince != "" && func() bool {
+		for _, p := range presets {
+			if p.Value == currentSince {
+				return false
+			}
+		}
+		return true
+	}()
+
+	onChangeJS := fmt.Sprintf(
+		`var v=this.value;if(v==='custom'){document.getElementById('date-range').classList.remove('hidden')}else{document.getElementById('date-range').classList.add('hidden');window.location.href='%s?page=1'+(v?'&since='+v:'')+'%s'}`,
+		basePath, strings.ReplaceAll(extraParams, "'", "\\'"),
+	)
+
+	var options []g.Node
+	for _, p := range presets {
+		attrs := []g.Node{g.Attr("value", p.Value), g.Text(p.Label)}
+		if !hasCustomRange && currentSince == p.Value {
+			attrs = append(attrs, g.Attr("selected", "selected"))
+		}
+		options = append(options, Option(attrs...))
+	}
+	customAttrs := []g.Node{g.Attr("value", "custom"), g.Text("Custom range...")}
+	if hasCustomRange {
+		customAttrs = append(customAttrs, g.Attr("selected", "selected"))
+	}
+	options = append(options, Option(customAttrs...))
+
+	dateRangeClass := "hidden flex flex-wrap items-center gap-2 mt-2"
+	if hasCustomRange {
+		dateRangeClass = "flex flex-wrap items-center gap-2 mt-2"
+	}
+
+	applyJS := fmt.Sprintf(
+		`var f=document.getElementById('date-from').value,t=document.getElementById('date-to').value;if(f){var u='%s?page=1&since='+f+'%s';if(t){u+='&until='+t}window.location.href=u}`,
+		basePath, strings.ReplaceAll(extraParams, "'", "\\'"),
+	)
+
+	inputClasses := "px-3 py-1.5 text-sm rounded-lg bg-zinc-800 text-zinc-300 border border-zinc-700 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 focus:outline-none transition-colors duration-200"
+
+	return Div(Class("flex flex-col mb-6"),
+		Div(Class("flex items-center gap-3"),
+			g.Raw(`<svg class="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>`),
+			Select(
+				Class("px-3 py-1.5 text-sm rounded-lg bg-zinc-800 text-zinc-300 border border-zinc-700 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 focus:outline-none transition-colors duration-200 cursor-pointer appearance-none"),
+				g.Attr("onchange", onChangeJS),
+				g.Group(options),
+			),
+		),
+		Div(g.Attr("id", "date-range"), Class(dateRangeClass),
+			Span(Class("text-sm text-zinc-500"), g.Text("From")),
+			Input(Type("date"), g.Attr("id", "date-from"), Value(func() string {
+				if hasCustomRange {
+					return currentSince
+				}
+				return ""
+			}()), Class(inputClasses)),
+			Span(Class("text-sm text-zinc-500"), g.Text("To")),
+			Input(Type("date"), g.Attr("id", "date-to"), Value(currentUntil), Class(inputClasses)),
+			Button(Type("button"), g.Attr("onclick", applyJS),
+				Class("px-4 py-1.5 text-sm font-medium rounded-lg bg-cyan-600 text-white hover:bg-cyan-500 transition-all duration-200 hover:shadow-md hover:shadow-cyan-500/20"),
+				g.Text("Apply"),
+			),
+		),
+	)
 }
 
 // Helper function for feature cards
@@ -741,11 +817,26 @@ func scopeBadge(scopeType string) g.Node {
 }
 
 // UpdatesContent renders the main content for the /updates page.
-func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentPerPage int, currentSearch string, currentPlatform string) g.Node {
+func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentPerPage int, currentSearch string, currentPlatform string, currentSince string, currentUntil string) g.Node {
+	dateExtra := ""
+	if currentPlatform != "" {
+		dateExtra += "&platform=" + url.QueryEscape(currentPlatform)
+	}
+	dateExtra += fmt.Sprintf("&perPage=%d", currentPerPage)
+
+	platformExtra := fmt.Sprintf("&perPage=%d", currentPerPage)
+	if currentSince != "" {
+		platformExtra += "&since=" + url.QueryEscape(currentSince)
+	}
+	if currentUntil != "" {
+		platformExtra += "&until=" + url.QueryEscape(currentUntil)
+	}
+
 	pageContent := []g.Node{
 		H1(Class("text-2xl md:text-3xl font-bold text-white mb-4"), g.Text("Scope Updates")),
 		P(Class("text-zinc-400 mb-6"), g.Text("Recent changes to bug bounty program scopes.")),
-		platformFilterTabs("/updates", currentPlatform, fmt.Sprintf("&perPage=%d", currentPerPage)),
+		platformFilterTabs("/updates", currentPlatform, platformExtra),
+		dateFilterDropdown("/updates", currentSince, currentUntil, dateExtra),
 	}
 
 	// Search controls
@@ -769,6 +860,8 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 		),
 		Input(Type("hidden"), Name("perPage"), Value(strconv.Itoa(currentPerPage))),
 		Input(Type("hidden"), Name("platform"), Value(currentPlatform)),
+		Input(Type("hidden"), Name("since"), Value(currentSince)),
+		Input(Type("hidden"), Name("until"), Value(currentUntil)),
 	)
 	pageContent = append(pageContent, controlsHeader)
 
@@ -903,7 +996,7 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 
 	// Pagination
 	if totalPages > 1 {
-		paginationBottom := createUpdatesPagePagination(currentPage, totalPages, currentPerPage, currentPlatform, currentSearch)
+		paginationBottom := createUpdatesPagePagination(currentPage, totalPages, currentPerPage, currentPlatform, currentSearch, currentSince, currentUntil)
 		pageContent = append(pageContent, Div(Class("mt-6 flex justify-center"), paginationBottom))
 	}
 
@@ -915,10 +1008,9 @@ func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentP
 }
 
 // createUpdatesPagePagination creates pagination controls for the updates page
-func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platform string, search string) g.Node {
+func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platform string, search string, since string, until string) g.Node {
 	var paginationItems []g.Node
 
-	// Helper to build href with all query params preserved
 	buildHref := func(page int) string {
 		href := fmt.Sprintf("/updates?page=%d&perPage=%d", page, perPage)
 		if platform != "" {
@@ -926,6 +1018,12 @@ func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platf
 		}
 		if search != "" {
 			href += "&search=" + url.QueryEscape(search)
+		}
+		if since != "" {
+			href += "&since=" + url.QueryEscape(since)
+		}
+		if until != "" {
+			href += "&until=" + url.QueryEscape(until)
 		}
 		return href
 	}
@@ -1023,6 +1121,8 @@ func updatesHandler(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	searchQuery := strings.TrimSpace(query.Get("search"))
 	platformFilter := strings.ToLower(strings.TrimSpace(query.Get("platform")))
+	sinceParam := strings.TrimSpace(query.Get("since"))
+	untilParam := strings.TrimSpace(query.Get("until"))
 
 	currentPage := 1
 	if p, err := strconv.Atoi(query.Get("page")); err == nil && p > 0 {
@@ -1035,12 +1135,44 @@ func updatesHandler(w http.ResponseWriter, r *http.Request) {
 		currentPerPage = p
 	}
 
+	var sinceTime time.Time
+	now := time.Now()
+	switch sinceParam {
+	case "today":
+		sinceTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	case "yesterday":
+		y := now.AddDate(0, 0, -1)
+		sinceTime = time.Date(y.Year(), y.Month(), y.Day(), 0, 0, 0, 0, y.Location())
+	case "7d":
+		sinceTime = now.AddDate(0, 0, -7)
+	case "30d":
+		sinceTime = now.AddDate(0, 0, -30)
+	case "90d":
+		sinceTime = now.AddDate(0, 0, -90)
+	case "1y":
+		sinceTime = now.AddDate(-1, 0, 0)
+	case "":
+	default:
+		if t, err := time.Parse("2006-01-02", sinceParam); err == nil {
+			sinceTime = t
+		}
+	}
+
+	var untilTime time.Time
+	if untilParam != "" {
+		if t, err := time.Parse("2006-01-02", untilParam); err == nil {
+			untilTime = t.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+		}
+	}
+
 	ctx := context.Background()
 	page, err := db.ListChangesPaginated(ctx, storage.ChangesPageOptions{
 		Page:     currentPage,
 		PerPage:  currentPerPage,
 		Platform: platformFilter,
 		Search:   searchQuery,
+		Since:    sinceTime,
+		Until:    untilTime,
 	})
 	if err != nil {
 		log.Printf("Error loading updates data: %v", err)
@@ -1110,7 +1242,7 @@ func updatesHandler(w http.ResponseWriter, r *http.Request) {
 		updatesPageTitle,
 		updatesPageDescription,
 		Navbar("/updates"),
-		UpdatesContent(updates, currentPage, totalPages, currentPerPage, searchQuery, platformFilter),
+		UpdatesContent(updates, currentPage, totalPages, currentPerPage, searchQuery, platformFilter, sinceParam, untilParam),
 		FooterEl(),
 		updatesCanonicalURL,
 		currentPage > 1,
