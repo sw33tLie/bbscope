@@ -26,6 +26,7 @@ func sitemapHandler(w http.ResponseWriter, r *http.Request) {
 	// Static pages
 	addSitemapURLEntry("/", "weekly", 1.0)
 	addSitemapURLEntry("/scope", "daily", 0.9)
+	addSitemapURLEntry("/programs", "daily", 0.9)
 	addSitemapURLEntry("/updates", "daily", 0.9)
 	addSitemapURLEntry("/stats", "weekly", 0.7)
 	addSitemapURLEntry("/docs", "weekly", 0.7)

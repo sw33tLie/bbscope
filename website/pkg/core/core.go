@@ -180,6 +180,7 @@ func Navbar(currentPath string) g.Node {
 				Class("hidden md:flex md:items-center md:space-x-1 w-full md:w-auto absolute md:relative top-16 left-0 md:top-auto md:left-auto bg-zinc-900/95 md:bg-transparent md:backdrop-blur-none backdrop-blur-xl shadow-xl md:shadow-none rounded-b-lg md:rounded-none py-3 md:py-0 border-b border-zinc-700/50 md:border-0"),
 				navLink("/", "Home"),
 				navLink("/scope", "Scope"),
+				navLink("/programs", "Programs"),
 				navLink("/updates", "Updates"),
 				navLink("/stats", "Stats"),
 				navLink("/docs", "Docs"),
@@ -481,6 +482,10 @@ func ScopeContent() g.Node {
 					searchBar,
 				),
 			),
+			// Crawlable link to program list for SEO (visible in initial HTML)
+			P(Class("text-zinc-400 text-sm mb-3"),
+				A(Href("/programs"), Class("text-cyan-400 hover:text-cyan-300 hover:underline"), g.Text("Browse all programs (A–Z)")),
+			),
 			typePills,
 			// Table container — filled by scope-table.js
 			Div(ID("scope-table-container"),
@@ -490,7 +495,7 @@ func ScopeContent() g.Node {
 				),
 			),
 			// Noscript fallback
-			g.Raw(`<noscript><div class="text-center py-8 text-zinc-400">JavaScript is required to view the scope table. Browse individual programs from the <a href="/sitemap.xml" class="text-cyan-400 hover:underline">sitemap</a>.</div></noscript>`),
+			g.Raw(`<noscript><div class="text-center py-8 text-zinc-400">JavaScript is required to view the scope table. <a href="/programs" class="text-cyan-400 hover:underline">Browse all programs</a> or see the <a href="/sitemap.xml" class="text-cyan-400 hover:underline">sitemap</a>.</div></noscript>`),
 			Script(Src("/static/js/scope-table.js")),
 		),
 	)
@@ -688,6 +693,105 @@ func scopeHandler(w http.ResponseWriter, r *http.Request) {
 	).Render(w)
 }
 
+// HTTP handler for /programs — crawlable HTML list of all program pages for SEO.
+func programsIndexHandler(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/programs" {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := context.Background()
+	slugs, err := db.ListAllProgramSlugs(ctx)
+	if err != nil {
+		log.Printf("Programs index: error listing slugs: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	PageLayout(
+		"All Bug Bounty Programs | bbscope.com",
+		"Complete list of bug bounty and VDP programs from HackerOne, Bugcrowd, Intigriti and YesWeHack. Browse scope and in-scope assets by program.",
+		Navbar("/programs"),
+		ProgramsIndexContent(slugs),
+		FooterEl(),
+		"/programs",
+		false,
+	).Render(w)
+}
+
+// ProgramsIndexContent renders a server-rendered list of all program links, grouped by platform.
+// This gives crawlers a direct HTML path to every program page for better indexing.
+func ProgramsIndexContent(slugs []storage.ProgramSlug) g.Node {
+	// Group by platform (same order as elsewhere: h1, bc, it, ywh)
+	platformOrder := []string{"h1", "bc", "it", "ywh"}
+	platformLabels := map[string]string{
+		"h1": "HackerOne", "bc": "Bugcrowd", "it": "Intigriti", "ywh": "YesWeHack",
+	}
+	byPlatform := make(map[string][]storage.ProgramSlug)
+	for _, s := range slugs {
+		plat := strings.ToLower(s.Platform)
+		byPlatform[plat] = append(byPlatform[plat], s)
+	}
+
+	var sections []g.Node
+	for _, plat := range platformOrder {
+		list := byPlatform[plat]
+		if len(list) == 0 {
+			continue
+		}
+		label := platformLabels[plat]
+		if label == "" {
+			label = plat
+		}
+		var links []g.Node
+		for _, s := range list {
+			path := fmt.Sprintf("/program/%s/%s",
+				url.PathEscape(strings.ToLower(s.Platform)),
+				url.PathEscape(s.Handle),
+			)
+			links = append(links,
+				Li(
+					A(Href(path), Class("text-cyan-400 hover:text-cyan-300 hover:underline"), g.Text(displayHandle(s.Platform, s.Handle))),
+				),
+			)
+		}
+		sections = append(sections,
+			Section(Class("mb-10"),
+				H2(Class("text-lg font-semibold text-white mb-3"), g.Text(label)),
+				Ul(Class("list-none space-y-1.5 columns-1 sm:columns-2 lg:columns-3 gap-x-6"), g.Group(links)),
+			),
+		)
+	}
+	// Any platform not in platformOrder (e.g. future platforms)
+	for plat, list := range byPlatform {
+		if _, inOrder := platformLabels[plat]; inOrder {
+			continue
+		}
+		var links []g.Node
+		for _, s := range list {
+			path := fmt.Sprintf("/program/%s/%s",
+				url.PathEscape(strings.ToLower(s.Platform)),
+				url.PathEscape(s.Handle),
+			)
+			links = append(links,
+				Li(
+					A(Href(path), Class("text-cyan-400 hover:text-cyan-300 hover:underline"), g.Text(displayHandle(s.Platform, s.Handle))),
+				),
+			)
+		}
+		sections = append(sections,
+			Section(Class("mb-10"),
+				H2(Class("text-lg font-semibold text-white mb-3"), g.Text(plat)),
+				Ul(Class("list-none space-y-1.5 columns-1 sm:columns-2 lg:columns-3 gap-x-6"), g.Group(links)),
+			),
+		)
+	}
+
+	return Main(Class("container mx-auto mt-10 mb-20 px-4 max-w-5xl"),
+		H1(Class("text-2xl md:text-3xl font-bold text-white mb-2"), g.Text("All Bug Bounty Programs")),
+		P(Class("text-zinc-400 mb-8"), g.Text("Browse scope and in-scope assets by program. Each link opens the program’s scope page.")),
+		g.Group(sections),
+	)
+}
+
 // HTTP handler for /robots.txt
 func robotsTxtHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/robots.txt" {
@@ -748,6 +852,7 @@ func Run(cfg ServerConfig) error {
 
 	http.HandleFunc("/", homeHandler)
 	http.HandleFunc("/scope", scopeHandler)
+	http.HandleFunc("/programs", programsIndexHandler)
 	http.HandleFunc("/program/", programDetailHandler)
 	http.HandleFunc("/updates", updatesHandler)
 	http.HandleFunc("/docs", docsHandler)
