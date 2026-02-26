@@ -88,7 +88,7 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch recent scope changes for this program
-	changes, err := db.ListProgramChanges(ctx, program.Platform, program.Handle, 100)
+	changes, err := db.ListProgramChanges(ctx, program.Platform, program.Handle, 0)
 	if err != nil {
 		changes = nil // non-fatal, just skip the section
 	}
