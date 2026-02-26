@@ -3,12 +3,17 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sw33tLie/bbscope/v2/pkg/storage"
+	"github.com/sw33tLie/bbscope/v2/pkg/targets"
 )
 
 // API cache for program list — separate slots for AI-enhanced and raw modes.
@@ -268,4 +273,208 @@ func setCORSHeaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+}
+
+// --- Targets API ---
+
+var (
+	targetsCacheMu  sync.RWMutex
+	targetsCache    = make(map[string]targetsCacheEntry)
+	targetsCacheTTL = 5 * time.Minute
+)
+
+type targetsCacheEntry struct {
+	data []byte
+	time time.Time
+}
+
+// apiTargetsHandler serves GET /api/v1/targets/{wildcards,domains,urls,ips,cidrs}.
+// Query params: scope (in|out|all), platform, type (bbp|vdp), format (json).
+func apiTargetsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		setCORSHeaders(w)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse target type from path
+	suffix := strings.TrimPrefix(r.URL.Path, "/api/v1/targets/")
+	suffix = strings.TrimSuffix(suffix, "/")
+	validTypes := map[string]bool{"wildcards": true, "domains": true, "urls": true, "ips": true, "cidrs": true}
+	if !validTypes[suffix] {
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error":"not found. valid types: wildcards, domains, urls, ips, cidrs"}`))
+		return
+	}
+
+	query := r.URL.Query()
+	scopeParam := strings.ToLower(query.Get("scope"))
+	if scopeParam == "" {
+		scopeParam = "in"
+	}
+	if scopeParam != "in" && scopeParam != "out" && scopeParam != "all" {
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"invalid scope param. use: in, out, all"}`))
+		return
+	}
+	platformParam := strings.ToLower(query.Get("platform"))
+	typeParam := strings.ToLower(query.Get("type"))
+	formatParam := strings.ToLower(query.Get("format"))
+
+	// Build cache key from full query
+	cacheKey := fmt.Sprintf("%s|%s|%s|%s", suffix, scopeParam, platformParam, typeParam)
+
+	targetsCacheMu.RLock()
+	entry, ok := targetsCache[cacheKey]
+	targetsCacheMu.RUnlock()
+
+	var results []string
+	if ok && time.Since(entry.time) < targetsCacheTTL {
+		results = nil // will use cached bytes directly below
+	} else {
+		// Load entries from DB
+		ctx := context.Background()
+		opts := storage.ListOptions{
+			Platform:    platformParam,
+			IncludeOOS:  scopeParam == "out" || scopeParam == "all",
+			ProgramType: typeParam,
+		}
+		entries, err := db.ListEntries(ctx, opts)
+		if err != nil {
+			log.Printf("API targets: error listing entries: %v", err)
+			setCORSHeaders(w)
+			http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+			return
+		}
+
+		// For "all" scope, we need both in and out entries — ListEntries with IncludeOOS=true gives us both.
+		// For "in" scope, we already have only in-scope entries.
+		// For "out" scope, we have all entries but need to call the OOS collector.
+		switch suffix {
+		case "wildcards":
+			if scopeParam == "out" {
+				sorted := targets.CollectOOSWildcardsSorted(entries)
+				for _, r := range sorted {
+					results = append(results, r.Domain)
+				}
+			} else {
+				// "in" or "all": collect in-scope wildcards
+				sorted := targets.CollectWildcardsSorted(entries, targets.WildcardOptions{})
+				for _, r := range sorted {
+					results = append(results, r.Domain)
+				}
+				if scopeParam == "all" {
+					// Also collect out-of-scope wildcards
+					oosSorted := targets.CollectOOSWildcardsSorted(entries)
+					seen := make(map[string]struct{}, len(results))
+					for _, r := range results {
+						seen[r] = struct{}{}
+					}
+					for _, r := range oosSorted {
+						if _, exists := seen[r.Domain]; !exists {
+							results = append(results, r.Domain)
+						}
+					}
+				}
+			}
+		case "domains":
+			switch scopeParam {
+			case "in":
+				results = targets.CollectDomains(entries)
+			case "out":
+				results = targets.CollectOOSDomains(entries)
+			case "all":
+				results = targets.CollectDomains(entries)
+				oos := targets.CollectOOSDomains(entries)
+				results = mergeUniqueSorted(results, oos)
+			}
+		case "urls":
+			switch scopeParam {
+			case "in":
+				results = targets.CollectURLs(entries)
+			case "out":
+				results = targets.CollectOOSURLs(entries)
+			case "all":
+				results = targets.CollectURLs(entries)
+				oos := targets.CollectOOSURLs(entries)
+				results = mergeUniqueSorted(results, oos)
+			}
+		case "ips":
+			switch scopeParam {
+			case "in":
+				results = targets.CollectIPs(entries)
+			case "out":
+				results = targets.CollectOOSIPs(entries)
+			case "all":
+				results = targets.CollectIPs(entries)
+				oos := targets.CollectOOSIPs(entries)
+				results = mergeUniqueSorted(results, oos)
+			}
+		case "cidrs":
+			switch scopeParam {
+			case "in":
+				results = targets.CollectCIDRs(entries)
+			case "out":
+				results = targets.CollectOOSCIDRs(entries)
+			case "all":
+				results = targets.CollectCIDRs(entries)
+				oos := targets.CollectOOSCIDRs(entries)
+				results = mergeUniqueSorted(results, oos)
+			}
+		}
+
+		// Cache the results as newline-delimited bytes
+		data := []byte(strings.Join(results, "\n"))
+		targetsCacheMu.Lock()
+		targetsCache[cacheKey] = targetsCacheEntry{data: data, time: time.Now()}
+		targetsCacheMu.Unlock()
+		entry = targetsCacheEntry{data: data}
+	}
+
+	setCORSHeaders(w)
+	w.Header().Set("Cache-Control", "public, max-age=300")
+
+	if formatParam == "json" {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		// Parse cached data back to slice for JSON output
+		var items []string
+		if len(entry.data) > 0 {
+			items = strings.Split(string(entry.data), "\n")
+		} else {
+			items = []string{}
+		}
+		json.NewEncoder(w).Encode(items)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if len(entry.data) > 0 {
+		w.Write(entry.data)
+		w.Write([]byte("\n"))
+	}
+}
+
+// mergeUniqueSorted merges two sorted string slices into a single sorted, deduplicated slice.
+func mergeUniqueSorted(a, b []string) []string {
+	seen := make(map[string]struct{}, len(a)+len(b))
+	for _, s := range a {
+		seen[s] = struct{}{}
+	}
+	for _, s := range b {
+		seen[s] = struct{}{}
+	}
+	out := make([]string, 0, len(seen))
+	for s := range seen {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
 }

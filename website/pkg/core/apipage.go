@@ -1,0 +1,296 @@
+package core
+
+import (
+	"net/http"
+
+	g "maragu.dev/gomponents"
+	. "maragu.dev/gomponents/html"
+)
+
+// apiPageHandler serves the /api documentation page.
+func apiPageHandler(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/api" {
+		http.NotFound(w, r)
+		return
+	}
+	PageLayout(
+		"API - bbscope.com",
+		"Public API documentation for bbscope.com. Access bug bounty scope data programmatically.",
+		Navbar("/api"),
+		APIPageContent(),
+		FooterEl(),
+		"/api",
+		false,
+	).Render(w)
+}
+
+// APIPageContent renders the /api documentation page.
+func APIPageContent() g.Node {
+	return Main(Class("container mx-auto mt-10 mb-20 px-4 max-w-4xl"),
+		// Page header
+		Div(Class("mb-10"),
+			H1(Class("text-2xl md:text-3xl font-bold text-white mb-3"), g.Text("API Documentation")),
+			P(Class("text-zinc-400 text-lg"), g.Text("Access bug bounty scope data programmatically. All endpoints are public and require no authentication.")),
+		),
+
+		// Quick start
+		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
+			H2(Class("text-lg font-semibold text-white mb-4"), g.Text("Quick Start")),
+			P(Class("text-zinc-400 mb-4 text-sm leading-relaxed"), g.Text("All target endpoints return newline-delimited text by default, perfect for piping into other tools. Add ?format=json for JSON array output.")),
+			Div(Class("bg-zinc-950 rounded-lg p-4 font-mono text-sm text-cyan-400 overflow-x-auto"),
+				g.Raw(`<span class="text-zinc-500"># Get all in-scope wildcard domains</span><br>curl -s https://bbscope.com/api/v1/targets/wildcards<br><br><span class="text-zinc-500"># Pipe directly into your tools</span><br>curl -s https://bbscope.com/api/v1/targets/wildcards | subfinder -silent<br><br><span class="text-zinc-500"># Filter by platform and get JSON</span><br>curl -s "https://bbscope.com/api/v1/targets/domains?platform=h1&amp;format=json"`),
+			),
+		),
+
+		// Programs API section
+		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
+			H2(Class("text-lg font-semibold text-white mb-5"), g.Text("Programs")),
+
+			apiEndpointCard(
+				"GET", "/api/v1/programs",
+				"Returns the full list of bug bounty programs with their scope data as JSON.",
+				[]apiParam{
+					{"raw", "boolean", "Set to true for raw target data without AI enhancements"},
+				},
+			),
+
+			apiEndpointCard(
+				"GET", "/api/v1/programs/{platform}/{handle}",
+				"Returns details for a single program including in-scope and out-of-scope targets.",
+				[]apiParam{
+					{"raw", "boolean", "Set to true for raw target data without AI enhancements"},
+				},
+			),
+		),
+
+		// Targets API section
+		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
+			H2(Class("text-lg font-semibold text-white mb-2"), g.Text("Targets")),
+			P(Class("text-zinc-400 mb-5 text-sm"), g.Text("Extract specific target types from all programs. Returns newline-delimited text (or JSON array with ?format=json).")),
+
+			// Shared params note
+			Div(Class("bg-zinc-800/50 border border-zinc-700/50 rounded-lg p-4 mb-5"),
+				H3(Class("text-sm font-semibold text-zinc-300 mb-2"), g.Text("Shared Query Parameters")),
+				Div(Class("space-y-1.5"),
+					apiParamRow("scope", "string", "in (default), out, or all"),
+					apiParamRow("platform", "string", "h1, bc, it, or ywh"),
+					apiParamRow("type", "string", "bbp or vdp"),
+					apiParamRow("format", "string", "json for JSON array output"),
+				),
+			),
+
+			apiTargetEndpointCard("wildcards", "In-scope wildcard root domains, useful for subdomain enumeration."),
+			apiTargetEndpointCard("domains", "In-scope domains (non-URL, non-wildcard targets)."),
+			apiTargetEndpointCard("urls", "In-scope URL targets (http:// or https://)."),
+			apiTargetEndpointCard("ips", "In-scope IP addresses (extracted from IPs and URLs)."),
+			apiTargetEndpointCard("cidrs", "In-scope CIDR ranges and IP ranges."),
+		),
+
+		// Interactive try-it section
+		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
+			H2(Class("text-lg font-semibold text-white mb-5"), g.Text("Try It")),
+			P(Class("text-zinc-400 mb-5 text-sm"), g.Text("Build a request and download the results.")),
+
+			// Endpoint selector
+			Div(Class("grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4"),
+				Div(
+					Label(Class("block text-sm font-medium text-zinc-400 mb-1.5"), g.Text("Endpoint")),
+					Select(
+						ID("api-try-endpoint"),
+						Class("w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"),
+						Option(Value("wildcards"), g.Text("Wildcards")),
+						Option(Value("domains"), g.Text("Domains")),
+						Option(Value("urls"), g.Text("URLs")),
+						Option(Value("ips"), g.Text("IPs")),
+						Option(Value("cidrs"), g.Text("CIDRs")),
+					),
+				),
+				Div(
+					Label(Class("block text-sm font-medium text-zinc-400 mb-1.5"), g.Text("Scope")),
+					Select(
+						ID("api-try-scope"),
+						Class("w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"),
+						Option(Value("in"), g.Text("In Scope (default)")),
+						Option(Value("out"), g.Text("Out of Scope")),
+						Option(Value("all"), g.Text("All")),
+					),
+				),
+				Div(
+					Label(Class("block text-sm font-medium text-zinc-400 mb-1.5"), g.Text("Platform")),
+					Select(
+						ID("api-try-platform"),
+						Class("w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"),
+						Option(Value(""), g.Text("All Platforms")),
+						Option(Value("h1"), g.Text("HackerOne")),
+						Option(Value("bc"), g.Text("Bugcrowd")),
+						Option(Value("it"), g.Text("Intigriti")),
+						Option(Value("ywh"), g.Text("YesWeHack")),
+					),
+				),
+				Div(
+					Label(Class("block text-sm font-medium text-zinc-400 mb-1.5"), g.Text("Program Type")),
+					Select(
+						ID("api-try-type"),
+						Class("w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"),
+						Option(Value(""), g.Text("All")),
+						Option(Value("bbp"), g.Text("Bug Bounty (BBP)")),
+						Option(Value("vdp"), g.Text("VDP")),
+					),
+				),
+			),
+
+			// URL preview
+			Div(Class("bg-zinc-950 rounded-lg p-3 font-mono text-sm text-cyan-400 mb-4 overflow-x-auto"),
+				Span(ID("api-try-url"), g.Text("/api/v1/targets/wildcards")),
+			),
+
+			// Action buttons
+			Div(Class("flex flex-wrap gap-3"),
+				Button(
+					ID("api-try-download"),
+					Type("button"),
+					Class("px-5 py-2.5 bg-cyan-600 text-white font-medium rounded-lg hover:bg-cyan-500 transition-all duration-200 hover:shadow-md hover:shadow-cyan-500/20 text-sm"),
+					g.Text("Download .txt"),
+				),
+				Button(
+					ID("api-try-preview"),
+					Type("button"),
+					Class("px-5 py-2.5 bg-zinc-700 text-zinc-200 font-medium rounded-lg hover:bg-zinc-600 transition-all duration-200 text-sm"),
+					g.Text("Preview (first 50 lines)"),
+				),
+				Button(
+					ID("api-try-copy"),
+					Type("button"),
+					Class("px-5 py-2.5 bg-zinc-700 text-zinc-200 font-medium rounded-lg hover:bg-zinc-600 transition-all duration-200 text-sm"),
+					g.Text("Copy curl command"),
+				),
+			),
+
+			// Preview area
+			Pre(
+				ID("api-try-output"),
+				Class("hidden mt-4 bg-zinc-950 rounded-lg p-4 font-mono text-xs text-zinc-300 overflow-x-auto max-h-96 overflow-y-auto border border-zinc-800"),
+			),
+		),
+
+		// JavaScript for interactive functionality
+		Script(g.Raw(apiPageScript)),
+	)
+}
+
+type apiParam struct {
+	name, typ, desc string
+}
+
+func apiParamRow(name, typ, desc string) g.Node {
+	return Div(Class("flex items-baseline gap-2 text-sm"),
+		Code(Class("text-cyan-400 bg-zinc-900 px-1.5 py-0.5 rounded text-xs font-mono"), g.Text(name)),
+		Span(Class("text-zinc-500 text-xs"), g.Text(typ)),
+		Span(Class("text-zinc-400"), g.Text("— "+desc)),
+	)
+}
+
+func apiEndpointCard(method, path, description string, params []apiParam) g.Node {
+	paramNodes := []g.Node{}
+	for _, p := range params {
+		paramNodes = append(paramNodes, apiParamRow(p.name, p.typ, p.desc))
+	}
+
+	children := []g.Node{
+		Div(Class("flex items-center gap-3 mb-2"),
+			Span(Class("px-2 py-0.5 bg-emerald-900/50 text-emerald-400 border border-emerald-800 rounded text-xs font-semibold font-mono"), g.Text(method)),
+			Code(Class("text-sm text-zinc-200 font-mono"), g.Text(path)),
+		),
+		P(Class("text-sm text-zinc-400 mb-3"), g.Text(description)),
+	}
+
+	if len(paramNodes) > 0 {
+		children = append(children,
+			Div(Class("space-y-1.5"), g.Group(paramNodes)),
+		)
+	}
+
+	return Div(Class("border-b border-zinc-800/50 pb-5 mb-5 last:border-0 last:pb-0 last:mb-0"),
+		g.Group(children),
+	)
+}
+
+func apiTargetEndpointCard(targetType, description string) g.Node {
+	return Div(Class("border-b border-zinc-800/50 pb-4 mb-4 last:border-0 last:pb-0 last:mb-0"),
+		Div(Class("flex items-center gap-3 mb-1.5"),
+			Span(Class("px-2 py-0.5 bg-emerald-900/50 text-emerald-400 border border-emerald-800 rounded text-xs font-semibold font-mono"), g.Text("GET")),
+			Code(Class("text-sm text-zinc-200 font-mono"), g.Text("/api/v1/targets/"+targetType)),
+		),
+		P(Class("text-sm text-zinc-400"), g.Text(description)),
+	)
+}
+
+const apiPageScript = `
+(function() {
+	const endpoint = document.getElementById('api-try-endpoint');
+	const scope = document.getElementById('api-try-scope');
+	const platform = document.getElementById('api-try-platform');
+	const ptype = document.getElementById('api-try-type');
+	const urlPreview = document.getElementById('api-try-url');
+	const downloadBtn = document.getElementById('api-try-download');
+	const previewBtn = document.getElementById('api-try-preview');
+	const copyBtn = document.getElementById('api-try-copy');
+	const output = document.getElementById('api-try-output');
+
+	function buildURL() {
+		let url = '/api/v1/targets/' + endpoint.value;
+		const params = [];
+		if (scope.value !== 'in') params.push('scope=' + scope.value);
+		if (platform.value) params.push('platform=' + platform.value);
+		if (ptype.value) params.push('type=' + ptype.value);
+		if (params.length > 0) url += '?' + params.join('&');
+		return url;
+	}
+
+	function updatePreview() {
+		urlPreview.textContent = buildURL();
+	}
+
+	[endpoint, scope, platform, ptype].forEach(function(el) {
+		el.addEventListener('change', updatePreview);
+	});
+
+	downloadBtn.addEventListener('click', function() {
+		const url = buildURL();
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = endpoint.value + '.txt';
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+	});
+
+	previewBtn.addEventListener('click', function() {
+		const url = buildURL();
+		output.classList.remove('hidden');
+		output.textContent = 'Loading...';
+		fetch(url)
+			.then(function(r) { return r.text(); })
+			.then(function(text) {
+				const lines = text.split('\n').slice(0, 50);
+				output.textContent = lines.join('\n');
+				if (text.split('\n').length > 50) {
+					output.textContent += '\n\n... (truncated, download for full results)';
+				}
+			})
+			.catch(function(err) {
+				output.textContent = 'Error: ' + err.message;
+			});
+	});
+
+	copyBtn.addEventListener('click', function() {
+		const url = window.location.origin + buildURL();
+		const cmd = 'curl -s "' + url + '"';
+		navigator.clipboard.writeText(cmd).then(function() {
+			const orig = copyBtn.textContent;
+			copyBtn.textContent = 'Copied!';
+			setTimeout(function() { copyBtn.textContent = orig; }, 1500);
+		});
+	});
+})();
+`

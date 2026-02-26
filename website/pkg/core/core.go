@@ -250,6 +250,7 @@ func Navbar(currentPath string) g.Node {
 				navLink("/updates", "Updates"),
 				navLink("/stats", "Stats"),
 				navLink("/docs", "Docs"),
+				navLink("/api", "API"),
 				A(Href("https://github.com/sw33tLie/bbscope"), Target("_blank"), Rel("noopener noreferrer"),
 					Class("block text-center md:inline-block text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-all duration-200 px-3 py-2 rounded-md text-sm font-medium"),
 					g.Text("GitHub"),
@@ -747,6 +748,8 @@ func Run(cfg ServerConfig) error {
 	// Public API
 	http.HandleFunc("/api/v1/programs", apiProgramsHandler)
 	http.HandleFunc("/api/v1/programs/", apiProgramDetailHandler)
+	http.HandleFunc("/api/v1/targets/", apiTargetsHandler)
+	http.HandleFunc("/api", apiPageHandler)
 
 	// Serve static files
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("website/static"))))
