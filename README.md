@@ -24,6 +24,8 @@
 
 Visit [bbscope.com](https://bbscope.com/) to explore an hourly-updated list of public scopes from all supported platforms, stats, and more!
 
+**[Read the full documentation](https://sw33tlie.github.io/bbscope/)** — installation, CLI reference, database guide, web deployment, library API, and more.
+
 ---
 
 ## ✨ Features
@@ -360,6 +362,29 @@ bbscope poll ywh --token "your_jwt_token"
 
 ```bash
 bbscope poll immunefi
+```
+
+---
+
+## 📚 Documentation
+
+Full documentation is available at **[sw33tlie.github.io/bbscope](https://sw33tlie.github.io/bbscope/)**.
+
+Covers:
+- **Getting Started** — installation, configuration, quick start
+- **CLI Reference** — all commands, flags, output formatting
+- **Database** — setup, schema, querying, SQL examples
+- **Web Interface** — self-hosting, Docker deployment, REST API
+- **Platforms** — auth setup for each platform
+- **AI Normalization** — configuration, custom endpoints, cost
+- **Library Usage** — using `pkg/polling`, `pkg/platforms`, `pkg/storage`, `pkg/targets` in your own Go projects
+- **Architecture** — project structure, data flow, design decisions
+
+To build the docs locally:
+
+```bash
+cd docs && mdbook serve
+# Opens at http://localhost:3000
 ```
 
 ---

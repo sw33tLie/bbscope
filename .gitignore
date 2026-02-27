@@ -2,3 +2,4 @@
 /bbscope.*
 *.sqlite
 website/.env
+docs/book/
