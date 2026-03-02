@@ -1523,6 +1523,38 @@ func (d *DB) GetStats(ctx context.Context, bbpFilter string) ([]PlatformStats, e
 	return stats, rows.Err()
 }
 
+// FindProgramsByDomain searches for programs that have targets matching the given query string.
+// It returns deduplicated programs (by URL) with their platform, handle, and URL.
+// Only active, non-ignored programs are returned.
+func (d *DB) FindProgramsByDomain(ctx context.Context, query string) ([]ProgramMatch, error) {
+	likeQuery := fmt.Sprintf("%%%s%%", query)
+
+	rows, err := d.sql.QueryContext(ctx, `
+		SELECT DISTINCT p.platform, p.handle, p.url
+		FROM targets_raw t
+		JOIN programs p ON t.program_id = p.id
+		WHERE p.disabled = 0
+		  AND p.is_ignored = 0
+		  AND t.in_scope = 1
+		  AND LOWER(t.target) LIKE LOWER($1)
+		ORDER BY p.platform, p.handle
+	`, likeQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ProgramMatch
+	for rows.Next() {
+		var m ProgramMatch
+		if err := rows.Scan(&m.Platform, &m.Handle, &m.URL); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, error) {
 	likeQuery := fmt.Sprintf("%%%s%%", searchTerm)
 

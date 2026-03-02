@@ -61,6 +61,30 @@ curl "https://your-instance.com/api/v1/targets/wildcards?platform=h1&format=json
 curl "https://your-instance.com/api/v1/targets/urls?scope=out"
 ```
 
+## Find
+
+```
+GET /api/v1/find
+```
+
+Find programs whose scope matches a given hostname or domain. Automatically expands to root domain matching (e.g. `aaa.example.com` will also match programs scoping `bbb.example.com` via the shared root `example.com`). Cloud provider domains (e.g. `azurewebsites.net`, `herokuapp.com`) are excluded from root domain expansion to avoid false positives.
+
+Query parameters:
+
+| Param | Description |
+|-------|-------------|
+| `q` | Search query (hostname, domain, etc.) — **required** |
+
+### Examples
+
+```bash
+# Find programs with example.com in scope
+curl "https://your-instance.com/api/v1/find?q=example.com"
+
+# Find via subdomain — expands to root domain matching
+curl "https://your-instance.com/api/v1/find?q=sub.example.com"
+```
+
 ## Updates
 
 ```

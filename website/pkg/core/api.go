@@ -673,6 +673,108 @@ func apiUpdatesHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(respJSON)
 }
 
+// --- Find API ---
+
+type apiFindResponse struct {
+	Query      string             `json:"query"`
+	Programs   []apiFindProgram   `json:"programs"`
+	TotalCount int                `json:"total_count"`
+}
+
+type apiFindProgram struct {
+	Platform string `json:"platform"`
+	Handle   string `json:"handle"`
+	URL      string `json:"url"`
+}
+
+// apiFindHandler serves GET /api/v1/find — finds programs matching a domain/hostname query.
+func apiFindHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		setCORSHeaders(w)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"missing required query parameter: q"}`))
+		return
+	}
+
+	ctx := context.Background()
+
+	// Direct search: find programs with targets matching the literal query
+	matches, err := db.FindProgramsByDomain(ctx, q)
+	if err != nil {
+		log.Printf("API find: error searching for %q: %v", q, err)
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"internal server error"}`))
+		return
+	}
+
+	// Root domain expansion: if the root domain differs from the query and is not blacklisted,
+	// do a second search and merge results.
+	rootDomain, ok := storage.ExtractRootDomain(q)
+	if ok && rootDomain != q && !targets.IsBlacklistedSuffix(rootDomain) {
+		rootMatches, err := db.FindProgramsByDomain(ctx, rootDomain)
+		if err != nil {
+			log.Printf("API find: error searching root domain %q: %v", rootDomain, err)
+			// Non-fatal: continue with what we have
+		} else {
+			matches = append(matches, rootMatches...)
+		}
+	}
+
+	// Deduplicate by program URL
+	seen := make(map[string]struct{})
+	var programs []apiFindProgram
+	for _, m := range matches {
+		programURL := strings.ReplaceAll(m.URL, "api.yeswehack.com", "yeswehack.com")
+		if _, exists := seen[programURL]; exists {
+			continue
+		}
+		seen[programURL] = struct{}{}
+		programs = append(programs, apiFindProgram{
+			Platform: m.Platform,
+			Handle:   m.Handle,
+			URL:      programURL,
+		})
+	}
+
+	if programs == nil {
+		programs = []apiFindProgram{}
+	}
+
+	resp := apiFindResponse{
+		Query:      q,
+		Programs:   programs,
+		TotalCount: len(programs),
+	}
+
+	respJSON, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("API find: error marshaling response: %v", err)
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"internal server error"}`))
+		return
+	}
+
+	setCORSHeaders(w)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Write(respJSON)
+}
+
 // mergeUniqueSorted merges two sorted string slices into a single sorted, deduplicated slice.
 func mergeUniqueSorted(a, b []string) []string {
 	seen := make(map[string]struct{}, len(a)+len(b))

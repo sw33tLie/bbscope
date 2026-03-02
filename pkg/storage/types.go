@@ -73,6 +73,13 @@ type TargetItem struct {
 	Variants    []TargetVariant
 }
 
+// ProgramMatch represents a program that matched a domain search query.
+type ProgramMatch struct {
+	Platform string
+	Handle   string
+	URL      string
+}
+
 // TargetVariant captures a requested expansion for a target.
 type TargetVariant struct {
 	Value       string

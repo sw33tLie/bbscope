@@ -867,6 +867,7 @@ func Run(cfg ServerConfig) error {
 	http.HandleFunc("/api/v1/programs/", apiProgramDetailHandler)
 	http.HandleFunc("/api/v1/targets/", apiTargetsHandler)
 	http.HandleFunc("/api/v1/updates", apiUpdatesHandler)
+	http.HandleFunc("/api/v1/find", apiFindHandler)
 	http.HandleFunc("/api", apiPageHandler)
 
 	// Serve static files

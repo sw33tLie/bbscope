@@ -124,7 +124,7 @@ func APIPageContent() g.Node {
 		Section(Class("bg-zinc-900/30 border border-zinc-800/50 rounded-2xl shadow-xl shadow-black/10 p-6 md:p-8 mb-6"),
 			H2(Class("text-lg font-semibold text-white mb-4"), g.Text("Usage Examples")),
 			Div(Class("bg-zinc-950 rounded-lg p-4 font-mono text-sm text-cyan-400 overflow-x-auto"),
-				g.Raw(`<span class="text-zinc-500"># Get all in-scope wildcard domains</span><br>curl -s https://bbscope.com/api/v1/targets/wildcards<br><br><span class="text-zinc-500"># Pipe directly into your tools</span><br>curl -s https://bbscope.com/api/v1/targets/wildcards | subfinder -silent<br><br><span class="text-zinc-500"># Filter by platform and get JSON</span><br>curl -s "https://bbscope.com/api/v1/targets/domains?platform=h1&amp;format=json"<br><br><span class="text-zinc-500"># Raw data without AI enhancements</span><br>curl -s "https://bbscope.com/api/v1/targets/wildcards?raw=true"<br><br><span class="text-zinc-500"># Get scope updates (since: today, yesterday, 7d, 30d, 90d, 1y, or YYYY-MM-DD)</span><br>curl -s "https://bbscope.com/api/v1/updates?since=7d"<br><br><span class="text-zinc-500"># Filter updates by platform and date range</span><br>curl -s "https://bbscope.com/api/v1/updates?since=2025-01-01&amp;until=2025-01-31&amp;platform=h1"<br><br><span class="text-zinc-500"># Search updates and paginate</span><br>curl -s "https://bbscope.com/api/v1/updates?search=example.com&amp;per_page=50&amp;page=2"`),
+				g.Raw(`<span class="text-zinc-500"># Get all in-scope wildcard domains</span><br>curl -s https://bbscope.com/api/v1/targets/wildcards<br><br><span class="text-zinc-500"># Pipe directly into your tools</span><br>curl -s https://bbscope.com/api/v1/targets/wildcards | subfinder -silent<br><br><span class="text-zinc-500"># Filter by platform and get JSON</span><br>curl -s "https://bbscope.com/api/v1/targets/domains?platform=h1&amp;format=json"<br><br><span class="text-zinc-500"># Raw data without AI enhancements</span><br>curl -s "https://bbscope.com/api/v1/targets/wildcards?raw=true"<br><br><span class="text-zinc-500"># Get scope updates (since: today, yesterday, 7d, 30d, 90d, 1y, or YYYY-MM-DD)</span><br>curl -s "https://bbscope.com/api/v1/updates?since=7d"<br><br><span class="text-zinc-500"># Filter updates by platform and date range</span><br>curl -s "https://bbscope.com/api/v1/updates?since=2025-01-01&amp;until=2025-01-31&amp;platform=h1"<br><br><span class="text-zinc-500"># Search updates and paginate</span><br>curl -s "https://bbscope.com/api/v1/updates?search=example.com&amp;per_page=50&amp;page=2"<br><br><span class="text-zinc-500"># Find programs that have example.com in scope</span><br>curl -s "https://bbscope.com/api/v1/find?q=example.com"<br><br><span class="text-zinc-500"># Find programs via root domain (matches *.example.com scopes)</span><br>curl -s "https://bbscope.com/api/v1/find?q=sub.example.com"`),
 			),
 		),
 
@@ -166,6 +166,16 @@ func APIPageContent() g.Node {
 				"Returns details for a single program including in-scope and out-of-scope targets.",
 				[]apiParam{
 					{"raw", "boolean", "Set to true for raw target data without AI enhancements"},
+				},
+			),
+
+			H3(Class("text-sm font-semibold text-zinc-300 uppercase tracking-wider mb-4 mt-6"), g.Text("Find")),
+
+			apiEndpointCard(
+				"GET", "/api/v1/find",
+				"Find programs whose scope matches a given hostname or domain. Automatically expands to root domain matching (e.g. aaa.example.com matches programs scoping bbb.example.com). Cloud provider domains are excluded from expansion to avoid false positives.",
+				[]apiParam{
+					{"q", "string", "Search query (hostname, domain, etc.) — required"},
 				},
 			),
 
