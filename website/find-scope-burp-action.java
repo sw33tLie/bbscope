@@ -34,4 +34,6 @@ if (!programUrls.isEmpty()) {
     for (String programUrl : programUrls) {
         logging().logToOutput("[+] BBP MATCH: " + requestHost + " belongs to -> " + programUrl);
     }
+} else {
+    logging().logToOutput("[-] No BBP match found for: " + requestHost);
 }
