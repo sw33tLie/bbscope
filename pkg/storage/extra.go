@@ -171,7 +171,7 @@ func (d *DB) ListAllProgramsFlat(ctx context.Context, rawMode bool) ([]ProgramLi
 	var targetQuery string
 	if rawMode {
 		targetQuery = `
-			SELECT t.program_id, t.target AS target_display, t.category
+			SELECT t.program_id, t.target AS target_display, t.category, t.in_scope
 			FROM targets_raw t
 			JOIN programs p ON t.program_id = p.id
 			WHERE p.disabled = 0 AND p.is_ignored = 0
@@ -181,7 +181,8 @@ func (d *DB) ListAllProgramsFlat(ctx context.Context, rawMode bool) ([]ProgramLi
 		targetQuery = `
 			SELECT t.program_id,
 				COALESCE(NULLIF(a.target_ai_normalized, ''), t.target) AS target_display,
-				COALESCE(a.category, t.category) AS category
+				COALESCE(a.category, t.category) AS category,
+				COALESCE(a.in_scope, t.in_scope) AS in_scope
 			FROM targets_raw t
 			JOIN programs p ON t.program_id = p.id
 			LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
@@ -195,20 +196,23 @@ func (d *DB) ListAllProgramsFlat(ctx context.Context, rawMode bool) ([]ProgramLi
 	}
 	defer tRows.Close()
 
-	catSets := make(map[int64]map[string]struct{}) // program DB id -> set of unified categories
+	catSets := make(map[int64]map[string]struct{}) // program DB id -> set of in-scope unified categories
 	for tRows.Next() {
 		var programID int64
 		var targetDisplay, category string
-		if err := tRows.Scan(&programID, &targetDisplay, &category); err != nil {
+		var inScope int
+		if err := tRows.Scan(&programID, &targetDisplay, &category, &inScope); err != nil {
 			return nil, err
 		}
 		if idx, ok := idToIdx[programID]; ok {
 			programs[idx].Targets = append(programs[idx].Targets, targetDisplay)
-			unified := scope.NormalizeCategory(category)
-			if catSets[programID] == nil {
-				catSets[programID] = make(map[string]struct{})
+			if inScope == 1 {
+				unified := scope.NormalizeCategory(category)
+				if catSets[programID] == nil {
+					catSets[programID] = make(map[string]struct{})
+				}
+				catSets[programID][unified] = struct{}{}
 			}
-			catSets[programID][unified] = struct{}{}
 		}
 	}
 	if err := tRows.Err(); err != nil {
