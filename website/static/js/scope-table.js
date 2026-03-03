@@ -8,6 +8,7 @@
     sortOrder: 'asc',
     platform: '',      // comma-separated or empty
     programType: '',   // '', 'bbp', 'vdp'
+    assetType: '',     // comma-separated unified categories or empty
     page: 1,
     perPage: 50,
   };
@@ -82,6 +83,7 @@
     state.search = params.get('search') || '';
     state.platform = params.get('platform') || '';
     state.programType = params.get('programType') || '';
+    state.assetType = params.get('assetType') || '';
     state.page = parseInt(params.get('page'), 10) || 1;
     state.perPage = parseInt(params.get('perPage'), 10) || 50;
 
@@ -97,6 +99,7 @@
     if (state.search) params.set('search', state.search);
     if (state.platform) params.set('platform', state.platform);
     if (state.programType) params.set('programType', state.programType);
+    if (state.assetType) params.set('assetType', state.assetType);
     if (state.page > 1) params.set('page', String(state.page));
     if (state.perPage !== 50) params.set('perPage', String(state.perPage));
 
@@ -127,6 +130,23 @@
       list = list.filter(function (prog) { return prog.is_bbp; });
     } else if (state.programType === 'vdp') {
       list = list.filter(function (prog) { return !prog.is_bbp; });
+    }
+
+    // Asset type filter
+    if (state.assetType) {
+      var types = state.assetType.toLowerCase().split(',');
+      var typeSet = {};
+      for (var t = 0; t < types.length; t++) {
+        var typ = types[t].trim();
+        if (typ) typeSet[typ] = true;
+      }
+      list = list.filter(function (prog) {
+        var cats = prog.categories || [];
+        for (var c = 0; c < cats.length; c++) {
+          if (typeSet[cats[c].toLowerCase()]) return true;
+        }
+        return false;
+      });
     }
 
     // Search by handle and target names
@@ -552,15 +572,56 @@
       dropdownBtn.addEventListener('click', function (e) {
         e.stopPropagation();
         dropdownMenu.classList.toggle('hidden');
+        // Close asset type dropdown if open
+        var atMenu = document.getElementById('asset-type-dropdown-menu');
+        if (atMenu) atMenu.classList.add('hidden');
       });
     }
 
-    // Close platform dropdown when clicking outside
+    // Asset type filter apply
+    var assetTypeApplyBtn = document.getElementById('asset-type-apply-btn');
+    if (assetTypeApplyBtn) {
+      assetTypeApplyBtn.addEventListener('click', function () {
+        applyAssetTypeFilter();
+      });
+    }
+
+    // Asset type "All" button
+    var assetTypeAllBtn = document.getElementById('asset-type-all-btn');
+    if (assetTypeAllBtn) {
+      assetTypeAllBtn.addEventListener('click', function () {
+        var checkboxes = document.querySelectorAll('#asset-type-dropdown-menu input[type=checkbox]');
+        for (var i = 0; i < checkboxes.length; i++) {
+          checkboxes[i].checked = false;
+        }
+        applyAssetTypeFilter();
+      });
+    }
+
+    // Asset type dropdown toggle
+    var assetTypeBtn = document.getElementById('asset-type-dropdown-btn');
+    var assetTypeMenu = document.getElementById('asset-type-dropdown-menu');
+    if (assetTypeBtn && assetTypeMenu) {
+      assetTypeBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        assetTypeMenu.classList.toggle('hidden');
+        // Close platform dropdown if open
+        var pMenu = document.getElementById('platform-dropdown-menu');
+        if (pMenu) pMenu.classList.add('hidden');
+      });
+    }
+
+    // Close dropdowns when clicking outside
     document.addEventListener('click', function (e) {
-      var filter = document.getElementById('platform-filter');
-      var menu = document.getElementById('platform-dropdown-menu');
-      if (filter && menu && !filter.contains(e.target)) {
-        menu.classList.add('hidden');
+      var platformFilter = document.getElementById('platform-filter');
+      var platformMenu = document.getElementById('platform-dropdown-menu');
+      if (platformFilter && platformMenu && !platformFilter.contains(e.target)) {
+        platformMenu.classList.add('hidden');
+      }
+      var assetFilter = document.getElementById('asset-type-filter');
+      var assetMenu = document.getElementById('asset-type-dropdown-menu');
+      if (assetFilter && assetMenu && !assetFilter.contains(e.target)) {
+        assetMenu.classList.add('hidden');
       }
     });
   }
@@ -598,6 +659,53 @@
     btn.firstChild.textContent = names.length <= 2 ? names.join(', ') : names.length + ' platforms';
   }
 
+  var assetTypeNames = {
+    wildcard: 'Wildcard',
+    url: 'URL',
+    cidr: 'CIDR',
+    android: 'Android',
+    ios: 'iOS',
+    ai: 'AI',
+    hardware: 'Hardware',
+    blockchain: 'Blockchain',
+    binary: 'Binary',
+    code: 'Code',
+    other: 'Other',
+  };
+
+  function applyAssetTypeFilter() {
+    var checked = [];
+    var checkboxes = document.querySelectorAll('#asset-type-dropdown-menu input[type=checkbox]:checked');
+    for (var i = 0; i < checkboxes.length; i++) {
+      checked.push(checkboxes[i].value);
+    }
+    state.assetType = checked.join(',');
+    state.page = 1;
+
+    var menu = document.getElementById('asset-type-dropdown-menu');
+    if (menu) menu.classList.add('hidden');
+
+    updateAssetTypeButtonLabel();
+    render();
+  }
+
+  function updateAssetTypeButtonLabel() {
+    var btn = document.getElementById('asset-type-dropdown-btn');
+    if (!btn) return;
+
+    if (!state.assetType) {
+      btn.firstChild.textContent = 'All Asset Types';
+      return;
+    }
+
+    var types = state.assetType.split(',');
+    var names = [];
+    for (var i = 0; i < types.length; i++) {
+      names.push(assetTypeNames[types[i]] || types[i]);
+    }
+    btn.firstChild.textContent = names.length <= 2 ? names.join(', ') : names.length + ' types';
+  }
+
   // Sync outer controls (pills, search, platform checkboxes) to match current state.
   // Called once on init and when state changes from outer control interactions.
   function syncOuterControls() {
@@ -629,6 +737,20 @@
       }
     }
     updatePlatformButtonLabel();
+
+    // Asset type checkboxes
+    if (state.assetType) {
+      var selectedTypes = {};
+      var typeParts = state.assetType.split(',');
+      for (var m = 0; m < typeParts.length; m++) {
+        selectedTypes[typeParts[m].trim()] = true;
+      }
+      var atCheckboxes = document.querySelectorAll('#asset-type-dropdown-menu input[type=checkbox]');
+      for (var n = 0; n < atCheckboxes.length; n++) {
+        atCheckboxes[n].checked = !!selectedTypes[atCheckboxes[n].value];
+      }
+    }
+    updateAssetTypeButtonLabel();
   }
 
   // --- Kick off ---

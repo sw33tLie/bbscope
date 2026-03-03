@@ -531,6 +531,12 @@ func scopeProgramTypeFilter() g.Node {
 		g.Group(pills),
 		// Spacer
 		Span(Class("mx-2 hidden sm:inline text-zinc-700"), g.Text("|")),
+		// Line break on mobile
+		Div(Class("basis-full h-0 sm:hidden")),
+		// Asset type dropdown
+		scopeAssetTypeDropdown(),
+		// Spacer
+		Span(Class("mx-2 hidden sm:inline text-zinc-700"), g.Text("|")),
 		// Line break on mobile so Data: goes to new line
 		Div(Class("basis-full h-0 sm:hidden")),
 		// Data source toggle — managed by scope-table.js
@@ -599,6 +605,75 @@ func scopePlatformFilterDropdown() g.Node {
 				Button(
 					Type("button"),
 					ID("platform-apply-btn"),
+					Class("w-full px-3 py-1.5 text-sm font-medium rounded bg-cyan-600 text-white hover:bg-cyan-500 transition-colors"),
+					g.Text("Apply"),
+				),
+			),
+		),
+	)
+}
+
+// scopeAssetTypeDropdown renders a multiselect dropdown for filtering by asset category, managed by scope-table.js.
+func scopeAssetTypeDropdown() g.Node {
+	categories := scope.UnifiedCategories()
+
+	displayNames := map[string]string{
+		"wildcard":   "Wildcard",
+		"url":        "URL",
+		"cidr":       "CIDR",
+		"android":    "Android",
+		"ios":        "iOS",
+		"ai":         "AI",
+		"hardware":   "Hardware",
+		"blockchain": "Blockchain",
+		"binary":     "Binary",
+		"code":       "Code",
+		"other":      "Other",
+	}
+
+	var checkboxItems []g.Node
+	for _, cat := range categories {
+		label := displayNames[cat]
+		if label == "" {
+			label = strings.ToUpper(cat[:1]) + cat[1:]
+		}
+		checkboxItems = append(checkboxItems,
+			Label(Class("flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-700/50 cursor-pointer text-sm text-zinc-300"),
+				Input(
+					Type("checkbox"),
+					Name("asset-type"),
+					Value(cat),
+					Class("rounded border-zinc-600 bg-zinc-700 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-0"),
+				),
+				g.Text(label),
+			),
+		)
+	}
+
+	return Div(Class("relative"), ID("asset-type-filter"),
+		Button(
+			Type("button"),
+			ID("asset-type-dropdown-btn"),
+			Class("flex items-center gap-2 px-4 py-1.5 text-sm font-medium rounded-lg bg-zinc-800/50 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-200 hover:border-zinc-600 transition-all duration-200"),
+			g.Text("All Asset Types"),
+			g.Raw(`<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>`),
+		),
+		Div(
+			ID("asset-type-dropdown-menu"),
+			Class("hidden absolute z-30 mt-2 w-56 bg-zinc-800 border border-zinc-700/50 rounded-xl shadow-2xl shadow-black/30 py-1.5"),
+			Button(
+				Type("button"),
+				ID("asset-type-all-btn"),
+				Class("w-full text-left px-3 py-1.5 text-sm text-cyan-400 hover:bg-zinc-700/50 font-medium border-b border-zinc-700 mb-1"),
+				g.Text("All Asset Types"),
+			),
+			Div(Class("max-h-64 overflow-y-auto"),
+				g.Group(checkboxItems),
+			),
+			Div(Class("px-3 pt-2 pb-1 border-t border-zinc-700 mt-1"),
+				Button(
+					Type("button"),
+					ID("asset-type-apply-btn"),
 					Class("w-full px-3 py-1.5 text-sm font-medium rounded bg-cyan-600 text-white hover:bg-cyan-500 transition-colors"),
 					g.Text("Apply"),
 				),

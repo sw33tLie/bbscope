@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
+
+	"github.com/sw33tLie/bbscope/v2/pkg/scope"
 )
 
 // RemoveCustomTarget removes a custom target from the database.
@@ -80,7 +83,8 @@ type ProgramListEntry struct {
 	InScopeCount    int      `json:"in_scope_count"`
 	OutOfScopeCount int      `json:"out_of_scope_count"`
 	IsBBP           bool     `json:"is_bbp"`
-	Targets         []string `json:"targets,omitempty"` // target display names for search
+	Targets         []string `json:"targets,omitempty"`    // target display names for search
+	Categories      []string `json:"categories,omitempty"` // distinct unified categories
 }
 
 // ProgramListResult holds paginated results.
@@ -163,11 +167,11 @@ func (d *DB) ListAllProgramsFlat(ctx context.Context, rawMode bool) ([]ProgramLi
 		return nil, err
 	}
 
-	// Fetch all target display names for active programs
+	// Fetch all target display names and categories for active programs
 	var targetQuery string
 	if rawMode {
 		targetQuery = `
-			SELECT t.program_id, t.target AS target_display
+			SELECT t.program_id, t.target AS target_display, t.category
 			FROM targets_raw t
 			JOIN programs p ON t.program_id = p.id
 			WHERE p.disabled = 0 AND p.is_ignored = 0
@@ -176,7 +180,8 @@ func (d *DB) ListAllProgramsFlat(ctx context.Context, rawMode bool) ([]ProgramLi
 	} else {
 		targetQuery = `
 			SELECT t.program_id,
-				COALESCE(NULLIF(a.target_ai_normalized, ''), t.target) AS target_display
+				COALESCE(NULLIF(a.target_ai_normalized, ''), t.target) AS target_display,
+				COALESCE(a.category, t.category) AS category
 			FROM targets_raw t
 			JOIN programs p ON t.program_id = p.id
 			LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
@@ -190,18 +195,36 @@ func (d *DB) ListAllProgramsFlat(ctx context.Context, rawMode bool) ([]ProgramLi
 	}
 	defer tRows.Close()
 
+	catSets := make(map[int64]map[string]struct{}) // program DB id -> set of unified categories
 	for tRows.Next() {
 		var programID int64
-		var targetDisplay string
-		if err := tRows.Scan(&programID, &targetDisplay); err != nil {
+		var targetDisplay, category string
+		if err := tRows.Scan(&programID, &targetDisplay, &category); err != nil {
 			return nil, err
 		}
 		if idx, ok := idToIdx[programID]; ok {
 			programs[idx].Targets = append(programs[idx].Targets, targetDisplay)
+			unified := scope.NormalizeCategory(category)
+			if catSets[programID] == nil {
+				catSets[programID] = make(map[string]struct{})
+			}
+			catSets[programID][unified] = struct{}{}
 		}
 	}
 	if err := tRows.Err(); err != nil {
 		return nil, err
+	}
+
+	// Convert category sets to sorted slices
+	for programID, cats := range catSets {
+		if idx, ok := idToIdx[programID]; ok {
+			categories := make([]string, 0, len(cats))
+			for c := range cats {
+				categories = append(categories, c)
+			}
+			sort.Strings(categories)
+			programs[idx].Categories = categories
+		}
 	}
 
 	return programs, nil
