@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
+	"sync/atomic"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -84,34 +86,54 @@ func runReportsH1(ctx context.Context, fetcher *reports.H1Fetcher, opts reports.
 		return nil
 	}
 
-	// Download mode
-	var written, skipped, errored int
+	// Download mode with worker pool
+	var written, skipped, errored atomic.Int32
 	total := len(summaries)
 
-	for i, s := range summaries {
-		utils.Log.Infof("[%d/%d] Fetching report %s: %s", i+1, total, s.ID, s.Title)
-
-		report, err := fetcher.FetchReport(ctx, s.ID)
-		if err != nil {
-			utils.Log.Warnf("Error fetching report %s: %v", s.ID, err)
-			errored++
-			continue
-		}
-
-		ok, err := reports.WriteReport(report, opts.OutputDir, opts.Overwrite)
-		if err != nil {
-			utils.Log.Warnf("Error writing report %s: %v", s.ID, err)
-			errored++
-			continue
-		}
-
-		if ok {
-			written++
-		} else {
-			skipped++
-		}
+	workers := 10
+	if total < workers {
+		workers = total
 	}
 
-	utils.Log.Infof("Done: %d written, %d skipped, %d errors", written, skipped, errored)
+	jobs := make(chan int, total)
+	for i := range summaries {
+		jobs <- i
+	}
+	close(jobs)
+
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				s := summaries[i]
+				utils.Log.Infof("[%d/%d] Fetching report %s: %s", i+1, total, s.ID, s.Title)
+
+				report, err := fetcher.FetchReport(ctx, s.ID)
+				if err != nil {
+					utils.Log.Warnf("Error fetching report %s: %v", s.ID, err)
+					errored.Add(1)
+					continue
+				}
+
+				ok, err := reports.WriteReport(report, opts.OutputDir, opts.Overwrite)
+				if err != nil {
+					utils.Log.Warnf("Error writing report %s: %v", s.ID, err)
+					errored.Add(1)
+					continue
+				}
+
+				if ok {
+					written.Add(1)
+				} else {
+					skipped.Add(1)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	utils.Log.Infof("Done: %d written, %d skipped, %d errors", written.Load(), skipped.Load(), errored.Load())
 	return nil
 }
