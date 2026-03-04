@@ -37,10 +37,8 @@ func (f *H1Fetcher) ListReports(ctx context.Context, opts FetchOptions) ([]Repor
 	for {
 		body, err := f.doRequest(currentURL)
 		if err != nil {
+			utils.Log.Warnf("Error fetching report list page: %v", err)
 			return summaries, err
-		}
-		if body == "" {
-			break // non-retryable status, stop
 		}
 
 		count := int(gjson.Get(body, "data.#").Int())
@@ -77,10 +75,7 @@ func (f *H1Fetcher) FetchReport(ctx context.Context, reportID string) (*Report, 
 
 	body, err := f.doRequest(url)
 	if err != nil {
-		return nil, err
-	}
-	if body == "" {
-		return nil, fmt.Errorf("report %s: not found or not accessible", reportID)
+		return nil, fmt.Errorf("report %s: %w", reportID, err)
 	}
 
 	r := &Report{
@@ -155,8 +150,7 @@ func (f *H1Fetcher) doRequest(url string) (string, error) {
 
 		// Non-retryable errors
 		if res.StatusCode == 400 || res.StatusCode == 403 || res.StatusCode == 404 {
-			utils.Log.Warnf("Got status %d for %s, skipping", res.StatusCode, url)
-			return "", nil
+			return "", fmt.Errorf("got status %d for %s", res.StatusCode, url)
 		}
 
 		if res.StatusCode != 200 {

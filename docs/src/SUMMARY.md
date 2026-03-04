@@ -13,6 +13,7 @@
 - [Polling Scopes](./cli/polling.md)
 - [Database Commands](./cli/database.md)
 - [Extracting Targets](./cli/targets.md)
+- [Downloading Reports](./cli/reports.md)
 - [Output Formatting](./cli/output.md)
 
 # Database
