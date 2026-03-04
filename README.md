@@ -36,6 +36,7 @@ Visit [bbscope.com](https://bbscope.com/) to explore an hourly-updated list of p
 - **Track Changes**: Monitor scope additions and removals over time.
 - **LLM Cleanup (opt-in)**: Let GPT-style models fix messy scope strings in bulk when polling.
 - **Flexible Output**: Get your data in plain text, JSON, or CSV.
+- **Report Downloads**: Bulk download your HackerOne reports as Markdown files, with parallel fetching and filtering by program, state, or severity.
 
 ---
 
@@ -285,6 +286,25 @@ Add a custom target to the database manually.
 | `-t, --target` | Target to add (can be comma-separated). | |
 | `-c, --category` | Category of the target (e.g., `wildcard`, `url`). | `"wildcard"` |
 | `-u, --program-url` | Program URL to associate with the target. | `"custom"` |
+
+---
+
+### `reports` - Downloading Reports
+
+The `reports` command bulk downloads your vulnerability reports as Markdown files, organized by program.
+
+```bash
+# Download all your HackerOne reports
+bbscope reports h1 --output-dir ./reports
+
+# Preview what would be downloaded
+bbscope reports h1 --output-dir ./reports --dry-run
+
+# Filter by program, state, or severity
+bbscope reports h1 --output-dir ./reports --program google --state resolved --severity critical
+```
+
+Reports are saved as `{output-dir}/h1/{program}/{id}_{title}.md` with metadata tables and full vulnerability details. 10 parallel workers handle the downloads with automatic rate-limit handling.
 
 ---
 
