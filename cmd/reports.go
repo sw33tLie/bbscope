@@ -12,7 +12,7 @@ var reportsCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(reportsCmd)
 
-	reportsCmd.PersistentFlags().String("output-dir", "reports", "Output directory for downloaded reports")
+	reportsCmd.PersistentFlags().String("output-dir", "", "Output directory for downloaded reports (required)")
 	reportsCmd.PersistentFlags().StringSlice("program", nil, "Filter by program handle(s)")
 	reportsCmd.PersistentFlags().StringSlice("state", nil, "Filter by report state(s) (e.g. resolved,triaged)")
 	reportsCmd.PersistentFlags().StringSlice("severity", nil, "Filter by severity (e.g. high,critical)")

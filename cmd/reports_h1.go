@@ -32,6 +32,9 @@ var reportsH1Cmd = &cobra.Command{
 		}
 
 		outputDir, _ := cmd.Flags().GetString("output-dir")
+		if outputDir == "" {
+			return fmt.Errorf("--output-dir is required")
+		}
 		programs, _ := cmd.Flags().GetStringSlice("program")
 		states, _ := cmd.Flags().GetStringSlice("state")
 		severities, _ := cmd.Flags().GetStringSlice("severity")
