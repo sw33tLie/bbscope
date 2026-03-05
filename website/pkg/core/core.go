@@ -58,6 +58,23 @@ func PageLayout(title, description string, navbar g.Node, content g.Node, footer
 				Meta(Name("viewport"), Content("width=device-width, initial-scale=1.0")),
 				Meta(Name("description"), Content(description)),
 				TitleEl(g.Text(title)), // Using TitleEl to avoid conflict
+
+				// Open Graph
+				Meta(g.Attr("property", "og:type"), Content("website")),
+				Meta(g.Attr("property", "og:site_name"), Content("bbscope.com")),
+				Meta(g.Attr("property", "og:title"), Content(title)),
+				Meta(g.Attr("property", "og:description"), Content(description)),
+				g.If(canonicalURL != "",
+					Meta(g.Attr("property", "og:url"), Content("https://"+serverDomain+canonicalURL)),
+				),
+				Meta(g.Attr("property", "og:image"), Content("https://"+serverDomain+"/static/images/og.png")),
+
+				// Twitter Card
+				Meta(Name("twitter:card"), Content("summary_large_image")),
+				Meta(Name("twitter:title"), Content(title)),
+				Meta(Name("twitter:description"), Content(description)),
+				Meta(Name("twitter:image"), Content("https://"+serverDomain+"/static/images/og.png")),
+
 				Link(Rel("preconnect"), Href("https://fonts.googleapis.com")),
 				Link(Rel("preconnect"), Href("https://fonts.gstatic.com"), g.Attr("crossorigin", "")),
 				Link(Rel("stylesheet"), Href("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@700;800&display=swap")),
