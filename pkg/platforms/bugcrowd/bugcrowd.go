@@ -322,7 +322,11 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 		handle = strings.TrimPrefix(handle, "/engagements/")
 	}
 
-	pData.Url = "https://bugcrowd.com/" + strings.TrimPrefix(handle, "/")
+	if isEngagement {
+		pData.Url = "https://bugcrowd.com/engagements/" + strings.TrimPrefix(handle, "/")
+	} else {
+		pData.Url = "https://bugcrowd.com/" + strings.TrimPrefix(handle, "/")
+	}
 
 	if isEngagement {
 		getBriefVersionDocument, err := getEngagementBriefVersionDocument("/engagements/"+handle, token)
