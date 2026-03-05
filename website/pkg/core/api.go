@@ -81,12 +81,27 @@ func apiProgramsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Cache miss — rebuild
+	respJSON, err := buildProgramsCache(rawMode)
+	if err != nil {
+		log.Printf("API: Error building programs cache: %v", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	setCORSHeaders(w)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Write(respJSON)
+}
+
+// buildProgramsCache builds the programs JSON response and stores it in the in-memory cache.
+// Returns the serialized JSON response. Called by the API handler on cache miss and by the
+// background pre-warmer.
+func buildProgramsCache(rawMode bool) ([]byte, error) {
 	ctx := context.Background()
 	programs, err := db.ListAllProgramsFlat(ctx, rawMode)
 	if err != nil {
-		log.Printf("API: Error listing programs: %v", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
 	// Apply YWH URL rewrite
@@ -94,15 +109,11 @@ func apiProgramsHandler(w http.ResponseWriter, r *http.Request) {
 		programs[i].URL = strings.ReplaceAll(programs[i].URL, "api.yeswehack.com", "yeswehack.com")
 	}
 
-	// Marshal programs array
 	programsJSON, err := json.Marshal(programs)
 	if err != nil {
-		log.Printf("API: Error marshaling programs: %v", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
-	// Build envelope
 	now := time.Now().UTC()
 	resp := programsAPIResponse{
 		Programs:    programsJSON,
@@ -111,12 +122,9 @@ func apiProgramsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	respJSON, err := json.Marshal(resp)
 	if err != nil {
-		log.Printf("API: Error marshaling response: %v", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
-	// Store in cache
 	programsCacheMu.Lock()
 	if rawMode {
 		programsCacheRaw = respJSON
@@ -127,10 +135,28 @@ func apiProgramsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	programsCacheMu.Unlock()
 
-	setCORSHeaders(w)
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=300")
-	w.Write(respJSON)
+	return respJSON, nil
+}
+
+// startProgramsCacheWarmer pre-warms the programs cache on startup and refreshes it
+// periodically so users never hit a cold cache.
+func startProgramsCacheWarmer() {
+	// Warm both variants immediately
+	for _, raw := range []bool{false, true} {
+		if _, err := buildProgramsCache(raw); err != nil {
+			log.Printf("Cache warmer: error pre-warming programs cache (raw=%v): %v", raw, err)
+		}
+	}
+	log.Println("Cache warmer: programs cache pre-warmed")
+
+	ticker := time.NewTicker(4 * time.Minute)
+	for range ticker.C {
+		for _, raw := range []bool{false, true} {
+			if _, err := buildProgramsCache(raw); err != nil {
+				log.Printf("Cache warmer: error refreshing programs cache (raw=%v): %v", raw, err)
+			}
+		}
+	}
 }
 
 // apiProgramDetailHandler serves GET /api/v1/programs/{platform}/{handle} — single program detail.

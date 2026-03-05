@@ -944,6 +944,8 @@ func Run(cfg ServerConfig) error {
 		go startBackgroundPoller(cfg)
 	}
 
+	go startProgramsCacheWarmer()
+
 	http.HandleFunc("/", homeHandler)
 	http.HandleFunc("/scope", scopeHandler)
 	http.HandleFunc("/programs", programsIndexHandler)
