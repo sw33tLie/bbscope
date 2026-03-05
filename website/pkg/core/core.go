@@ -377,7 +377,7 @@ func ScopeContent() g.Node {
 			),
 			typePills,
 			// Table container — filled by scope-table.js
-			Div(ID("scope-table-container"),
+			Div(ID("scope-table-container"), Class("min-h-[80vh]"),
 				Div(Class("flex flex-col items-center justify-center py-20 gap-4"),
 					g.Raw(`<div class="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>`),
 					Span(Class("text-zinc-400 text-sm"), g.Text("Loading scope data...")),
@@ -934,7 +934,7 @@ func UpdatesContent() g.Node {
 				),
 			),
 			// Table container — filled by updates-table.js
-			Div(ID("updates-table-container"),
+			Div(ID("updates-table-container"), Class("min-h-[80vh]"),
 				Div(Class("flex flex-col items-center justify-center py-20 gap-4"),
 					g.Raw(`<div class="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>`),
 					Span(Class("text-zinc-400 text-sm"), g.Text("Loading updates...")),
