@@ -12,6 +12,7 @@ func apiPageHandler(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	w.Header().Set("Cache-Control", "public, max-age=86400")
 	PageLayout(
 		"API - bbscope.com",
 		"Public API documentation for bbscope.com. Access bug bounty scope data programmatically.",

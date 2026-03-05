@@ -652,6 +652,8 @@ func programsIndexHandler(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+
 	ctx := context.Background()
 	slugs, err := db.ListAllProgramSlugs(ctx)
 	if err != nil {

@@ -63,6 +63,7 @@ func ContactContent() g.Node {
 
 // contactHandler handles requests for the /contact page.
 func contactHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "public, max-age=86400")
 	PageLayout(
 		"Contact Us - bbscope.com",
 		"Get in touch with the maintainers of bbscope.com.",

@@ -99,6 +99,7 @@ func docsHandler(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	w.Header().Set("Cache-Control", "public, max-age=86400")
 	PageLayout(
 		"Documentation - bbscope.com",
 		"Find out how bbscope.com can help you find new bugs",
