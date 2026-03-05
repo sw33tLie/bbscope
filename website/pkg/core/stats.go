@@ -312,6 +312,8 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error getting asset counts by type: %v", err)
 	}
 
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+
 	PageLayout(
 		"Platform statistics - bbscope.com",
 		"View statistics and analytics for bug bounty programs across different platforms. Compare program counts from HackerOne, Bugcrowd, YesWeHack, Intigriti and other security platforms.",
