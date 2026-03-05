@@ -72,8 +72,14 @@ var statsCmd = &cobra.Command{
 var changesCmd = &cobra.Command{
 	Use:   "changes",
 	Short: "Show recent scope changes (default 50)",
+	Long: `Show recent scope changes. Use --since and --until to filter by time range.
+
+Supported time formats for --since and --until:
+  today, yesterday, 7d, 30d, 90d, 1y, or YYYY-MM-DD`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		limit, _ := cmd.Flags().GetInt("limit")
+		sinceStr, _ := cmd.Flags().GetString("since")
+		untilStr, _ := cmd.Flags().GetString("until")
 		dbURL, err := GetDBConnectionString()
 		if err != nil {
 			return err
@@ -84,7 +90,21 @@ var changesCmd = &cobra.Command{
 			return err
 		}
 		defer db.Close()
-		changes, err := db.ListRecentChanges(context.Background(), limit)
+
+		since, err := parseTimeFlag(sinceStr)
+		if err != nil {
+			return fmt.Errorf("invalid --since value: %w", err)
+		}
+		until, err := parseTimeFlag(untilStr)
+		if err != nil {
+			return fmt.Errorf("invalid --until value: %w", err)
+		}
+		// When --until is a date, include the full day
+		if !until.IsZero() && untilStr != "" && !strings.Contains(untilStr, "d") && untilStr != "today" && untilStr != "yesterday" {
+			until = until.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+		}
+
+		changes, err := db.ListRecentChanges(context.Background(), limit, since, until)
 		if err != nil {
 			return err
 		}
@@ -111,6 +131,37 @@ var changesCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// parseTimeFlag parses a user-friendly time string into a time.Time.
+// Supports: today, yesterday, 7d, 30d, 90d, 1y, YYYY-MM-DD, or empty string.
+func parseTimeFlag(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, nil
+	}
+	now := time.Now()
+	switch s {
+	case "today":
+		return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()), nil
+	case "yesterday":
+		y := now.AddDate(0, 0, -1)
+		return time.Date(y.Year(), y.Month(), y.Day(), 0, 0, 0, 0, y.Location()), nil
+	case "7d":
+		return now.AddDate(0, 0, -7), nil
+	case "30d":
+		return now.AddDate(0, 0, -30), nil
+	case "90d":
+		return now.AddDate(0, 0, -90), nil
+	case "1y":
+		return now.AddDate(-1, 0, 0), nil
+	default:
+		t, err := time.Parse("2006-01-02", s)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("use today, yesterday, 7d, 30d, 90d, 1y, or YYYY-MM-DD")
+		}
+		return t, nil
+	}
 }
 
 var printCmd = &cobra.Command{
@@ -377,6 +428,8 @@ func init() {
 	addCmd.Flags().StringP("category", "c", "wildcard", "Category of the target")
 	addCmd.Flags().StringP("program-url", "u", "custom", "Program URL (default: 'custom')")
 	changesCmd.Flags().Int("limit", 50, "Number of recent changes to show")
+	changesCmd.Flags().String("since", "", "Show changes since: today, yesterday, 7d, 30d, 90d, 1y, or YYYY-MM-DD")
+	changesCmd.Flags().String("until", "", "Show changes until: today, yesterday, 7d, 30d, 90d, 1y, or YYYY-MM-DD")
 	printCmd.Flags().String("platform", "all", "Comma-separated platforms (h1,bc,it,ywh,immunefi) or 'all'")
 	printCmd.Flags().String("program", "", "Filter by program handle or full URL")
 	printCmd.Flags().Bool("oos", false, "Include out-of-scope elements")

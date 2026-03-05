@@ -97,8 +97,8 @@ entries, err := db.ListEntries(ctx, storage.ListOptions{
 // Full-text search
 results, err := db.SearchTargets(ctx, "example.com")
 
-// Recent changes
-changes, err := db.ListRecentChanges(ctx, 50)
+// Recent changes (limit, since, until — use zero time for no filter)
+changes, err := db.ListRecentChanges(ctx, 50, time.Time{}, time.Time{})
 
 // Statistics
 stats, err := db.GetStats(ctx)

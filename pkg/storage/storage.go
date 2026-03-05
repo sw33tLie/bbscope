@@ -1325,12 +1325,31 @@ func (d *DB) AddCustomTarget(ctx context.Context, target, category, programURL s
 
 // ListRecentChanges returns the most recent N changes across all programs.
 // If limit is 0, a high default is used to return all available data.
-func (d *DB) ListRecentChanges(ctx context.Context, limit int) ([]Change, error) {
+// since/until are optional time range filters (zero value means no filter).
+func (d *DB) ListRecentChanges(ctx context.Context, limit int, since, until time.Time) ([]Change, error) {
 	if limit <= 0 {
 		limit = 1000000
 	}
-	q := "SELECT occurred_at, program_url, platform, handle, target_normalized, target_raw, target_ai_normalized, category, in_scope, is_bbp, change_type FROM scope_changes ORDER BY occurred_at DESC LIMIT $1"
-	rows, err := d.sql.QueryContext(ctx, q, limit)
+
+	where := "WHERE 1=1"
+	args := []interface{}{}
+	argIdx := 1
+
+	if !since.IsZero() {
+		where += fmt.Sprintf(" AND occurred_at >= $%d", argIdx)
+		args = append(args, since)
+		argIdx++
+	}
+	if !until.IsZero() {
+		where += fmt.Sprintf(" AND occurred_at <= $%d", argIdx)
+		args = append(args, until)
+		argIdx++
+	}
+
+	q := fmt.Sprintf("SELECT occurred_at, program_url, platform, handle, target_normalized, target_raw, target_ai_normalized, category, in_scope, is_bbp, change_type FROM scope_changes %s ORDER BY occurred_at DESC LIMIT $%d", where, argIdx)
+	args = append(args, limit)
+
+	rows, err := d.sql.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
