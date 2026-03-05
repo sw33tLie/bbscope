@@ -776,6 +776,8 @@ func scopeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+
 	PageLayout(
 		"Scope data - bbscope.com",
 		"Browse and download bug bounty scope data from all bug bounty platforms. Find in-scope websites from HackerOne, Bugcrowd, Intigriti and YesWeHack.",
