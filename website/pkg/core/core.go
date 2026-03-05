@@ -945,8 +945,12 @@ func Run(cfg ServerConfig) error {
 	http.HandleFunc("/api/v1/find", apiFindHandler)
 	http.HandleFunc("/api", apiPageHandler)
 
-	// Serve static files
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("website/static"))))
+	// Serve static files with long cache headers
+	staticFS := http.StripPrefix("/static/", http.FileServer(http.Dir("website/static")))
+	http.Handle("/static/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=604800, immutable")
+		staticFS.ServeHTTP(w, r)
+	}))
 
 	listenAddr := cfg.ListenAddr
 	if cfg.DevMode && listenAddr == ":8080" {
