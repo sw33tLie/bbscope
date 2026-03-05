@@ -756,6 +756,8 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+
 	PageLayout(
 		"bbscope.com - A bug bounty scope aggregator",
 		"Find and track bug bounty program scope data from HackerOne, Bugcrowd and other platforms. Search thousands of security targets and monitor scope changes.",
