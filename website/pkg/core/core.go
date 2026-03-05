@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -30,23 +29,6 @@ type ServerConfig struct {
 var db *storage.DB
 var serverDomain string
 var serverStartTime time.Time
-
-// UpdateEntryAsset represents an asset within an update event.
-type UpdateEntryAsset struct {
-	Category string
-	Value    string
-}
-
-// UpdateEntry represents a single change event.
-type UpdateEntry struct {
-	Type       string
-	ScopeType  string // "In Scope", "Out of Scope", "" for program types
-	Asset      UpdateEntryAsset
-	ProgramURL string
-	Platform   string
-	Handle     string
-	Timestamp  time.Time
-}
 
 // Page layout component
 func PageLayout(title, description string, navbar g.Node, content g.Node, footer g.Node, canonicalURL string, shouldNoIndex bool) g.Node {
@@ -327,116 +309,6 @@ func MainContent(totalPrograms, totalAssets, platformCount int) g.Node {
 				A(Href("https://github.com/sw33tLie/bbscope"), Target("_blank"), Rel("noopener noreferrer"), Class("bg-emerald-500 hover:bg-emerald-400 text-white font-semibold py-3 px-8 rounded-lg text-base transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/25"),
 					g.Text("Go to GitHub"),
 				),
-			),
-		),
-	)
-}
-
-// platformFilterTabs renders pill-style platform filter tabs.
-func platformFilterTabs(basePath, currentPlatform, extraParams string) g.Node {
-	platforms := []struct{ Value, Label string }{
-		{"", "All"},
-		{"h1", "HackerOne"},
-		{"bc", "Bugcrowd"},
-		{"it", "Intigriti"},
-		{"ywh", "YesWeHack"},
-	}
-
-	tabs := []g.Node{}
-	for _, p := range platforms {
-		isActive := currentPlatform == p.Value
-		href := basePath + "?page=1"
-		if p.Value != "" {
-			href += "&platform=" + p.Value
-		}
-		href += extraParams
-
-		classes := "px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 "
-		if isActive {
-			classes += "bg-cyan-500 text-white shadow-md shadow-cyan-500/20"
-		} else {
-			classes += "bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-700/50"
-		}
-
-		tabs = append(tabs, A(Href(href), Class(classes), g.Text(p.Label)))
-	}
-
-	return Div(Class("flex flex-wrap gap-2 mb-6"), g.Group(tabs))
-}
-
-func dateFilterDropdown(basePath, currentSince, currentUntil, extraParams string) g.Node {
-	presets := []struct{ Value, Label string }{
-		{"", "All time"},
-		{"today", "Today"},
-		{"yesterday", "Yesterday"},
-		{"7d", "Last 7 days"},
-		{"30d", "Last 30 days"},
-		{"90d", "Last 90 days"},
-		{"1y", "Last year"},
-	}
-
-	hasCustomRange := currentSince != "" && func() bool {
-		for _, p := range presets {
-			if p.Value == currentSince {
-				return false
-			}
-		}
-		return true
-	}()
-
-	onChangeJS := fmt.Sprintf(
-		`var v=this.value;if(v==='custom'){document.getElementById('date-range').classList.remove('hidden')}else{document.getElementById('date-range').classList.add('hidden');window.location.href='%s?page=1'+(v?'&since='+v:'')+'%s'}`,
-		basePath, strings.ReplaceAll(extraParams, "'", "\\'"),
-	)
-
-	var options []g.Node
-	for _, p := range presets {
-		attrs := []g.Node{g.Attr("value", p.Value), g.Text(p.Label)}
-		if !hasCustomRange && currentSince == p.Value {
-			attrs = append(attrs, g.Attr("selected", "selected"))
-		}
-		options = append(options, Option(attrs...))
-	}
-	customAttrs := []g.Node{g.Attr("value", "custom"), g.Text("Custom range...")}
-	if hasCustomRange {
-		customAttrs = append(customAttrs, g.Attr("selected", "selected"))
-	}
-	options = append(options, Option(customAttrs...))
-
-	dateRangeClass := "hidden flex flex-wrap items-center gap-2 mt-2"
-	if hasCustomRange {
-		dateRangeClass = "flex flex-wrap items-center gap-2 mt-2"
-	}
-
-	applyJS := fmt.Sprintf(
-		`var f=document.getElementById('date-from').value,t=document.getElementById('date-to').value;if(f){var u='%s?page=1&since='+f+'%s';if(t){u+='&until='+t}window.location.href=u}`,
-		basePath, strings.ReplaceAll(extraParams, "'", "\\'"),
-	)
-
-	inputClasses := "px-3 py-1.5 text-sm rounded-lg bg-zinc-800 text-zinc-300 border border-zinc-700 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 focus:outline-none transition-colors duration-200"
-
-	return Div(Class("flex flex-col mb-6"),
-		Div(Class("flex items-center gap-3"),
-			g.Raw(`<svg class="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>`),
-			Select(
-				Class("px-3 py-1.5 text-sm rounded-lg bg-zinc-800 text-zinc-300 border border-zinc-700 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 focus:outline-none transition-colors duration-200 cursor-pointer appearance-none"),
-				g.Attr("onchange", onChangeJS),
-				g.Group(options),
-			),
-		),
-		Div(g.Attr("id", "date-range"), Class(dateRangeClass),
-			Span(Class("text-sm text-zinc-500"), g.Text("From")),
-			Input(Type("date"), g.Attr("id", "date-from"), Value(func() string {
-				if hasCustomRange {
-					return currentSince
-				}
-				return ""
-			}()), Class(inputClasses)),
-			Span(Class("text-sm text-zinc-500"), g.Text("To")),
-			Input(Type("date"), g.Attr("id", "date-to"), Value(currentUntil), Class(inputClasses)),
-			Button(Type("button"), g.Attr("onclick", applyJS),
-				Class("px-4 py-1.5 text-sm font-medium rounded-lg bg-cyan-600 text-white hover:bg-cyan-500 transition-all duration-200 hover:shadow-md hover:shadow-cyan-500/20"),
-				g.Text("Apply"),
 			),
 		),
 	)
@@ -723,21 +595,6 @@ func scopeSearchBar() g.Node {
 	)
 }
 
-// Helper functions for min/max
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 // HTTP handler for the home page
 func homeHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
@@ -902,36 +759,6 @@ func robotsTxtHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Sitemap: https://%s/sitemap.xml\n", serverDomain)
 }
 
-// truncateMiddle shortens a string by replacing the middle part with ellipsis
-// if it exceeds maxLength.
-func truncateMiddle(s string, maxLength int) string {
-	if len(s) <= maxLength {
-		return s
-	}
-	if maxLength <= 3 { // Cannot meaningfully truncate to less than "..."
-		// Return the beginning of the string if maxLength is too small for ellipsis
-		if maxLength < 0 {
-			maxLength = 0
-		}
-		return s[:maxLength]
-	}
-	ellipsis := "..."
-	// Ensure non-negative lengths for slices
-	firstHalfLen := (maxLength - len(ellipsis)) / 2
-	if firstHalfLen < 0 {
-		firstHalfLen = 0
-	}
-	secondHalfLen := maxLength - len(ellipsis) - firstHalfLen
-	if secondHalfLen < 0 {
-		secondHalfLen = 0
-	}
-	if len(s) < firstHalfLen+secondHalfLen { // Should not happen if len(s) > maxLength
-		return s // Or handle as error/edge case
-	}
-
-	return s[:firstHalfLen] + ellipsis + s[len(s)-secondHalfLen:]
-}
-
 func Run(cfg ServerConfig) error {
 	var err error
 	db, err = storage.Open(cfg.DBUrl)
@@ -1011,449 +838,130 @@ func changeTypeBadge(changeType string) g.Node {
 	return Span(Class("inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md "+colors), g.Text(label))
 }
 
-// scopeBadge renders an in-scope or out-of-scope badge.
-func scopeBadge(scopeType string) g.Node {
-	if scopeType == "" {
-		return Span(Class("text-zinc-500 text-xs"), g.Text("—"))
-	}
-	colors := "bg-zinc-700 text-zinc-400 border border-zinc-600"
-	if scopeType == "In Scope" {
-		colors = "bg-emerald-900/30 text-emerald-400 border border-emerald-800"
-	} else if scopeType == "Out of Scope" {
-		colors = "bg-zinc-800 text-zinc-400 border border-zinc-700"
-	}
-	return Span(Class("inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md whitespace-nowrap "+colors), g.Text(scopeType))
-}
-
-// UpdatesContent renders the main content for the /updates page.
-func UpdatesContent(updates []UpdateEntry, currentPage, totalPages int, currentPerPage int, currentSearch string, currentPlatform string, currentSince string, currentUntil string) g.Node {
-	dateExtra := ""
-	if currentPlatform != "" {
-		dateExtra += "&platform=" + url.QueryEscape(currentPlatform)
-	}
-	dateExtra += fmt.Sprintf("&perPage=%d", currentPerPage)
-
-	platformExtra := fmt.Sprintf("&perPage=%d", currentPerPage)
-	if currentSince != "" {
-		platformExtra += "&since=" + url.QueryEscape(currentSince)
-	}
-	if currentUntil != "" {
-		platformExtra += "&until=" + url.QueryEscape(currentUntil)
+// UpdatesContent renders the /updates page shell with client-side controls and an empty container
+// that gets populated by updates-table.js via the /api/v1/updates JSON API.
+func UpdatesContent() g.Node {
+	platforms := []struct{ Value, Label string }{
+		{"", "All"},
+		{"h1", "HackerOne"},
+		{"bc", "Bugcrowd"},
+		{"it", "Intigriti"},
+		{"ywh", "YesWeHack"},
 	}
 
-	pageContent := []g.Node{
-		H1(Class("text-2xl md:text-3xl font-bold text-white mb-4"), g.Text("Scope Updates")),
-		P(Class("text-zinc-400 mb-6"), g.Text("Recent changes to bug bounty program scopes.")),
-		platformFilterTabs("/updates", currentPlatform, platformExtra),
-		dateFilterDropdown("/updates", currentSince, currentUntil, dateExtra),
-	}
-
-	// Search controls
-	controlsHeader := Form(Method("GET"), Action("/updates"), Class("flex flex-col sm:flex-row gap-2 items-stretch sm:items-center mb-6"),
-		Div(Class("relative flex-1"),
-			Div(Class("absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none"),
-				g.Raw(`<svg class="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>`),
-			),
-			Input(
-				Type("text"),
-				Name("search"),
-				Placeholder("Search updates..."),
-				Value(currentSearch),
-				Class("w-full pl-10 pr-4 py-2.5 border border-zinc-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-zinc-800/50 text-zinc-200 placeholder-zinc-500 transition-colors duration-200"),
-			),
-		),
-		Button(
-			Type("submit"),
-			Class("px-6 py-2.5 bg-cyan-600 text-white font-medium rounded-lg hover:bg-cyan-500 transition-all duration-200 hover:shadow-md hover:shadow-cyan-500/20"),
-			g.Text("Search"),
-		),
-		Input(Type("hidden"), Name("perPage"), Value(strconv.Itoa(currentPerPage))),
-		Input(Type("hidden"), Name("platform"), Value(currentPlatform)),
-		Input(Type("hidden"), Name("since"), Value(currentSince)),
-		Input(Type("hidden"), Name("until"), Value(currentUntil)),
-	)
-	pageContent = append(pageContent, controlsHeader)
-
-	var tableRows []g.Node
-	if len(updates) == 0 {
-		noResultsMsg := "No updates to display."
-		if currentSearch != "" {
-			noResultsMsg = fmt.Sprintf("No updates found for search '%s'.", currentSearch)
+	var platformTabs []g.Node
+	for _, p := range platforms {
+		classes := "updates-platform-tab px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 cursor-pointer "
+		if p.Value == "" {
+			classes += "bg-cyan-500 text-white shadow-md shadow-cyan-500/20"
+		} else {
+			classes += "bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-700/50"
 		}
-		tableRows = append(tableRows,
-			Tr(Td(ColSpan("7"), Class("text-center py-16 text-zinc-500"),
-				Div(Class("flex flex-col items-center gap-3"),
-					g.Raw(`<svg class="w-12 h-12 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>`),
-					Span(g.Text(noResultsMsg)),
-				),
-			)),
-		)
-	} else {
-		for i, entry := range updates {
-			rowClasses := "border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors duration-150"
-			if i%2 == 1 {
-				rowClasses += " bg-zinc-800/20"
-			}
-
-			isProgramLevelChange := entry.Type == "program_added" || entry.Type == "program_removed"
-
-			// Build program link — link to internal program page if handle is available
-			var programCell g.Node
-			if entry.Handle != "" {
-				internalURL := fmt.Sprintf("/program/%s/%s",
-					url.PathEscape(strings.ToLower(entry.Platform)),
-					url.PathEscape(entry.Handle),
-				)
-				programCell = Td(Class("px-4 py-3 text-sm"),
-					Div(Class("flex items-center gap-2"),
-						A(Href(entry.ProgramURL), Target("_blank"), Rel("noopener noreferrer"),
-							Class("text-zinc-500 hover:text-cyan-400 transition-colors flex-shrink-0"),
-							g.Attr("title", "Open on "+capitalizedPlatform(entry.Platform)),
-							g.Raw(`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>`),
-						),
-						A(Href(internalURL),
-							Class("text-cyan-400 hover:text-cyan-300 hover:underline transition-colors"),
-							g.Text(displayHandle(entry.Platform, entry.Handle)),
-						),
-					),
-				)
-			} else {
-				programCell = Td(Class("px-4 py-3 text-sm"),
-					A(Href(entry.ProgramURL), Target("_blank"), Rel("noopener noreferrer"),
-						Class("text-cyan-400 hover:text-cyan-300 hover:underline transition-colors"),
-						g.Attr("title", entry.ProgramURL),
-						g.Text(truncateMiddle(entry.ProgramURL, 40)),
-					),
-				)
-			}
-
-			if isProgramLevelChange {
-				tableRows = append(tableRows,
-					Tr(Class(rowClasses),
-						// Change type
-						Td(Class("px-4 py-3 text-sm"),
-							changeTypeBadge(entry.Type),
-						),
-						// Asset (empty for program-level)
-						Td(Class("px-4 py-3 text-sm text-zinc-500"), g.Text("—")),
-						// Category (empty for program-level)
-						Td(Class("px-4 py-3 text-sm text-zinc-500"), g.Text("—")),
-						// Scope (empty for program-level)
-						Td(Class("px-4 py-3 text-sm text-zinc-500"), g.Text("—")),
-						// Program
-						programCell,
-						// Platform
-						Td(Class("px-4 py-3 text-sm"), platformBadge(entry.Platform)),
-						// Time
-						Td(Class("px-4 py-3 text-sm text-zinc-400 whitespace-nowrap"), g.Text(entry.Timestamp.Format("2006-01-02 15:04"))),
-					),
-				)
-			} else {
-				// Asset-level change row
-				assetCategory := entry.Asset.Category
-				if assetCategory == "" {
-					assetCategory = "OTHER"
-				}
-
-				tableRows = append(tableRows,
-					Tr(Class(rowClasses),
-						// Change type
-						Td(Class("px-4 py-3 text-sm"),
-							changeTypeBadge(entry.Type),
-						),
-						// Asset
-						Td(Class("px-4 py-3 text-sm text-zinc-200 break-all"), g.Text(entry.Asset.Value)),
-						// Category
-						Td(Class("px-4 py-3 text-sm"),
-							categoryBadge(assetCategory),
-						),
-						// Scope
-						Td(Class("px-4 py-3 text-sm"),
-							scopeBadge(entry.ScopeType),
-						),
-						// Program
-						programCell,
-						// Platform
-						Td(Class("px-4 py-3 text-sm"), platformBadge(entry.Platform)),
-						// Time
-						Td(Class("px-4 py-3 text-sm text-zinc-400 whitespace-nowrap"), g.Text(entry.Timestamp.Format("2006-01-02 15:04"))),
-					),
-				)
-			}
-		}
+		platformTabs = append(platformTabs, Span(Class(classes), g.Attr("data-platform", p.Value), g.Text(p.Label)))
 	}
 
-	table := Div(Class("overflow-x-auto rounded-none sm:rounded-xl border-y sm:border border-zinc-700/50 sm:shadow-xl sm:shadow-black/10"),
-		Table(Class("min-w-full divide-y divide-zinc-700"),
-			THead(Class("bg-zinc-800/80"),
-				Tr(
-					Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider"), g.Text("Change")),
-					Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider"), g.Text("Asset")),
-					Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-28"), g.Text("Category")),
-					Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-28"), g.Text("Scope")),
-					Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider"), g.Text("Program")),
-					Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-28"), g.Text("Platform")),
-					Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-36"), g.Text("Time")),
-				),
-			),
-			TBody(Class("bg-zinc-900/50 divide-y divide-zinc-800"),
-				g.Group(tableRows),
-			),
-		),
-	)
-	pageContent = append(pageContent, table)
-
-	// Pagination
-	if totalPages > 1 {
-		paginationBottom := createUpdatesPagePagination(currentPage, totalPages, currentPerPage, currentPlatform, currentSearch, currentSince, currentUntil)
-		pageContent = append(pageContent, Div(Class("mt-6 flex justify-center"), paginationBottom))
+	presets := []struct{ Value, Label string }{
+		{"", "All time"},
+		{"today", "Today"},
+		{"yesterday", "Yesterday"},
+		{"7d", "Last 7 days"},
+		{"30d", "Last 30 days"},
+		{"90d", "Last 90 days"},
+		{"1y", "Last year"},
 	}
+	var dateOptions []g.Node
+	for _, p := range presets {
+		dateOptions = append(dateOptions, Option(g.Attr("value", p.Value), g.Text(p.Label)))
+	}
+	dateOptions = append(dateOptions, Option(g.Attr("value", "custom"), g.Text("Custom range...")))
+
+	inputClasses := "px-3 py-1.5 text-sm rounded-lg bg-zinc-800 text-zinc-300 border border-zinc-700 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 focus:outline-none transition-colors duration-200"
 
 	return Main(Class("container mx-auto mt-10 mb-20 px-0 sm:px-4"),
 		Section(Class("sm:bg-zinc-900/30 sm:border sm:border-zinc-800/50 sm:rounded-2xl sm:shadow-xl sm:shadow-black/10 px-2 py-4 sm:p-6 md:p-8 lg:p-12"),
-			g.Group(pageContent),
-		),
-	)
-}
-
-// createUpdatesPagePagination creates pagination controls for the updates page
-func createUpdatesPagePagination(currentPage, totalPages int, perPage int, platform string, search string, since string, until string) g.Node {
-	var paginationItems []g.Node
-
-	buildHref := func(page int) string {
-		href := fmt.Sprintf("/updates?page=%d&perPage=%d", page, perPage)
-		if platform != "" {
-			href += "&platform=" + url.QueryEscape(platform)
-		}
-		if search != "" {
-			href += "&search=" + url.QueryEscape(search)
-		}
-		if since != "" {
-			href += "&since=" + url.QueryEscape(since)
-		}
-		if until != "" {
-			href += "&until=" + url.QueryEscape(until)
-		}
-		return href
-	}
-
-	// Helper function to create pagination link
-	createPageLink := func(page int, text string, disabled bool, active bool) g.Node {
-		href := buildHref(page)
-
-		classes := "px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-200"
-		if disabled {
-			classes += " bg-zinc-800/50 text-zinc-600 cursor-not-allowed"
-			return Span(Class(classes), g.Text(text))
-		} else if active {
-			classes += " bg-cyan-600 text-white shadow-md shadow-cyan-500/20"
-		} else {
-			classes += " bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
-		}
-
-		return A(Href(href), Class(classes), g.Text(text))
-	}
-
-	// Previous button - arrow on mobile, text on desktop
-	prevHref := buildHref(currentPage - 1)
-	if currentPage <= 1 {
-		paginationItems = append(paginationItems, Span(Class("px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-600 cursor-not-allowed"),
-			g.Raw(`<span class="hidden sm:inline">Previous</span><span class="sm:hidden">&larr;</span>`),
-		))
-	} else {
-		paginationItems = append(paginationItems, A(Href(prevHref), Class("px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-all duration-200"),
-			g.Raw(`<span class="hidden sm:inline">Previous</span><span class="sm:hidden">&larr;</span>`),
-		))
-	}
-
-	// Page numbers - show fewer on mobile
-	start := max(1, currentPage-2)
-	end := min(totalPages, currentPage+2)
-
-	if start > 1 {
-		paginationItems = append(paginationItems, createPageLink(1, "1", false, false))
-		if start > 2 {
-			paginationItems = append(paginationItems,
-				Span(Class("px-1 sm:px-2 py-1.5 text-sm text-zinc-600"), g.Text("...")),
-			)
-		}
-	}
-
-	for i := start; i <= end; i++ {
-		hideOnMobile := ""
-		if i != currentPage && (i < currentPage-1 || i > currentPage+1) {
-			hideOnMobile = " hidden sm:inline-flex"
-		}
-		pageClasses := "px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-200"
-		if i == currentPage {
-			pageClasses += " bg-cyan-600 text-white shadow-md shadow-cyan-500/20"
-		} else {
-			pageClasses += " bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
-		}
-		pageClasses += hideOnMobile
-
-		paginationItems = append(paginationItems, A(Href(buildHref(i)), Class(pageClasses), g.Text(strconv.Itoa(i))))
-	}
-
-	if end < totalPages {
-		if end < totalPages-1 {
-			paginationItems = append(paginationItems,
-				Span(Class("px-1 sm:px-2 py-1.5 text-sm text-zinc-600"), g.Text("...")),
-			)
-		}
-		paginationItems = append(paginationItems,
-			createPageLink(totalPages, strconv.Itoa(totalPages), false, false),
-		)
-	}
-
-	// Next button - arrow on mobile, text on desktop
-	nextHref := buildHref(currentPage + 1)
-	if currentPage >= totalPages {
-		paginationItems = append(paginationItems, Span(Class("px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-600 cursor-not-allowed"),
-			g.Raw(`<span class="hidden sm:inline">Next</span><span class="sm:hidden">&rarr;</span>`),
-		))
-	} else {
-		paginationItems = append(paginationItems, A(Href(nextHref), Class("px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-all duration-200"),
-			g.Raw(`<span class="hidden sm:inline">Next</span><span class="sm:hidden">&rarr;</span>`),
-		))
-	}
-
-	return Div(Class("mt-6 flex justify-center"),
-		Nav(Class("inline-flex items-center gap-1 bg-zinc-800/30 rounded-full px-1 py-1"),
-			g.Group(paginationItems),
+			H1(Class("text-2xl md:text-3xl font-bold text-white mb-4"), g.Text("Scope Updates")),
+			P(Class("text-zinc-400 mb-6"), g.Text("Recent changes to bug bounty program scopes.")),
+			// Platform filter tabs
+			Div(Class("flex flex-wrap gap-2 mb-6"), g.Group(platformTabs)),
+			// Date filter
+			Div(Class("flex flex-col mb-6"),
+				Div(Class("flex items-center gap-3"),
+					g.Raw(`<svg class="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>`),
+					Select(
+						ID("updates-date-select"),
+						Class("px-3 py-1.5 text-sm rounded-lg bg-zinc-800 text-zinc-300 border border-zinc-700 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 focus:outline-none transition-colors duration-200 cursor-pointer appearance-none"),
+						g.Group(dateOptions),
+					),
+				),
+				Div(ID("updates-date-range"), Class("hidden flex flex-wrap items-center gap-2 mt-2"),
+					Span(Class("text-sm text-zinc-500"), g.Text("From")),
+					Input(Type("date"), ID("updates-date-from"), Class(inputClasses)),
+					Span(Class("text-sm text-zinc-500"), g.Text("To")),
+					Input(Type("date"), ID("updates-date-to"), Class(inputClasses)),
+					Button(Type("button"), ID("updates-date-apply"),
+						Class("px-4 py-1.5 text-sm font-medium rounded-lg bg-cyan-600 text-white hover:bg-cyan-500 transition-all duration-200 hover:shadow-md hover:shadow-cyan-500/20"),
+						g.Text("Apply"),
+					),
+				),
+			),
+			// Search + per-page controls
+			Div(ID("updates-search-form"), Class("flex flex-col sm:flex-row gap-2 items-stretch sm:items-center mb-6"),
+				Div(Class("relative flex-1"),
+					Div(Class("absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none"),
+						g.Raw(`<svg class="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>`),
+					),
+					Input(
+						Type("text"),
+						ID("updates-search-input"),
+						Placeholder("Search updates..."),
+						Class("w-full pl-10 pr-4 py-2.5 border border-zinc-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-zinc-800/50 text-zinc-200 placeholder-zinc-500 transition-colors duration-200"),
+					),
+				),
+				Button(
+					Type("submit"),
+					Class("px-6 py-2.5 bg-cyan-600 text-white font-medium rounded-lg hover:bg-cyan-500 transition-all duration-200 hover:shadow-md hover:shadow-cyan-500/20"),
+					g.Text("Search"),
+				),
+				Select(
+					ID("updates-perpage-select"),
+					Class("px-3 py-2.5 text-sm rounded-lg bg-zinc-800 text-zinc-300 border border-zinc-700 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 focus:outline-none transition-colors duration-200 cursor-pointer"),
+					Option(g.Attr("value", "25"), g.Text("25 / page")),
+					Option(g.Attr("value", "50"), g.Text("50 / page")),
+					Option(g.Attr("value", "100"), g.Text("100 / page")),
+					Option(g.Attr("value", "250"), g.Text("250 / page")),
+				),
+			),
+			// Table container — filled by updates-table.js
+			Div(ID("updates-table-container"),
+				Div(Class("flex flex-col items-center justify-center py-20 gap-4"),
+					g.Raw(`<div class="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>`),
+					Span(Class("text-zinc-400 text-sm"), g.Text("Loading updates...")),
+				),
+			),
+			// Noscript fallback
+			g.Raw(`<noscript><div class="text-center py-8 text-zinc-400">JavaScript is required to view updates.</div></noscript>`),
+			Script(Src("/static/js/updates-table.js")),
 		),
 	)
 }
 
 // updatesHandler handles requests for the /updates page.
+// Serves a static HTML shell; data is loaded client-side via /api/v1/updates.
 func updatesHandler(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	searchQuery := strings.TrimSpace(query.Get("search"))
-	platformFilter := strings.ToLower(strings.TrimSpace(query.Get("platform")))
-	sinceParam := strings.TrimSpace(query.Get("since"))
-	untilParam := strings.TrimSpace(query.Get("until"))
-
-	currentPage := 1
-	if p, err := strconv.Atoi(query.Get("page")); err == nil && p > 0 {
-		currentPage = p
-	}
-
-	currentPerPage := 25
-	allowedPerPages := map[int]bool{25: true, 50: true, 100: true, 250: true}
-	if p, err := strconv.Atoi(query.Get("perPage")); err == nil && allowedPerPages[p] {
-		currentPerPage = p
-	}
-
-	var sinceTime time.Time
-	now := time.Now()
-	switch sinceParam {
-	case "today":
-		sinceTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	case "yesterday":
-		y := now.AddDate(0, 0, -1)
-		sinceTime = time.Date(y.Year(), y.Month(), y.Day(), 0, 0, 0, 0, y.Location())
-	case "7d":
-		sinceTime = now.AddDate(0, 0, -7)
-	case "30d":
-		sinceTime = now.AddDate(0, 0, -30)
-	case "90d":
-		sinceTime = now.AddDate(0, 0, -90)
-	case "1y":
-		sinceTime = now.AddDate(-1, 0, 0)
-	case "":
-	default:
-		if t, err := time.Parse("2006-01-02", sinceParam); err == nil {
-			sinceTime = t
-		}
-	}
-
-	var untilTime time.Time
-	if untilParam != "" {
-		if t, err := time.Parse("2006-01-02", untilParam); err == nil {
-			untilTime = t.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
-		}
-	}
-
-	ctx := context.Background()
-	page, err := db.ListChangesPaginated(ctx, storage.ChangesPageOptions{
-		Page:     currentPage,
-		PerPage:  currentPerPage,
-		Platform: platformFilter,
-		Search:   searchQuery,
-		Since:    sinceTime,
-		Until:    untilTime,
-	})
-	if err != nil {
-		log.Printf("Error loading updates data: %v", err)
-		http.Error(w, "Could not load updates data", http.StatusInternalServerError)
+	if r.URL.Path != "/updates" {
+		http.NotFound(w, r)
 		return
 	}
 
-	// Convert DB changes to display entries
-	var updates []UpdateEntry
-	for _, c := range page.Changes {
-		programURL := strings.ReplaceAll(c.ProgramURL, "api.yeswehack.com", "yeswehack.com")
-		category := strings.ToUpper(scope.NormalizeCategory(c.Category))
-
-		var entryType string
-		var scopeType string
-		if c.Category == "program" {
-			if c.ChangeType == "added" {
-				entryType = "program_added"
-			} else {
-				entryType = "program_removed"
-			}
-		} else {
-			if c.ChangeType == "added" {
-				entryType = "asset_added"
-			} else {
-				entryType = "asset_removed"
-			}
-			if c.InScope {
-				scopeType = "In Scope"
-			} else {
-				scopeType = "Out of Scope"
-			}
-		}
-
-		target := c.TargetNormalized
-		if target == "" {
-			target = c.TargetRaw
-		}
-
-		updates = append(updates, UpdateEntry{
-			Type:       entryType,
-			ScopeType:  scopeType,
-			Asset:      UpdateEntryAsset{Category: category, Value: target},
-			ProgramURL: programURL,
-			Platform:   c.Platform,
-			Handle:     c.Handle,
-			Timestamp:  c.OccurredAt,
-		})
-	}
-
-	totalPages := 0
-	if page.TotalCount > 0 {
-		totalPages = (page.TotalCount + currentPerPage - 1) / currentPerPage
-	}
-	if currentPage > totalPages && totalPages > 0 {
-		currentPage = totalPages
-	}
-
-	updatesCanonicalURL := fmt.Sprintf("/updates?page=%d", currentPage)
-	updatesPageTitle := fmt.Sprintf("Scope Updates - bbscope.com (Page %d)", currentPage)
-	updatesPageDescription := "Recent changes to bug bounty program scopes from HackerOne, Bugcrowd, Intigriti and YesWeHack."
-	if currentPage > 1 {
-		updatesPageDescription = fmt.Sprintf("%s (Page %d)", updatesPageDescription, currentPage)
-	}
+	w.Header().Set("Cache-Control", "public, max-age=3600")
 
 	PageLayout(
-		updatesPageTitle,
-		updatesPageDescription,
+		"Scope Updates - bbscope.com",
+		"Recent changes to bug bounty program scopes from HackerOne, Bugcrowd, Intigriti and YesWeHack.",
 		Navbar("/updates"),
-		UpdatesContent(updates, currentPage, totalPages, currentPerPage, searchQuery, platformFilter, sinceParam, untilParam),
+		UpdatesContent(),
 		FooterEl(),
-		updatesCanonicalURL,
-		currentPage > 1,
+		"/updates",
+		false,
 	).Render(w)
 }
