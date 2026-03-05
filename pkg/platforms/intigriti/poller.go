@@ -43,7 +43,7 @@ func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOpti
 	for {
 		res, err := whttp.SendHTTPRequest(&whttp.WHTTPReq{
 			Method:  "GET",
-			URL:     fmt.Sprintf("https://api.intigriti.com/external/researcher/v1/programs?statusId=3&limit=%d&offset=%d", limit, offset),
+			URL:     fmt.Sprintf("https://api.intigriti.com/external/researcher/v1/programs?limit=%d&offset=%d", limit, offset),
 			Headers: []whttp.WHTTPHeader{{Name: "Authorization", Value: "Bearer " + p.token}},
 		}, nil)
 
@@ -62,6 +62,13 @@ func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOpti
 
 		records := gjson.Get(body, "records").Array()
 		for _, record := range records {
+			// Only keep Open (3) and Suspended (4) programs.
+			// Suspended programs are temporarily paused (near budget limit) but still active.
+			statusID := record.Get("status.id").Int()
+			if statusID != 3 && statusID != 4 {
+				continue
+			}
+
 			id := record.Get("id").String()
 			maxBounty := record.Get("maxBounty.value").Int()
 			confidentialityLevel := record.Get("confidentialityLevel.id").Int()
