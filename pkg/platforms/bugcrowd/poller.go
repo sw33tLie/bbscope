@@ -8,10 +8,21 @@ import (
 	"github.com/sw33tLie/bbscope/v2/pkg/scope"
 )
 
-type Poller struct{ token string }
+type Poller struct {
+	token      string
+	publicOnly bool
+	bbpSet     map[string]bool // tracks which handles are bug_bounty programs
+}
 
 // NewPollerFromToken uses an existing _bugcrowd_session token.
-func NewPollerFromToken(token string) *Poller { return &Poller{token: token} }
+func NewPollerFromToken(token string) *Poller {
+	return &Poller{token: token, bbpSet: map[string]bool{}}
+}
+
+// NewPollerPublicOnly creates a poller that fetches only public programs without authentication.
+func NewPollerPublicOnly() *Poller {
+	return &Poller{publicOnly: true, bbpSet: map[string]bool{}}
+}
 
 // NewPollerWithLogin logs in using email/password and OTP secret to obtain a session token.
 func NewPollerWithLogin(email, password, otpSecret, proxy string) (*Poller, error) {
@@ -19,12 +30,15 @@ func NewPollerWithLogin(email, password, otpSecret, proxy string) (*Poller, erro
 	if err != nil {
 		return nil, err
 	}
-	return &Poller{token: tok}, nil
+	return &Poller{token: tok, bbpSet: map[string]bool{}}, nil
 }
 
 func (p *Poller) Name() string { return "bc" }
 
 func (p *Poller) Authenticate(ctx context.Context, cfg platforms.AuthConfig) error {
+	if p.publicOnly {
+		return nil
+	}
 	if cfg.Token != "" {
 		p.token = cfg.Token
 		return nil
@@ -41,11 +55,17 @@ func (p *Poller) Authenticate(ctx context.Context, cfg platforms.AuthConfig) err
 }
 
 func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOptions) ([]string, error) {
+	p.bbpSet = map[string]bool{}
+
 	// Reuse existing listing: bbpOnly controls category, pvtOnly controls open/private
 	handles, err := GetProgramHandles(p.token, "bug_bounty", opts.PrivateOnly)
 	if err != nil {
 		return nil, err
 	}
+	for _, h := range handles {
+		p.bbpSet[h] = true
+	}
+
 	// Optionally include VDP if not bbpOnly
 	if !opts.BountyOnly {
 		vdp, err := GetProgramHandles(p.token, "vdp", opts.PrivateOnly)
@@ -62,5 +82,17 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 	if err != nil {
 		return scope.ProgramData{Url: strings.TrimPrefix(handle, "/")}, err
 	}
+
+	// Set IsBBP on all targets based on whether the handle was listed as bug_bounty
+	isBBP := p.bbpSet[handle]
+	if isBBP {
+		for i := range pd.InScope {
+			pd.InScope[i].IsBBP = true
+		}
+		for i := range pd.OutOfScope {
+			pd.OutOfScope[i].IsBBP = true
+		}
+	}
+
 	return pd, nil
 }

@@ -1,0 +1,819 @@
+package core
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"net/url"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/sw33tLie/bbscope/v2/pkg/scope"
+	"github.com/sw33tLie/bbscope/v2/pkg/storage"
+	"github.com/sw33tLie/bbscope/v2/pkg/targets"
+)
+
+// API cache for program list — separate slots for AI-enhanced and raw modes.
+var (
+	programsCacheMu      sync.RWMutex
+	programsCacheAI      []byte    // AI-enhanced (default)
+	programsCacheAITime  time.Time
+	programsCacheRaw     []byte    // raw mode
+	programsCacheRawTime time.Time
+	programsCacheTTL     = 5 * time.Minute
+)
+
+// invalidateProgramsCache clears both cached program lists so the next request rebuilds them.
+func invalidateProgramsCache() {
+	programsCacheMu.Lock()
+	programsCacheAI = nil
+	programsCacheAITime = time.Time{}
+	programsCacheRaw = nil
+	programsCacheRawTime = time.Time{}
+	programsCacheMu.Unlock()
+}
+
+type programsAPIResponse struct {
+	Programs    json.RawMessage `json:"programs"`
+	TotalCount  int             `json:"total_count"`
+	GeneratedAt string          `json:"generated_at"`
+}
+
+// apiProgramsHandler serves GET /api/v1/programs — the full program list as JSON.
+// Pass ?raw=true to get raw target data without AI enhancements.
+func apiProgramsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		setCORSHeaders(w)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	rawMode := r.URL.Query().Get("raw") == "true"
+
+	// Check cache
+	programsCacheMu.RLock()
+	var cached []byte
+	var cacheTime time.Time
+	if rawMode {
+		cached = programsCacheRaw
+		cacheTime = programsCacheRawTime
+	} else {
+		cached = programsCacheAI
+		cacheTime = programsCacheAITime
+	}
+	programsCacheMu.RUnlock()
+
+	if cached != nil && time.Since(cacheTime) < programsCacheTTL {
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		w.Write(cached)
+		return
+	}
+
+	// Cache miss — rebuild
+	respJSON, err := buildProgramsCache(rawMode)
+	if err != nil {
+		log.Printf("API: Error building programs cache: %v", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	setCORSHeaders(w)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Write(respJSON)
+}
+
+// buildProgramsCache builds the programs JSON response and stores it in the in-memory cache.
+// Returns the serialized JSON response. Called by the API handler on cache miss and by the
+// background pre-warmer.
+func buildProgramsCache(rawMode bool) ([]byte, error) {
+	ctx := context.Background()
+	programs, err := db.ListAllProgramsFlat(ctx, rawMode)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply YWH URL rewrite
+	for i := range programs {
+		programs[i].URL = strings.ReplaceAll(programs[i].URL, "api.yeswehack.com", "yeswehack.com")
+	}
+
+	programsJSON, err := json.Marshal(programs)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	resp := programsAPIResponse{
+		Programs:    programsJSON,
+		TotalCount:  len(programs),
+		GeneratedAt: now.Format(time.RFC3339),
+	}
+	respJSON, err := json.Marshal(resp)
+	if err != nil {
+		return nil, err
+	}
+
+	programsCacheMu.Lock()
+	if rawMode {
+		programsCacheRaw = respJSON
+		programsCacheRawTime = now
+	} else {
+		programsCacheAI = respJSON
+		programsCacheAITime = now
+	}
+	programsCacheMu.Unlock()
+
+	return respJSON, nil
+}
+
+// startProgramsCacheWarmer pre-warms the programs cache on startup and refreshes it
+// periodically so users never hit a cold cache.
+func startProgramsCacheWarmer() {
+	// Warm both variants immediately
+	for _, raw := range []bool{false, true} {
+		if _, err := buildProgramsCache(raw); err != nil {
+			log.Printf("Cache warmer: error pre-warming programs cache (raw=%v): %v", raw, err)
+		}
+	}
+	log.Println("Cache warmer: programs cache pre-warmed")
+
+	ticker := time.NewTicker(4 * time.Minute)
+	for range ticker.C {
+		for _, raw := range []bool{false, true} {
+			if _, err := buildProgramsCache(raw); err != nil {
+				log.Printf("Cache warmer: error refreshing programs cache (raw=%v): %v", raw, err)
+			}
+		}
+	}
+}
+
+// apiProgramDetailHandler serves GET /api/v1/programs/{platform}/{handle} — single program detail.
+// Pass ?raw=true to get raw target data without AI enhancements.
+func apiProgramDetailHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		setCORSHeaders(w)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	rawMode := r.URL.Query().Get("raw") == "true"
+
+	// Parse path: /api/v1/programs/{platform}/{handle}
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/programs/")
+	path = strings.TrimSuffix(path, "/")
+
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error":"not found"}`))
+		return
+	}
+
+	platform, err := url.PathUnescape(parts[0])
+	if err != nil {
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error":"not found"}`))
+		return
+	}
+	handle, err := url.PathUnescape(parts[1])
+	if err != nil {
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error":"not found"}`))
+		return
+	}
+
+	ctx := context.Background()
+
+	program, err := db.GetProgramByPlatformHandle(ctx, platform, handle)
+	if err != nil {
+		log.Printf("API: Error fetching program %s/%s: %v", platform, handle, err)
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"internal server error"}`))
+		return
+	}
+	if program == nil {
+		program, err = db.GetProgramByPlatformHandleAny(ctx, platform, handle)
+		if err != nil {
+			log.Printf("API: Error fetching program %s/%s: %v", platform, handle, err)
+			setCORSHeaders(w)
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"internal server error"}`))
+			return
+		}
+	}
+	if program == nil {
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error":"not found"}`))
+		return
+	}
+
+	targets, err := db.ListProgramTargets(ctx, program.ID, rawMode)
+	if err != nil {
+		log.Printf("API: Error fetching targets for %s/%s: %v", platform, handle, err)
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"internal server error"}`))
+		return
+	}
+
+	// For removed programs, reconstruct scope from change history
+	if len(targets) == 0 && program.Disabled {
+		targets, err = db.ListProgramTargetsFromHistory(ctx, program.Platform, program.Handle)
+		if err != nil {
+			log.Printf("API: Error fetching historical targets for %s/%s: %v", platform, handle, err)
+			setCORSHeaders(w)
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"internal server error"}`))
+			return
+		}
+	}
+
+	// Derive isBBP and split in/out of scope
+	isBBP := false
+	var inScope, outOfScope []programDetailTarget
+	for _, t := range targets {
+		if t.IsBBP {
+			isBBP = true
+		}
+		dt := programDetailTarget{
+			Target:      t.TargetDisplay,
+			TargetRaw:   t.TargetRaw,
+			Category:    t.Category,
+			Description: t.Description,
+			IsBBP:       t.IsBBP,
+		}
+		if t.InScope {
+			inScope = append(inScope, dt)
+		} else {
+			outOfScope = append(outOfScope, dt)
+		}
+	}
+
+	programURL := strings.ReplaceAll(program.URL, "api.yeswehack.com", "yeswehack.com")
+
+	resp := programDetailResponse{
+		Platform:   program.Platform,
+		Handle:     program.Handle,
+		URL:        programURL,
+		IsBBP:      isBBP,
+		InScope:    inScope,
+		OutOfScope: outOfScope,
+	}
+
+	respJSON, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("API: Error marshaling program detail: %v", err)
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"internal server error"}`))
+		return
+	}
+
+	setCORSHeaders(w)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Write(respJSON)
+}
+
+type programDetailTarget struct {
+	Target      string `json:"target"`
+	TargetRaw   string `json:"target_raw"`
+	Category    string `json:"category"`
+	Description string `json:"description"`
+	IsBBP       bool   `json:"is_bbp"`
+}
+
+type programDetailResponse struct {
+	Platform   string                `json:"platform"`
+	Handle     string                `json:"handle"`
+	URL        string                `json:"url"`
+	IsBBP      bool                  `json:"is_bbp"`
+	InScope    []programDetailTarget `json:"in_scope"`
+	OutOfScope []programDetailTarget `json:"out_of_scope"`
+}
+
+func setCORSHeaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+}
+
+// --- Targets API ---
+
+var (
+	targetsCacheMu   sync.RWMutex
+	targetsCache     = make(map[string]targetsCacheEntry)
+	targetsCacheTTL  = 5 * time.Minute
+	targetsFlight    sync.Map // singleflight: cacheKey -> *sync.Once
+)
+
+type targetsCacheEntry struct {
+	data []byte
+	time time.Time
+}
+
+// apiTargetsHandler serves GET /api/v1/targets/{wildcards,domains,urls,ips,cidrs}.
+// Query params: scope (in|out|all), platform, type (bbp|vdp), format (json).
+func apiTargetsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		setCORSHeaders(w)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse target type from path
+	suffix := strings.TrimPrefix(r.URL.Path, "/api/v1/targets/")
+	suffix = strings.TrimSuffix(suffix, "/")
+	validTypes := map[string]bool{"wildcards": true, "domains": true, "urls": true, "ips": true, "cidrs": true}
+	if !validTypes[suffix] {
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error":"not found. valid types: wildcards, domains, urls, ips, cidrs"}`))
+		return
+	}
+
+	query := r.URL.Query()
+	scopeParam := strings.ToLower(query.Get("scope"))
+	if scopeParam == "" {
+		scopeParam = "in"
+	}
+	if scopeParam != "in" && scopeParam != "out" && scopeParam != "all" {
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"invalid scope param. use: in, out, all"}`))
+		return
+	}
+	platformParam := strings.ToLower(query.Get("platform"))
+	typeParam := strings.ToLower(query.Get("type"))
+	formatParam := strings.ToLower(query.Get("format"))
+	rawParam := query.Get("raw") == "true"
+
+	// Build cache key from full query
+	rawKey := "ai"
+	if rawParam {
+		rawKey = "raw"
+	}
+	cacheKey := fmt.Sprintf("%s|%s|%s|%s|%s", suffix, scopeParam, platformParam, typeParam, rawKey)
+
+	// Check cache first
+	targetsCacheMu.RLock()
+	entry, ok := targetsCache[cacheKey]
+	targetsCacheMu.RUnlock()
+
+	if !ok || time.Since(entry.time) >= targetsCacheTTL {
+		// Singleflight: only one goroutine populates cache per key
+		once, _ := targetsFlight.LoadOrStore(cacheKey, &sync.Once{})
+		once.(*sync.Once).Do(func() {
+			defer targetsFlight.Delete(cacheKey)
+			populateTargetsCache(cacheKey, suffix, scopeParam, platformParam, typeParam, rawParam)
+		})
+
+		// Re-read from cache
+		targetsCacheMu.RLock()
+		entry = targetsCache[cacheKey]
+		targetsCacheMu.RUnlock()
+	}
+
+	setCORSHeaders(w)
+	w.Header().Set("Cache-Control", "public, max-age=300")
+
+	if formatParam == "json" {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		// Parse cached data back to slice for JSON output
+		var items []string
+		if len(entry.data) > 0 {
+			items = strings.Split(string(entry.data), "\n")
+		} else {
+			items = []string{}
+		}
+		json.NewEncoder(w).Encode(items)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if len(entry.data) > 0 {
+		w.Write(entry.data)
+		w.Write([]byte("\n"))
+	}
+}
+
+// populateTargetsCache runs the heavy DB query and stores results in cache.
+func populateTargetsCache(cacheKey, suffix, scopeParam, platformParam, typeParam string, rawMode bool) {
+	ctx := context.Background()
+	opts := storage.ListOptions{
+		Platform:    platformParam,
+		IncludeOOS:  scopeParam == "out" || scopeParam == "all",
+		ProgramType: typeParam,
+		RawMode:     rawMode,
+	}
+	entries, err := db.ListEntries(ctx, opts)
+	if err != nil {
+		log.Printf("API targets: error listing entries: %v", err)
+		return
+	}
+
+	var results []string
+	switch suffix {
+	case "wildcards":
+		if scopeParam == "out" {
+			sorted := targets.CollectOOSWildcardsSorted(entries)
+			for _, r := range sorted {
+				results = append(results, r.Domain)
+			}
+		} else {
+			sorted := targets.CollectWildcardsSorted(entries, targets.WildcardOptions{})
+			for _, r := range sorted {
+				results = append(results, r.Domain)
+			}
+			if scopeParam == "all" {
+				oosSorted := targets.CollectOOSWildcardsSorted(entries)
+				seen := make(map[string]struct{}, len(results))
+				for _, r := range results {
+					seen[r] = struct{}{}
+				}
+				for _, r := range oosSorted {
+					if _, exists := seen[r.Domain]; !exists {
+						results = append(results, r.Domain)
+					}
+				}
+			}
+		}
+	case "domains":
+		switch scopeParam {
+		case "in":
+			results = targets.CollectDomains(entries)
+		case "out":
+			results = targets.CollectOOSDomains(entries)
+		case "all":
+			results = targets.CollectDomains(entries)
+			oos := targets.CollectOOSDomains(entries)
+			results = mergeUniqueSorted(results, oos)
+		}
+	case "urls":
+		switch scopeParam {
+		case "in":
+			results = targets.CollectURLs(entries)
+		case "out":
+			results = targets.CollectOOSURLs(entries)
+		case "all":
+			results = targets.CollectURLs(entries)
+			oos := targets.CollectOOSURLs(entries)
+			results = mergeUniqueSorted(results, oos)
+		}
+	case "ips":
+		switch scopeParam {
+		case "in":
+			results = targets.CollectIPs(entries)
+		case "out":
+			results = targets.CollectOOSIPs(entries)
+		case "all":
+			results = targets.CollectIPs(entries)
+			oos := targets.CollectOOSIPs(entries)
+			results = mergeUniqueSorted(results, oos)
+		}
+	case "cidrs":
+		switch scopeParam {
+		case "in":
+			results = targets.CollectCIDRs(entries)
+		case "out":
+			results = targets.CollectOOSCIDRs(entries)
+		case "all":
+			results = targets.CollectCIDRs(entries)
+			oos := targets.CollectOOSCIDRs(entries)
+			results = mergeUniqueSorted(results, oos)
+		}
+	}
+
+	data := []byte(strings.Join(results, "\n"))
+	targetsCacheMu.Lock()
+	targetsCache[cacheKey] = targetsCacheEntry{data: data, time: time.Now()}
+	targetsCacheMu.Unlock()
+}
+
+type apiUpdateEntry struct {
+	Type       string `json:"type"`
+	ChangeType string `json:"change_type"`
+	ScopeType  string `json:"scope_type,omitempty"`
+	Target     string `json:"target,omitempty"`
+	Category   string `json:"category,omitempty"`
+	Platform   string `json:"platform"`
+	Handle     string `json:"handle"`
+	ProgramURL string `json:"program_url"`
+	Timestamp  string `json:"timestamp"`
+}
+
+type apiUpdatesResponse struct {
+	Updates     []apiUpdateEntry `json:"updates"`
+	TotalCount  int              `json:"total_count"`
+	Page        int              `json:"page"`
+	PerPage     int              `json:"per_page"`
+	TotalPages  int              `json:"total_pages"`
+	GeneratedAt string           `json:"generated_at"`
+}
+
+func apiUpdatesHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		setCORSHeaders(w)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	query := r.URL.Query()
+
+	currentPage := 1
+	if p, err := strconv.Atoi(query.Get("page")); err == nil && p > 0 {
+		currentPage = p
+	}
+	perPage := 25
+	if p, err := strconv.Atoi(query.Get("per_page")); err == nil && p > 0 && p <= 250 {
+		perPage = p
+	}
+
+	platformFilter := strings.ToLower(strings.TrimSpace(query.Get("platform")))
+	searchQuery := strings.TrimSpace(query.Get("search"))
+
+	sinceParam := strings.TrimSpace(query.Get("since"))
+	var sinceTime time.Time
+	now := time.Now()
+	switch sinceParam {
+	case "today":
+		sinceTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	case "yesterday":
+		y := now.AddDate(0, 0, -1)
+		sinceTime = time.Date(y.Year(), y.Month(), y.Day(), 0, 0, 0, 0, y.Location())
+	case "7d":
+		sinceTime = now.AddDate(0, 0, -7)
+	case "30d":
+		sinceTime = now.AddDate(0, 0, -30)
+	case "90d":
+		sinceTime = now.AddDate(0, 0, -90)
+	case "1y":
+		sinceTime = now.AddDate(-1, 0, 0)
+	case "":
+	default:
+		if t, err := time.Parse("2006-01-02", sinceParam); err == nil {
+			sinceTime = t
+		}
+	}
+
+	untilParam := strings.TrimSpace(query.Get("until"))
+	var untilTime time.Time
+	if untilParam != "" {
+		if t, err := time.Parse("2006-01-02", untilParam); err == nil {
+			untilTime = t.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+		}
+	}
+
+	ctx := context.Background()
+	page, err := db.ListChangesPaginated(ctx, storage.ChangesPageOptions{
+		Page:     currentPage,
+		PerPage:  perPage,
+		Platform: platformFilter,
+		Search:   searchQuery,
+		Since:    sinceTime,
+		Until:    untilTime,
+	})
+	if err != nil {
+		log.Printf("API updates: error listing changes: %v", err)
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"internal server error"}`))
+		return
+	}
+
+	var updates []apiUpdateEntry
+	for _, c := range page.Changes {
+		programURL := strings.ReplaceAll(c.ProgramURL, "api.yeswehack.com", "yeswehack.com")
+		category := strings.ToUpper(scope.NormalizeCategory(c.Category))
+
+		var entryType string
+		var scopeType string
+		if c.Category == "program" {
+			if c.ChangeType == "added" {
+				entryType = "program_added"
+			} else {
+				entryType = "program_removed"
+			}
+		} else {
+			if c.ChangeType == "added" {
+				entryType = "asset_added"
+			} else {
+				entryType = "asset_removed"
+			}
+			if c.InScope {
+				scopeType = "in"
+			} else {
+				scopeType = "out"
+			}
+		}
+
+		target := c.TargetNormalized
+		if target == "" {
+			target = c.TargetRaw
+		}
+
+		updates = append(updates, apiUpdateEntry{
+			Type:       entryType,
+			ChangeType: c.ChangeType,
+			ScopeType:  scopeType,
+			Target:     target,
+			Category:   category,
+			Platform:   c.Platform,
+			Handle:     c.Handle,
+			ProgramURL: programURL,
+			Timestamp:  c.OccurredAt.UTC().Format(time.RFC3339),
+		})
+	}
+
+	if updates == nil {
+		updates = []apiUpdateEntry{}
+	}
+
+	totalPages := 0
+	if page.TotalCount > 0 {
+		totalPages = (page.TotalCount + perPage - 1) / perPage
+	}
+
+	resp := apiUpdatesResponse{
+		Updates:     updates,
+		TotalCount:  page.TotalCount,
+		Page:        currentPage,
+		PerPage:     perPage,
+		TotalPages:  totalPages,
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	respJSON, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("API updates: error marshaling response: %v", err)
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"internal server error"}`))
+		return
+	}
+
+	setCORSHeaders(w)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=60")
+	w.Write(respJSON)
+}
+
+// --- Find API ---
+
+type apiFindResponse struct {
+	Query      string             `json:"query"`
+	Programs   []apiFindProgram   `json:"programs"`
+	TotalCount int                `json:"total_count"`
+}
+
+type apiFindProgram struct {
+	Platform string `json:"platform"`
+	Handle   string `json:"handle"`
+	URL      string `json:"url"`
+}
+
+// apiFindHandler serves GET /api/v1/find — finds programs matching a domain/hostname query.
+func apiFindHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		setCORSHeaders(w)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"missing required query parameter: q"}`))
+		return
+	}
+
+	ctx := context.Background()
+
+	// Direct search: find programs with targets matching the literal query
+	matches, err := db.FindProgramsByDomain(ctx, q)
+	if err != nil {
+		log.Printf("API find: error searching for %q: %v", q, err)
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"internal server error"}`))
+		return
+	}
+
+	// Root domain expansion: if the root domain differs from the query and is not blacklisted,
+	// do a second search and merge results.
+	rootDomain, ok := storage.ExtractRootDomain(q)
+	if ok && rootDomain != q && !targets.IsBlacklistedSuffix(rootDomain) {
+		rootMatches, err := db.FindProgramsByDomain(ctx, rootDomain)
+		if err != nil {
+			log.Printf("API find: error searching root domain %q: %v", rootDomain, err)
+			// Non-fatal: continue with what we have
+		} else {
+			matches = append(matches, rootMatches...)
+		}
+	}
+
+	// Deduplicate by program URL
+	seen := make(map[string]struct{})
+	var programs []apiFindProgram
+	for _, m := range matches {
+		programURL := strings.ReplaceAll(m.URL, "api.yeswehack.com", "yeswehack.com")
+		if _, exists := seen[programURL]; exists {
+			continue
+		}
+		seen[programURL] = struct{}{}
+		programs = append(programs, apiFindProgram{
+			Platform: m.Platform,
+			Handle:   m.Handle,
+			URL:      programURL,
+		})
+	}
+
+	if programs == nil {
+		programs = []apiFindProgram{}
+	}
+
+	resp := apiFindResponse{
+		Query:      q,
+		Programs:   programs,
+		TotalCount: len(programs),
+	}
+
+	respJSON, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("API find: error marshaling response: %v", err)
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"internal server error"}`))
+		return
+	}
+
+	setCORSHeaders(w)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Write(respJSON)
+}
+
+// mergeUniqueSorted merges two sorted string slices into a single sorted, deduplicated slice.
+func mergeUniqueSorted(a, b []string) []string {
+	seen := make(map[string]struct{}, len(a)+len(b))
+	for _, s := range a {
+		seen[s] = struct{}{}
+	}
+	for _, s := range b {
+		seen[s] = struct{}{}
+	}
+	out := make([]string, 0, len(seen))
+	for s := range seen {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}

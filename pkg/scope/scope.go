@@ -13,6 +13,7 @@ type ScopeElement struct {
 	Target      string
 	Description string
 	Category    string
+	IsBBP       bool
 }
 
 type ProgramData struct {

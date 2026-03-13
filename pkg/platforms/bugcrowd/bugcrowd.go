@@ -250,14 +250,18 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 		var res *whttp.WHTTPRes
 		var err error
 
+		headers := []whttp.WHTTPHeader{
+			{Name: "User-Agent", Value: USER_AGENT},
+		}
+		if sessionToken != "" {
+			headers = append(headers, whttp.WHTTPHeader{Name: "Cookie", Value: "_bugcrowd_session=" + sessionToken})
+		}
+
 		res, err = rateLimitedSendHTTPRequest(
 			&whttp.WHTTPReq{
-				Method: "GET",
-				URL:    listEndpointURL + strconv.Itoa(pageIndex),
-				Headers: []whttp.WHTTPHeader{
-					{Name: "Cookie", Value: "_bugcrowd_session=" + sessionToken},
-					{Name: "User-Agent", Value: USER_AGENT},
-				},
+				Method:  "GET",
+				URL:     listEndpointURL + strconv.Itoa(pageIndex),
+				Headers: headers,
 			}, nil)
 
 		if err != nil {
@@ -318,7 +322,11 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 		handle = strings.TrimPrefix(handle, "/engagements/")
 	}
 
-	pData.Url = "https://bugcrowd.com/" + strings.TrimPrefix(handle, "/")
+	if isEngagement {
+		pData.Url = "https://bugcrowd.com/engagements/" + strings.TrimPrefix(handle, "/")
+	} else {
+		pData.Url = "https://bugcrowd.com/" + strings.TrimPrefix(handle, "/")
+	}
 
 	if isEngagement {
 		getBriefVersionDocument, err := getEngagementBriefVersionDocument("/engagements/"+handle, token)
@@ -343,15 +351,19 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 }
 
 func getEngagementBriefVersionDocument(handle string, token string) (string, error) {
+	headers := []whttp.WHTTPHeader{
+		{Name: "User-Agent", Value: USER_AGENT},
+		{Name: "Accept", Value: "*/*"},
+	}
+	if token != "" {
+		headers = append(headers, whttp.WHTTPHeader{Name: "Cookie", Value: "_bugcrowd_session=" + token})
+	}
+
 	res, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
-			Method: "GET",
-			URL:    "https://bugcrowd.com" + handle,
-			Headers: []whttp.WHTTPHeader{
-				{Name: "Cookie", Value: "_bugcrowd_session=" + token},
-				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "Accept", Value: "*/*"},
-			},
+			Method:  "GET",
+			URL:     "https://bugcrowd.com" + handle,
+			Headers: headers,
 		}, nil)
 
 	if err != nil {
@@ -398,15 +410,19 @@ func extractScopeFromEngagement(getBriefVersionDocument string, token string, pD
 		})
 		return nil
 	}
+	headers := []whttp.WHTTPHeader{
+		{Name: "User-Agent", Value: USER_AGENT},
+		{Name: "Accept", Value: "*/*"},
+	}
+	if token != "" {
+		headers = append(headers, whttp.WHTTPHeader{Name: "Cookie", Value: "_bugcrowd_session=" + token})
+	}
+
 	res, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
-			Method: "GET",
-			URL:    "https://bugcrowd.com" + getBriefVersionDocument,
-			Headers: []whttp.WHTTPHeader{
-				{Name: "Cookie", Value: "_bugcrowd_session=" + token},
-				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "Accept", Value: "*/*"},
-			},
+			Method:  "GET",
+			URL:     "https://bugcrowd.com" + getBriefVersionDocument,
+			Headers: headers,
 		}, nil)
 
 	if err != nil {
@@ -456,15 +472,19 @@ func extractScopeFromEngagement(getBriefVersionDocument string, token string, pD
 }
 
 func extractScopeFromTargetGroups(url string, categories string, token string, pData *scope.ProgramData) error {
+	headers := []whttp.WHTTPHeader{
+		{Name: "User-Agent", Value: USER_AGENT},
+		{Name: "Accept", Value: "*/*"},
+	}
+	if token != "" {
+		headers = append(headers, whttp.WHTTPHeader{Name: "Cookie", Value: "_bugcrowd_session=" + token})
+	}
+
 	res, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
-			Method: "GET",
-			URL:    url + "/target_groups",
-			Headers: []whttp.WHTTPHeader{
-				{Name: "Cookie", Value: "_bugcrowd_session=" + token},
-				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "Accept", Value: "*/*"},
-			},
+			Method:  "GET",
+			URL:     url + "/target_groups",
+			Headers: headers,
 		}, nil)
 
 	if err != nil {
@@ -498,15 +518,19 @@ func extractScopeFromTargetGroups(url string, categories string, token string, p
 }
 
 func extractScopeFromTargetTable(scopeTableURL string, categories string, token string, pData *scope.ProgramData, inScope bool) error {
+	headers := []whttp.WHTTPHeader{
+		{Name: "User-Agent", Value: USER_AGENT},
+		{Name: "Accept", Value: "*/*"},
+	}
+	if token != "" {
+		headers = append(headers, whttp.WHTTPHeader{Name: "Cookie", Value: "_bugcrowd_session=" + token})
+	}
+
 	res, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
-			Method: "GET",
-			URL:    "https://bugcrowd.com" + scopeTableURL,
-			Headers: []whttp.WHTTPHeader{
-				{Name: "Cookie", Value: "_bugcrowd_session=" + token},
-				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "Accept", Value: "*/*"},
-			},
+			Method:  "GET",
+			URL:     "https://bugcrowd.com" + scopeTableURL,
+			Headers: headers,
 		}, nil)
 
 	if err != nil {

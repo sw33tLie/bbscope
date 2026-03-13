@@ -3,13 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"net/url"
-	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/sw33tLie/bbscope/v2/internal/utils"
 	"github.com/sw33tLie/bbscope/v2/pkg/storage"
+	"github.com/sw33tLie/bbscope/v2/pkg/targets"
 )
 
 // getCmd represents the parent `db get` command.
@@ -35,43 +33,26 @@ func getAndPrintTargets(targetType string, aggressive bool) error {
 		return err
 	}
 
-	for _, e := range entries {
-		target := e.TargetNormalized
-		if aggressive {
-			target = storage.AggressiveTransform(target)
+	if aggressive {
+		for i := range entries {
+			entries[i].TargetNormalized = storage.AggressiveTransform(entries[i].TargetNormalized)
 		}
+	}
 
-		switch targetType {
-		case "urls":
-			if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
-				fmt.Println(target)
-			}
-		case "ips":
-			if utils.IsIP(target) {
-				fmt.Println(target)
-				continue
-			}
-			if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
-				if u, err := url.Parse(target); err == nil {
-					host := strings.Trim(u.Hostname(), "[]")
-					if utils.IsIP(host) {
-						fmt.Println(host)
-					}
-				}
-			}
-		case "cidrs":
-			if utils.IsCIDR(target) || utils.IsIPRange(target) {
-				fmt.Println(target)
-			}
-		case "wildcards":
-			if strings.HasPrefix(target, "*.") {
-				fmt.Println(target)
-			}
-		case "domains":
-			if strings.Contains(target, ".") && !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
-				fmt.Println(target)
-			}
-		}
+	var results []string
+	switch targetType {
+	case "urls":
+		results = targets.CollectURLs(entries)
+	case "ips":
+		results = targets.CollectIPs(entries)
+	case "cidrs":
+		results = targets.CollectCIDRs(entries)
+	case "domains":
+		results = targets.CollectDomains(entries)
+	}
+
+	for _, r := range results {
+		fmt.Println(r)
 	}
 
 	return nil

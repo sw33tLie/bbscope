@@ -1,0 +1,11 @@
+[book]
+title = "bbscope Documentation"
+authors = ["sw33tLie"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/sw33tLie/bbscope"
+edit-url-template = "https://github.com/sw33tLie/bbscope/edit/main/docs/{path}"

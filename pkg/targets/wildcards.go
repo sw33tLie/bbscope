@@ -1,6 +1,4 @@
-// Package wildcards provides functionality for extracting and processing
-// wildcard domains from bug bounty scope entries.
-package wildcards
+package targets
 
 import (
 	"net/url"
@@ -12,14 +10,22 @@ import (
 	"github.com/sw33tLie/bbscope/v2/pkg/storage"
 )
 
-// Options configures how wildcards are collected.
-type Options struct {
+// WildcardOptions configures how wildcards are collected.
+type WildcardOptions struct {
 	// Aggressive extracts root domains from all URL targets, not just wildcards.
 	Aggressive bool
 }
 
-// Result represents a wildcard domain with its associated programs.
-type Result struct {
+// WildcardResult represents a wildcard domain with its associated programs.
+type WildcardResult struct {
+	Domain      string
+	ProgramURLs []string
+}
+
+// OOSWildcardResult represents an out-of-scope wildcard domain with its associated programs.
+type OOSWildcardResult struct {
+	// Domain is the normalized wildcard pattern (e.g. "something.test.com"
+	// from "*.something.test.com"). This is NOT reduced to the root domain.
 	Domain      string
 	ProgramURLs []string
 }
@@ -65,9 +71,9 @@ var NonDomainCategories = map[string]struct{}{
 	"blockchain": {},
 }
 
-// Collect extracts wildcard domains from the given entries.
+// CollectWildcards extracts wildcard domains from the given entries.
 // Returns a map of domain -> set of program URLs.
-func Collect(entries []storage.Entry, opts Options) map[string]map[string]struct{} {
+func CollectWildcards(entries []storage.Entry, opts WildcardOptions) map[string]map[string]struct{} {
 	uniqueDomains := make(map[string]map[string]struct{})
 
 	outOfScopeByProgram := make(map[string]map[string]struct{})
@@ -167,10 +173,10 @@ func Collect(entries []storage.Entry, opts Options) map[string]map[string]struct
 	return uniqueDomains
 }
 
-// CollectSorted is a convenience function that returns sorted Results
+// CollectWildcardsSorted is a convenience function that returns sorted WildcardResults
 // instead of a raw map.
-func CollectSorted(entries []storage.Entry, opts Options) []Result {
-	domainPrograms := Collect(entries, opts)
+func CollectWildcardsSorted(entries []storage.Entry, opts WildcardOptions) []WildcardResult {
+	domainPrograms := CollectWildcards(entries, opts)
 
 	domains := make([]string, 0, len(domainPrograms))
 	for domain := range domainPrograms {
@@ -178,7 +184,7 @@ func CollectSorted(entries []storage.Entry, opts Options) []Result {
 	}
 	sort.Strings(domains)
 
-	results := make([]Result, 0, len(domains))
+	results := make([]WildcardResult, 0, len(domains))
 	for _, domain := range domains {
 		programs := domainPrograms[domain]
 		programList := make([]string, 0, len(programs))
@@ -187,7 +193,67 @@ func CollectSorted(entries []storage.Entry, opts Options) []Result {
 		}
 		sort.Strings(programList)
 
-		results = append(results, Result{
+		results = append(results, WildcardResult{
+			Domain:      domain,
+			ProgramURLs: programList,
+		})
+	}
+
+	return results
+}
+
+// CollectOOSWildcards extracts out-of-scope wildcard patterns from entries.
+// Unlike CollectWildcards, this preserves partial wildcards: "*.sub.example.com"
+// becomes "sub.example.com", NOT "example.com".
+func CollectOOSWildcards(entries []storage.Entry) map[string]map[string]struct{} {
+	result := make(map[string]map[string]struct{})
+
+	for _, e := range entries {
+		if e.InScope {
+			continue
+		}
+		if !strings.Contains(e.TargetNormalized, "*") {
+			continue
+		}
+		if WildcardHasPath(e.TargetNormalized) {
+			continue
+		}
+
+		normalized := NormalizeForSubdomainTools(e.TargetNormalized)
+		if normalized == "" {
+			continue
+		}
+
+		if _, exists := result[normalized]; !exists {
+			result[normalized] = make(map[string]struct{})
+		}
+		result[normalized][e.ProgramURL] = struct{}{}
+	}
+
+	return result
+}
+
+// CollectOOSWildcardsSorted is a convenience function that returns sorted OOSWildcardResults
+// instead of a raw map.
+func CollectOOSWildcardsSorted(entries []storage.Entry) []OOSWildcardResult {
+	domainPrograms := CollectOOSWildcards(entries)
+
+	domains := make([]string, 0, len(domainPrograms))
+	for domain := range domainPrograms {
+		domains = append(domains, domain)
+	}
+	sort.Strings(domains)
+
+	results := make([]OOSWildcardResult, 0, len(domains))
+	for _, domain := range domains {
+		programs := domainPrograms[domain]
+		programList := make([]string, 0, len(programs))
+		for programURL := range programs {
+			programList = append(programList, programURL)
+		}
+		sort.Strings(programList)
+
+		results = append(results, OOSWildcardResult{
 			Domain:      domain,
 			ProgramURLs: programList,
 		})

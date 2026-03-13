@@ -1,3 +1,5 @@
-bbscope
-bbscope*
+/bbscope
+/bbscope.*
 *.sqlite
+website/.env
+docs/book/

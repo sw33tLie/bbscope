@@ -138,7 +138,10 @@ func initConfig() {
 func GetDBConnectionString() (string, error) {
 	url := viper.GetString("db_url")
 	if url == "" {
-		return "", fmt.Errorf("db_url not set in config. Please set it in ~/.bbscope.yaml")
+		url = os.Getenv("DB_URL")
+	}
+	if url == "" {
+		return "", fmt.Errorf("db_url not set. Set it in ~/.bbscope.yaml or via DB_URL environment variable")
 	}
 	return url, nil
 }

@@ -1,0 +1,4 @@
+basic_auth {
+    # Generate hash: docker run --rm caddy:2-alpine caddy hash-password --plaintext 'yourpassword'
+    # myuser $2a$14$hashgoeshere
+}

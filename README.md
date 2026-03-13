@@ -24,6 +24,8 @@
 
 Visit [bbscope.com](https://bbscope.com/) to explore an hourly-updated list of public scopes from all supported platforms, stats, and more!
 
+**[Read the full documentation](https://sw33tlie.github.io/bbscope/)** — installation, CLI reference, database guide, web deployment, library API, and more.
+
 ---
 
 ## ✨ Features
@@ -34,6 +36,7 @@ Visit [bbscope.com](https://bbscope.com/) to explore an hourly-updated list of p
 - **Track Changes**: Monitor scope additions and removals over time.
 - **LLM Cleanup (opt-in)**: Let GPT-style models fix messy scope strings in bulk when polling.
 - **Flexible Output**: Get your data in plain text, JSON, or CSV.
+- **Report Downloads**: Bulk download your HackerOne reports as Markdown files, with parallel fetching and filtering by program, state, or severity.
 
 ---
 
@@ -286,6 +289,25 @@ Add a custom target to the database manually.
 
 ---
 
+### `reports` - Downloading Reports
+
+The `reports` command bulk downloads your vulnerability reports as Markdown files, organized by program.
+
+```bash
+# Download all your HackerOne reports
+bbscope reports h1 --output-dir ./reports
+
+# Preview what would be downloaded
+bbscope reports h1 --output-dir ./reports --dry-run
+
+# Filter by program, state, or severity
+bbscope reports h1 --output-dir ./reports --program google --state resolved --severity critical
+```
+
+Reports are saved as `{output-dir}/h1/{program}/{id}_{title}.md` with metadata tables and full vulnerability details. 10 parallel workers handle the downloads with automatic rate-limit handling.
+
+---
+
 ## 📖 Examples
 
 **1. First-Time Setup: Poll all private, bounty-only programs and save to DB**
@@ -361,3 +383,43 @@ bbscope poll ywh --token "your_jwt_token"
 ```bash
 bbscope poll immunefi
 ```
+
+---
+
+## 📚 Documentation
+
+Full documentation is available at **[sw33tlie.github.io/bbscope](https://sw33tlie.github.io/bbscope/)**.
+
+Covers:
+- **Getting Started** — installation, configuration, quick start
+- **CLI Reference** — all commands, flags, output formatting
+- **Database** — setup, schema, querying, SQL examples
+- **Web Interface** — self-hosting, Docker deployment, REST API
+- **Platforms** — auth setup for each platform
+- **AI Normalization** — configuration, custom endpoints, cost
+- **Library Usage** — using `pkg/polling`, `pkg/platforms`, `pkg/storage`, `pkg/targets` in your own Go projects
+- **Architecture** — project structure, data flow, design decisions
+
+To build the docs locally:
+
+```bash
+cd docs && mdbook serve
+# Opens at http://localhost:3000
+```
+
+---
+
+## 🌐 bbscope.com (Self-Hosting)
+
+The `website/` folder contains the code powering [bbscope.com](https://bbscope.com/) — a web interface and API for browsing aggregated scopes from all supported platforms.
+
+You can run your own instance locally to browse and search your scopes visually — no need to expose anything to the internet. Unlike the public bbscope.com, your local instance can also poll your private programs, giving you a single dashboard for everything.
+
+```bash
+DB_URL="postgres://user:password@localhost:5432/bbscope?sslmode=disable" \
+  go run *.go serve --dev --poll-interval 0
+```
+
+This starts the web UI on `localhost:7000`. If you want polling to run in the background, set `--poll-interval` to the desired hours between cycles.
+
+See [`website/README.md`](website/README.md) for Docker deployment, configuration, and more.

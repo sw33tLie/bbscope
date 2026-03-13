@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sw33tLie/bbscope/v2/pkg/storage"
-	"github.com/sw33tLie/bbscope/v2/pkg/wildcards"
+	"github.com/sw33tLie/bbscope/v2/pkg/targets"
 )
 
 var getWildcardsCmd = &cobra.Command{
@@ -60,11 +60,11 @@ func runGetWildcardsCmd(cmd *cobra.Command, args []string) error {
 	}
 	delimiter, _ := cmd.Flags().GetString("delimiter")
 
-	opts := wildcards.Options{
+	opts := targets.WildcardOptions{
 		Aggressive: aggressive,
 	}
 
-	results := wildcards.CollectSorted(entries, opts)
+	results := targets.CollectWildcardsSorted(entries, opts)
 	includeProgram := strings.ContainsRune(outputFlags, 'u')
 
 	for _, result := range results {

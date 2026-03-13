@@ -330,12 +330,15 @@ Context
 - Preserve meaning. Never invent targets. If unsure, return the original string unchanged.
 
 Baseline cleanup rules
-- Trim whitespace, collapse duplicate spaces, and lowercase domains.
+- Trim whitespace and collapse duplicate spaces.
+- Lowercase domains, URLs, and technical identifiers (IPs, CIDRs, package names, etc.).
+- Do NOT lowercase descriptive/natural-language text. If the target is a sentence or phrase (e.g. "Any other asset is Out of Scope", "Security vulnerabilities in 6sense products"), return it with its original casing preserved.
 - Expand bracket/pipe syntax: "example.(it|com)" -> "example.it", "example.com".
 - Normalize URL schemes/hosts; drop redundant default ports (http:80, https:443).
 - Preserve http(s) schemes plus any path/query fragments for real URLs. Do NOT strip protocol, path, or query parameters from URLs—keep them exactly as provided (after trimming whitespace) unless the text actually represents a wildcard.
 - Strip obvious regex artifacts (e.g., "\d+", "(?i)") and remove trailing dots.
-- Pure descriptive text with no actionable target should be returned verbatim (same category).
+- Pure descriptive text with no actionable target should be returned verbatim (same casing, same category).
+- If you see an ASN - always write it in this format: ASN:<number>. Example: "ASN:AS62306"
 
 Wildcard handling (critical)
 - Any target that implies a wildcard (starts with "*.", ends with ".*", or contains wildcard noise) must be categorized as "wildcard".
@@ -346,10 +349,11 @@ Scope intent classification (critical)
 - If the text contains exclusion phrases ("OUT OF SCOPE", "OOS", "not in scope", "excluded", "test-only", etc.), force "in_scope": false regardless of original flag.
 - If the text clearly states inclusion ("in scope", "eligible", "rewarded"), set "in_scope": true.
 - If unclear, omit the field (let it default).
+- If a description says 3rd-party subdomains are excluded from the scope of a wildcard, still consider it a wildcard and in-scope.
 
 Category normalization
 - Map incoming categories to the allowed unified set. If the cleaned target obviously belongs to a different category, override it.
-- URLs / websites / APIs -> "url".
+- URLs / websites / APIs / single IP address (not cidr range) -> "url".
 - Wildcards -> "wildcard" (normalized target should be the cleaned domain without "*.").
 - CIDR/IP ranges -> "cidr".
 - Mobile app IDs / store links -> "android" or "ios" as appropriate (keep http(s):// store URLs intact).
@@ -360,7 +364,7 @@ Output contract (strict)
 - Each input id must appear exactly once.
 - Each item must include:
   • "id": original integer id
-  • "normalized": non-empty array of cleaned target strings (lowercase)
+  • "normalized": non-empty array of cleaned target strings (lowercase for domains/URLs/technical targets, original casing for descriptive text)
   • Optional "in_scope": boolean if you have high confidence
   • Optional "category": unified category if it changes
   • Optional "notes": short clarifications (never required)
@@ -447,7 +451,7 @@ func mergeNormalized(items []storage.TargetItem, baseID int, normalized map[int]
 					inScopeVal = *result.InScope
 				}
 
-				if baseNormalized != "" && target == baseNormalized && !hasInScope && !result.HasCategory {
+				if baseNormalized != "" && strings.EqualFold(target, baseNormalized) && !hasInScope && !result.HasCategory {
 					// AI produced the same normalized value without changing scope/category.
 					continue
 				}
@@ -476,14 +480,15 @@ func sanitizeTargets(targets []string) []string {
 	out := make([]string, 0, len(targets))
 	seen := make(map[string]struct{}, len(targets))
 	for _, t := range targets {
-		trimmed := strings.TrimSpace(strings.ToLower(t))
+		trimmed := strings.TrimSpace(t)
 		if trimmed == "" {
 			continue
 		}
-		if _, exists := seen[trimmed]; exists {
+		key := strings.ToLower(trimmed) // deduplicate case-insensitively
+		if _, exists := seen[key]; exists {
 			continue
 		}
-		seen[trimmed] = struct{}{}
+		seen[key] = struct{}{}
 		out = append(out, trimmed)
 	}
 	return out

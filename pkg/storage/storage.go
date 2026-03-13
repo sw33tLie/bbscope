@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS targets_raw (
 	UNIQUE(program_id, category, target)
 );
 CREATE INDEX IF NOT EXISTS idx_targets_raw_program_id ON targets_raw(program_id);
+CREATE INDEX IF NOT EXISTS idx_targets_raw_program_bbp ON targets_raw(program_id, is_bbp);
 CREATE TABLE IF NOT EXISTS targets_ai_enhanced (
 	id                   SERIAL PRIMARY KEY,
 	target_id            INTEGER NOT NULL,
@@ -78,6 +79,10 @@ CREATE TABLE IF NOT EXISTS scope_changes (
 );
 CREATE INDEX IF NOT EXISTS idx_changes_time ON scope_changes(occurred_at);
 CREATE INDEX IF NOT EXISTS idx_changes_program ON scope_changes(program_url, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_changes_category_program ON scope_changes(category, program_url, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_programs_platform_handle ON programs(platform, handle);
+CREATE INDEX IF NOT EXISTS idx_programs_disabled_ignored ON programs(disabled, is_ignored);
+CREATE INDEX IF NOT EXISTS idx_targets_raw_in_scope ON targets_raw(program_id, in_scope);
 `
 
 func Open(connectionString string) (*DB, error) {
@@ -87,6 +92,9 @@ func Open(connectionString string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(20)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
 	if err := db.Ping(); err != nil {
 		// Check if database doesn't exist, try to create it
 		if strings.Contains(err.Error(), "does not exist") {
@@ -640,8 +648,8 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 			INSERT INTO targets_ai_enhanced(target_id, target_ai_normalized, category, in_scope, first_seen_at, last_seen_at)
 			VALUES($1,$2,$3,$4,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
 			ON CONFLICT(target_id, target_ai_normalized) DO UPDATE SET
-				category = COALESCE(excluded.category, category),
-				in_scope = COALESCE(excluded.in_scope, in_scope),
+				category = COALESCE(excluded.category, targets_ai_enhanced.category),
+				in_scope = COALESCE(excluded.in_scope, targets_ai_enhanced.in_scope),
 				last_seen_at = CURRENT_TIMESTAMP
 			RETURNING id
 		`)
@@ -1067,6 +1075,8 @@ type ListOptions struct {
 	Since          time.Time
 	IncludeOOS     bool
 	IncludeIgnored bool
+	ProgramType    string // "bbp", "vdp", or "" (all)
+	RawMode        bool   // skip AI enhancements, use only raw target data
 }
 
 // ListEntries returns current entries matching filters.
@@ -1087,37 +1097,70 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 		argIdx++
 	}
 	if !opts.IncludeOOS {
-		where += " AND COALESCE(a.in_scope, t.in_scope) = 1"
+		if opts.RawMode {
+			where += " AND t.in_scope = 1"
+		} else {
+			where += " AND COALESCE(a.in_scope, t.in_scope) = 1"
+		}
 	}
 	if !opts.IncludeIgnored {
 		where += " AND p.is_ignored = 0"
 	}
 	if !opts.Since.IsZero() {
-		where += fmt.Sprintf(" AND COALESCE(a.last_seen_at, t.last_seen_at) >= $%d", argIdx)
+		if opts.RawMode {
+			where += fmt.Sprintf(" AND t.last_seen_at >= $%d", argIdx)
+		} else {
+			where += fmt.Sprintf(" AND COALESCE(a.last_seen_at, t.last_seen_at) >= $%d", argIdx)
+		}
 		args = append(args, opts.Since.UTC())
 		argIdx++
 	}
+	switch opts.ProgramType {
+	case "bbp":
+		where += " AND EXISTS (SELECT 1 FROM targets_raw t2 WHERE t2.program_id = p.id AND t2.is_bbp = 1)"
+	case "vdp":
+		where += " AND NOT EXISTS (SELECT 1 FROM targets_raw t2 WHERE t2.program_id = p.id AND t2.is_bbp = 1)"
+	}
 
-	query := fmt.Sprintf(`
-		SELECT 
-			p.url,
-			p.platform,
-			p.handle,
-			t.target,
-			t.category,
-			t.description,
-			t.in_scope,
-			t.is_bbp,
-			a.target_ai_normalized,
-			a.category,
-			a.in_scope,
-			a.id
-		FROM targets_raw t
-		JOIN programs p ON t.program_id = p.id
-		LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
-		%s
-		ORDER BY p.url, COALESCE(a.target_ai_normalized, t.target)
-	`, where)
+	var query string
+	if opts.RawMode {
+		query = fmt.Sprintf(`
+			SELECT
+				p.url,
+				p.platform,
+				p.handle,
+				t.target,
+				t.category,
+				t.description,
+				t.in_scope,
+				t.is_bbp
+			FROM targets_raw t
+			JOIN programs p ON t.program_id = p.id
+			%s
+			ORDER BY p.url, t.target
+		`, where)
+	} else {
+		query = fmt.Sprintf(`
+			SELECT
+				p.url,
+				p.platform,
+				p.handle,
+				t.target,
+				t.category,
+				t.description,
+				t.in_scope,
+				t.is_bbp,
+				a.target_ai_normalized,
+				a.category,
+				a.in_scope,
+				a.id
+			FROM targets_raw t
+			JOIN programs p ON t.program_id = p.id
+			LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
+			%s
+			ORDER BY p.url, COALESCE(a.target_ai_normalized, t.target)
+		`, where)
+	}
 
 	rows, err := d.sql.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -1136,66 +1179,87 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 			descNS       sql.NullString
 			baseInScope  int
 			isBBPInt     int
-			aiTargetNS   sql.NullString
-			aiCategoryNS sql.NullString
-			aiInScopeNS  sql.NullInt64
-			aiIDNS       sql.NullInt64
 		)
-		if err := rows.Scan(
-			&programURL,
-			&platform,
-			&handle,
-			&rawTarget,
-			&baseCategory,
-			&descNS,
-			&baseInScope,
-			&isBBPInt,
-			&aiTargetNS,
-			&aiCategoryNS,
-			&aiInScopeNS,
-			&aiIDNS,
-		); err != nil {
-			return nil, err
-		}
 
-		baseNorm := NormalizeTarget(rawTarget)
-		entry := Entry{
-			ProgramURL:           programURL,
-			Platform:             platform,
-			Handle:               handle,
-			BaseTargetRaw:        rawTarget,
-			BaseTargetNormalized: baseNorm,
-			TargetRaw:            rawTarget,
-			Description:          descNS.String,
-			IsBBP:                isBBPInt == 1,
-			Category:             baseCategory,
-			Source:               "raw",
-		}
+		if opts.RawMode {
+			if err := rows.Scan(
+				&programURL, &platform, &handle,
+				&rawTarget, &baseCategory, &descNS,
+				&baseInScope, &isBBPInt,
+			); err != nil {
+				return nil, err
+			}
 
-		if aiIDNS.Valid {
-			entry.Source = "ai"
-			if aiTargetNS.Valid && aiTargetNS.String != "" {
-				entry.TargetNormalized = aiTargetNS.String
+			baseNorm := NormalizeTarget(rawTarget)
+			out = append(out, Entry{
+				ProgramURL:           programURL,
+				Platform:             platform,
+				Handle:               handle,
+				BaseTargetRaw:        rawTarget,
+				BaseTargetNormalized: baseNorm,
+				TargetRaw:            rawTarget,
+				TargetNormalized:     baseNorm,
+				Description:          descNS.String,
+				IsBBP:                isBBPInt == 1,
+				Category:             baseCategory,
+				InScope:              baseInScope == 1,
+				Source:               "raw",
+			})
+		} else {
+			var (
+				aiTargetNS   sql.NullString
+				aiCategoryNS sql.NullString
+				aiInScopeNS  sql.NullInt64
+				aiIDNS       sql.NullInt64
+			)
+			if err := rows.Scan(
+				&programURL, &platform, &handle,
+				&rawTarget, &baseCategory, &descNS,
+				&baseInScope, &isBBPInt,
+				&aiTargetNS, &aiCategoryNS, &aiInScopeNS, &aiIDNS,
+			); err != nil {
+				return nil, err
+			}
+
+			baseNorm := NormalizeTarget(rawTarget)
+			entry := Entry{
+				ProgramURL:           programURL,
+				Platform:             platform,
+				Handle:               handle,
+				BaseTargetRaw:        rawTarget,
+				BaseTargetNormalized: baseNorm,
+				TargetRaw:            rawTarget,
+				Description:          descNS.String,
+				IsBBP:                isBBPInt == 1,
+				Category:             baseCategory,
+				Source:               "raw",
+			}
+
+			if aiIDNS.Valid {
+				entry.Source = "ai"
+				if aiTargetNS.Valid && aiTargetNS.String != "" {
+					entry.TargetNormalized = aiTargetNS.String
+				} else {
+					entry.TargetNormalized = baseNorm
+				}
+				if aiCategoryNS.Valid {
+					cat := strings.ToLower(strings.TrimSpace(aiCategoryNS.String))
+					if scope.IsUnifiedCategory(cat) && !strings.EqualFold(cat, baseCategory) {
+						entry.Category = cat
+					}
+				}
+				if aiInScopeNS.Valid {
+					entry.InScope = aiInScopeNS.Int64 == 1
+				} else {
+					entry.InScope = baseInScope == 1
+				}
 			} else {
 				entry.TargetNormalized = baseNorm
-			}
-			if aiCategoryNS.Valid {
-				cat := strings.ToLower(strings.TrimSpace(aiCategoryNS.String))
-				if scope.IsUnifiedCategory(cat) && !strings.EqualFold(cat, baseCategory) {
-					entry.Category = cat
-				}
-			}
-			if aiInScopeNS.Valid {
-				entry.InScope = aiInScopeNS.Int64 == 1
-			} else {
 				entry.InScope = baseInScope == 1
 			}
-		} else {
-			entry.TargetNormalized = baseNorm
-			entry.InScope = baseInScope == 1
-		}
 
-		out = append(out, entry)
+			out = append(out, entry)
+		}
 	}
 	return out, rows.Err()
 }
@@ -1260,12 +1324,32 @@ func (d *DB) AddCustomTarget(ctx context.Context, target, category, programURL s
 }
 
 // ListRecentChanges returns the most recent N changes across all programs.
-func (d *DB) ListRecentChanges(ctx context.Context, limit int) ([]Change, error) {
+// If limit is 0, a high default is used to return all available data.
+// since/until are optional time range filters (zero value means no filter).
+func (d *DB) ListRecentChanges(ctx context.Context, limit int, since, until time.Time) ([]Change, error) {
 	if limit <= 0 {
-		limit = 50
+		limit = 1000000
 	}
-	q := "SELECT occurred_at, program_url, platform, handle, target_normalized, target_raw, target_ai_normalized, category, in_scope, is_bbp, change_type FROM scope_changes ORDER BY occurred_at DESC LIMIT $1"
-	rows, err := d.sql.QueryContext(ctx, q, limit)
+
+	where := "WHERE 1=1"
+	args := []interface{}{}
+	argIdx := 1
+
+	if !since.IsZero() {
+		where += fmt.Sprintf(" AND occurred_at >= $%d", argIdx)
+		args = append(args, since)
+		argIdx++
+	}
+	if !until.IsZero() {
+		where += fmt.Sprintf(" AND occurred_at <= $%d", argIdx)
+		args = append(args, until)
+		argIdx++
+	}
+
+	q := fmt.Sprintf("SELECT occurred_at, program_url, platform, handle, target_normalized, target_raw, target_ai_normalized, category, in_scope, is_bbp, change_type FROM scope_changes %s ORDER BY occurred_at DESC LIMIT $%d", where, argIdx)
+	args = append(args, limit)
+
+	rows, err := d.sql.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1285,6 +1369,122 @@ func (d *DB) ListRecentChanges(ctx context.Context, limit int) ([]Change, error)
 	return changes, rows.Err()
 }
 
+// ChangesPageOptions controls paginated change queries.
+type ChangesPageOptions struct {
+	Page     int
+	PerPage  int
+	Platform string
+	Search   string
+	Since    time.Time
+	Until    time.Time
+}
+
+// ChangesPage holds a page of changes plus total count.
+type ChangesPage struct {
+	Changes    []Change
+	TotalCount int
+}
+
+// ListChangesPaginated returns a page of changes with DB-level pagination.
+// It excludes asset-level rows that share a (program_url, occurred_at) with a
+// program-level row (category='program'), so program add/remove events appear
+// as a single row instead of duplicated per-asset.
+func (d *DB) ListChangesPaginated(ctx context.Context, opts ChangesPageOptions) (*ChangesPage, error) {
+	if opts.Page < 1 {
+		opts.Page = 1
+	}
+	if opts.PerPage < 1 {
+		opts.PerPage = 25
+	}
+
+	// Build WHERE clause: always exclude asset rows covered by a program event
+	where := `WHERE (
+		c.category = 'program'
+		OR NOT EXISTS (
+			SELECT 1 FROM scope_changes c2
+			WHERE c2.category = 'program'
+			AND c2.program_url = c.program_url
+			AND c2.occurred_at = c.occurred_at
+		)
+	)`
+	args := []interface{}{}
+	argIdx := 1
+
+	if opts.Platform != "" {
+		where += fmt.Sprintf(" AND LOWER(c.platform) = LOWER($%d)", argIdx)
+		args = append(args, opts.Platform)
+		argIdx++
+	}
+	if opts.Search != "" {
+		pattern := fmt.Sprintf("%%%s%%", strings.ToLower(opts.Search))
+		where += fmt.Sprintf(` AND (
+			LOWER(c.target_normalized) LIKE $%d
+			OR LOWER(c.target_raw) LIKE $%d
+			OR LOWER(c.program_url) LIKE $%d
+			OR LOWER(c.handle) LIKE $%d
+			OR LOWER(c.category) LIKE $%d
+			OR LOWER(c.change_type) LIKE $%d
+		)`, argIdx, argIdx, argIdx, argIdx, argIdx, argIdx)
+		args = append(args, pattern)
+		argIdx++
+	}
+	if !opts.Since.IsZero() {
+		where += fmt.Sprintf(" AND c.occurred_at >= $%d", argIdx)
+		args = append(args, opts.Since)
+		argIdx++
+	}
+	if !opts.Until.IsZero() {
+		where += fmt.Sprintf(" AND c.occurred_at <= $%d", argIdx)
+		args = append(args, opts.Until)
+		argIdx++
+	}
+
+	// Count total matching rows
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM scope_changes c %s", where)
+	var totalCount int
+	if err := d.sql.QueryRowContext(ctx, countQuery, args...).Scan(&totalCount); err != nil {
+		return nil, fmt.Errorf("counting changes: %w", err)
+	}
+
+	// Fetch page
+	offset := (opts.Page - 1) * opts.PerPage
+	dataQuery := fmt.Sprintf(`SELECT c.occurred_at, c.program_url, c.platform, c.handle,
+		c.target_normalized, c.target_raw, c.target_ai_normalized,
+		c.category, c.in_scope, c.is_bbp, c.change_type
+		FROM scope_changes c %s
+		ORDER BY c.occurred_at DESC
+		LIMIT $%d OFFSET $%d`, where, argIdx, argIdx+1)
+	args = append(args, opts.PerPage, offset)
+
+	rows, err := d.sql.QueryContext(ctx, dataQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying changes: %w", err)
+	}
+	defer rows.Close()
+
+	var changes []Change
+	for rows.Next() {
+		var c Change
+		var inScopeInt, isBBPInt int
+		if err := rows.Scan(&c.OccurredAt, &c.ProgramURL, &c.Platform, &c.Handle,
+			&c.TargetNormalized, &c.TargetRaw, &c.TargetAINormalized,
+			&c.Category, &inScopeInt, &isBBPInt, &c.ChangeType); err != nil {
+			return nil, fmt.Errorf("scanning change row: %w", err)
+		}
+		c.InScope = inScopeInt == 1
+		c.IsBBP = isBBPInt == 1
+		changes = append(changes, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return &ChangesPage{
+		Changes:    changes,
+		TotalCount: totalCount,
+	}, nil
+}
+
 type PlatformStats struct {
 	Platform        string
 	ProgramCount    int
@@ -1292,8 +1492,18 @@ type PlatformStats struct {
 	OutOfScopeCount int
 }
 
-func (d *DB) GetStats(ctx context.Context) ([]PlatformStats, error) {
-	query := `
+// GetStats returns platform statistics. bbpFilter can be "bbp", "vdp", or "" for all.
+// A program is considered BBP if any of its targets has is_bbp = 1, otherwise VDP.
+func (d *DB) GetStats(ctx context.Context, bbpFilter string) ([]PlatformStats, error) {
+	programFilter := ""
+	switch bbpFilter {
+	case "bbp":
+		programFilter = "AND EXISTS (SELECT 1 FROM targets_raw t2 WHERE t2.program_id = p.id AND t2.is_bbp = 1)"
+	case "vdp":
+		programFilter = "AND NOT EXISTS (SELECT 1 FROM targets_raw t2 WHERE t2.program_id = p.id AND t2.is_bbp = 1)"
+	}
+
+	query := fmt.Sprintf(`
 		WITH effective_targets AS (
 			SELECT t.program_id, COALESCE(a.in_scope, t.in_scope) AS in_scope
 			FROM targets_raw t
@@ -1307,12 +1517,13 @@ func (d *DB) GetStats(ctx context.Context) ([]PlatformStats, error) {
 		FROM
 			programs p JOIN effective_targets et ON p.id = et.program_id
 		WHERE
-			p.is_ignored = 0
+			p.is_ignored = 0 AND p.disabled = 0
+			%s
 		GROUP BY
 			p.platform
 		ORDER BY
 			p.platform;
-	`
+	`, programFilter)
 	rows, err := d.sql.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
@@ -1329,6 +1540,38 @@ func (d *DB) GetStats(ctx context.Context) ([]PlatformStats, error) {
 	}
 
 	return stats, rows.Err()
+}
+
+// FindProgramsByDomain searches for programs that have targets matching the given query string.
+// It returns deduplicated programs (by URL) with their platform, handle, and URL.
+// Only active, non-ignored programs are returned.
+func (d *DB) FindProgramsByDomain(ctx context.Context, query string) ([]ProgramMatch, error) {
+	likeQuery := fmt.Sprintf("%%%s%%", query)
+
+	rows, err := d.sql.QueryContext(ctx, `
+		SELECT DISTINCT p.platform, p.handle, p.url
+		FROM targets_raw t
+		JOIN programs p ON t.program_id = p.id
+		WHERE p.disabled = 0
+		  AND p.is_ignored = 0
+		  AND t.in_scope = 1
+		  AND LOWER(t.target) LIKE LOWER($1)
+		ORDER BY p.platform, p.handle
+	`, likeQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ProgramMatch
+	for rows.Next() {
+		var m ProgramMatch
+		if err := rows.Scan(&m.Platform, &m.Handle, &m.URL); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }
 
 func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, error) {
