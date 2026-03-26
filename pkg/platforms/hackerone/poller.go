@@ -93,10 +93,19 @@ func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOpti
 
 func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts platforms.PollOptions) (scope.ProgramData, error) {
 	pData := scope.ProgramData{Url: "https://hackerone.com/" + handle}
-	currentPageURL := "https://api.hackerone.com/v1/hackers/programs/" + handle + "/structured_scopes?page%5Bnumber%5D=1&page%5Bsize%5D=100"
 	categoryStrings := scope.GetAllStringsForCategories(opts.Categories)
 
+	// Use filter[id__gt] cursor-based pagination instead of page[number]
+	// to avoid HackerOne's 9,999 record pagination limit.
+	// See: https://api.hackerone.com/hacker-resources/ — structured_scopes endpoint docs.
+	lastID := "0"
+
 	for {
+		currentPageURL := fmt.Sprintf(
+			"https://api.hackerone.com/v1/hackers/programs/%s/structured_scopes?page%%5Bsize%%5D=100&filter%%5Bid__gt%%5D=%s",
+			handle, lastID,
+		)
+
 		var res *whttp.WHTTPRes
 		var err error
 		retries := 3
@@ -132,10 +141,15 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 		}
 
 		assetCount := int(gjson.Get(res.BodyString, "data.#").Int())
+		if assetCount == 0 {
+			break // No more results
+		}
+
 		isDumpAll := categoryStrings == nil
 
 		for i := 0; i < assetCount; i++ {
-			assetCategory := strings.ToLower(gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_type").Str)
+			prefix := "data." + strconv.Itoa(i)
+			assetCategory := strings.ToLower(gjson.Get(res.BodyString, prefix+".attributes.asset_type").Str)
 			catFound := isDumpAll
 			if !isDumpAll {
 				for _, cat := range categoryStrings {
@@ -147,10 +161,10 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 			}
 
 			if catFound {
-				eligibleForBounty := gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.eligible_for_bounty").Bool()
-				eligibleForSubmission := gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.eligible_for_submission").Bool()
-				instruction := strings.ReplaceAll(gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.instruction").Str, "\n", "  ")
-				target := gjson.Get(res.BodyString, "data."+strconv.Itoa(i)+".attributes.asset_identifier").Str
+				eligibleForBounty := gjson.Get(res.BodyString, prefix+".attributes.eligible_for_bounty").Bool()
+				eligibleForSubmission := gjson.Get(res.BodyString, prefix+".attributes.eligible_for_submission").Bool()
+				instruction := strings.ReplaceAll(gjson.Get(res.BodyString, prefix+".attributes.instruction").Str, "\n", "  ")
+				target := gjson.Get(res.BodyString, prefix+".attributes.asset_identifier").Str
 
 				if eligibleForSubmission {
 					if !opts.BountyOnly || eligibleForBounty {
@@ -170,16 +184,20 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 					})
 				}
 			}
+
+			// Track the last ID for cursor-based pagination
+			itemID := gjson.Get(res.BodyString, prefix+".id").Str
+			if itemID != "" {
+				lastID = itemID
+			}
 		}
 
 		if opts.BountyOnly && len(pData.InScope) == 0 {
 			pData.OutOfScope = []scope.ScopeElement{}
 		}
 
-		nextPageURL := gjson.Get(res.BodyString, "links.next").Str
-		if nextPageURL != "" {
-			currentPageURL = nextPageURL
-		} else {
+		// If we got fewer results than page size, we're done
+		if assetCount < 100 {
 			break
 		}
 	}
