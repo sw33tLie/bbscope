@@ -45,7 +45,7 @@ var pollBcCmd = &cobra.Command{
 func init() {
 	pollCmd.AddCommand(pollBcCmd)
 	pollBcCmd.Flags().BoolP("public-only", "", false, "Fetch only public programs without authentication")
-	pollBcCmd.Flags().StringP("token", "t", "", "Bugcrowd _crowdcontrol_session_key cookie value")
+	pollBcCmd.Flags().StringP("token", "t", "", "Bugcrowd _bugcrowd_session cookie value")
 	pollBcCmd.Flags().StringP("email", "E", "", "Bugcrowd login email")
 	pollBcCmd.Flags().StringP("password", "P", "", "Bugcrowd login password")
 	pollBcCmd.Flags().StringP("otp-secret", "O", "", "Bugcrowd TOTP secret (base32)")

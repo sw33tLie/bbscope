@@ -3,18 +3,20 @@ package bugcrowd
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/sw33tLie/bbscope/v2/pkg/platforms"
 	"github.com/sw33tLie/bbscope/v2/pkg/scope"
 )
 
 type Poller struct {
-	token      string
-	publicOnly bool
-	bbpSet     map[string]bool // tracks which handles are bug_bounty programs
+	token         string
+	publicOnly    bool
+	bbpSet        map[string]bool // tracks which handles are bug_bounty programs
+	stopKeepalive func()
 }
 
-// NewPollerFromToken uses an existing _bugcrowd_session token.
+// NewPollerFromToken uses an existing _crowdcontrol_session_key token.
 func NewPollerFromToken(token string) *Poller {
 	return &Poller{token: token, bbpSet: map[string]bool{}}
 }
@@ -41,6 +43,7 @@ func (p *Poller) Authenticate(ctx context.Context, cfg platforms.AuthConfig) err
 	}
 	if cfg.Token != "" {
 		p.token = cfg.Token
+		p.stopKeepalive = StartSessionKeepalive(p.token, 5*time.Minute)
 		return nil
 	}
 	if cfg.Email != "" && cfg.Password != "" && cfg.OtpSecret != "" {
@@ -49,6 +52,7 @@ func (p *Poller) Authenticate(ctx context.Context, cfg platforms.AuthConfig) err
 			return err
 		}
 		p.token = tok
+		p.stopKeepalive = StartSessionKeepalive(p.token, 5*time.Minute)
 		return nil
 	}
 	return nil

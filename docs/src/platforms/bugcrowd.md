@@ -23,10 +23,10 @@ bbscope poll bc --email you@example.com --password pass --otp-secret SECRET
 
 ### 2. Token authentication
 
-Use a session token directly:
+Use a `_bugcrowd_session` cookie value directly (grab it from your browser's DevTools):
 
 ```bash
-bbscope poll bc --token "your_session_token"
+bbscope poll bc --token "your_bugcrowd_session_cookie"
 ```
 
 ### 3. Public-only mode (no auth)
