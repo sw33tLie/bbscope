@@ -8,6 +8,10 @@ type Entry struct {
 	ProgramURL string
 	Platform   string
 	Handle     string
+	// Strict signals that the program's scope should not be widened by
+	// aggressive root-domain extraction from url-category targets. Only
+	// explicit wildcards contribute.
+	Strict bool
 
 	// Display target info (variant or raw)
 	TargetNormalized string

@@ -160,3 +160,172 @@ func TestCollectOOSWildcardsSorted(t *testing.T) {
 		t.Fatalf("expected third domain 'z.example.com', got '%s'", results[2].Domain)
 	}
 }
+
+// A strict program with only url-category targets must not contribute any
+// domains in aggressive mode.
+func TestCollectWildcards_StrictProgramSkipsAggressiveURL(t *testing.T) {
+	entries := []storage.Entry{
+		{
+			ProgramURL:       "https://example.com/prog1",
+			TargetNormalized: "example.org",
+			Category:         "url",
+			InScope:          true,
+			Strict:           true,
+		},
+		{
+			ProgramURL:       "https://example.com/prog1",
+			TargetNormalized: "https://api.example.net",
+			Category:         "url",
+			InScope:          true,
+			Strict:           true,
+		},
+	}
+
+	got := CollectWildcards(entries, WildcardOptions{Aggressive: true})
+	if len(got) != 0 {
+		t.Fatalf("expected 0 domains for strict program with only urls, got %d: %#v", len(got), got)
+	}
+}
+
+// A strict program with an explicit wildcard must still contribute that
+// wildcard's root domain. Strict only suppresses aggressive url extraction,
+// not explicit wildcard entries.
+func TestCollectWildcards_StrictProgramKeepsExplicitWildcard(t *testing.T) {
+	entries := []storage.Entry{
+		{
+			ProgramURL:       "https://example.com/prog1",
+			TargetNormalized: "*.example.net",
+			Category:         "wildcard",
+			InScope:          true,
+			Strict:           true,
+		},
+		{
+			ProgramURL:       "https://example.com/prog1",
+			TargetNormalized: "example.org",
+			Category:         "url",
+			InScope:          true,
+			Strict:           true,
+		},
+	}
+
+	got := CollectWildcards(entries, WildcardOptions{Aggressive: true})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 domain (from explicit wildcard), got %d: %#v", len(got), got)
+	}
+	if _, ok := got["example.net"]; !ok {
+		t.Fatalf("expected example.net from explicit wildcard, got %#v", got)
+	}
+	if _, ok := got["example.org"]; ok {
+		t.Fatalf("example.org must not be extracted for strict program, got %#v", got)
+	}
+}
+
+// A domain extracted aggressively from a non-strict program must still be
+// emitted even if a strict program also references it. The strict program's
+// ProgramURL should not be attached to that domain (because its url entry
+// was skipped), but the domain itself must survive.
+func TestCollectWildcards_StrictDoesNotHideDomainFromOtherPrograms(t *testing.T) {
+	entries := []storage.Entry{
+		{
+			ProgramURL:       "https://example.com/prog1",
+			TargetNormalized: "example.org",
+			Category:         "url",
+			InScope:          true,
+			Strict:           true,
+		},
+		{
+			ProgramURL:       "https://example.com/prog2",
+			TargetNormalized: "*.example.org",
+			Category:         "wildcard",
+			InScope:          true,
+			Strict:           false,
+		},
+	}
+
+	got := CollectWildcards(entries, WildcardOptions{Aggressive: true})
+	programs, ok := got["example.org"]
+	if !ok {
+		t.Fatalf("example.org must still be emitted from non-strict program, got %#v", got)
+	}
+	if _, ok := programs["https://example.com/prog2"]; !ok {
+		t.Fatalf("expected non-strict program attached to example.org, got %#v", programs)
+	}
+	if _, ok := programs["https://example.com/prog1"]; ok {
+		t.Fatalf("strict program must not be attached to example.org (its url entry was skipped), got %#v", programs)
+	}
+}
+
+// Regression: non-strict programs must keep the old aggressive-extraction
+// behaviour — a url-category target still produces its root domain.
+func TestCollectWildcards_NonStrictAggressiveUnchanged(t *testing.T) {
+	entries := []storage.Entry{
+		{
+			ProgramURL:       "https://example.com/prog1",
+			TargetNormalized: "example.org",
+			Category:         "url",
+			InScope:          true,
+			Strict:           false,
+		},
+	}
+
+	got := CollectWildcards(entries, WildcardOptions{Aggressive: true})
+	if _, ok := got["example.org"]; !ok {
+		t.Fatalf("non-strict aggressive extraction must still emit example.org, got %#v", got)
+	}
+}
+
+// Strict flag must have no effect when aggressive mode is disabled. Explicit
+// wildcards are still collected regardless of strict.
+func TestCollectWildcards_StrictIgnoredWhenNonAggressive(t *testing.T) {
+	entries := []storage.Entry{
+		{
+			ProgramURL:       "https://example.com/prog1",
+			TargetNormalized: "*.example.net",
+			Category:         "wildcard",
+			InScope:          true,
+			Strict:           true,
+		},
+		{
+			ProgramURL:       "https://example.com/prog1",
+			TargetNormalized: "example.org",
+			Category:         "url",
+			InScope:          true,
+			Strict:           true,
+		},
+	}
+
+	got := CollectWildcards(entries, WildcardOptions{Aggressive: false})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 domain (the explicit wildcard) in non-aggressive mode, got %d: %#v", len(got), got)
+	}
+	if _, ok := got["example.net"]; !ok {
+		t.Fatalf("expected example.net from explicit wildcard, got %#v", got)
+	}
+}
+
+// The OOS-wildcard block must still apply to a strict program's in-scope
+// wildcards. Verifies the strict flag doesn't accidentally bypass the OOS
+// check.
+func TestCollectWildcards_StrictDoesNotBypassOOSCheck(t *testing.T) {
+	entries := []storage.Entry{
+		{
+			ProgramURL:       "https://example.com/prog1",
+			TargetNormalized: "*.example.net",
+			Category:         "wildcard",
+			InScope:          true,
+			Strict:           true,
+		},
+		{
+			ProgramURL:       "https://example.com/prog1",
+			TargetNormalized: "*.example.net",
+			Category:         "wildcard",
+			InScope:          false,
+			Strict:           true,
+		},
+	}
+
+	got := CollectWildcards(entries, WildcardOptions{Aggressive: true})
+	if _, ok := got["example.net"]; ok {
+		t.Fatalf("OOS wildcard must still block the domain even for strict program, got %#v", got)
+	}
+}

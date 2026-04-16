@@ -1129,6 +1129,7 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 				p.url,
 				p.platform,
 				p.handle,
+				p.strict,
 				t.target,
 				t.category,
 				t.description,
@@ -1145,6 +1146,7 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 				p.url,
 				p.platform,
 				p.handle,
+				p.strict,
 				t.target,
 				t.category,
 				t.description,
@@ -1174,6 +1176,7 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 			programURL   string
 			platform     string
 			handle       string
+			strictInt    int
 			rawTarget    string
 			baseCategory string
 			descNS       sql.NullString
@@ -1183,7 +1186,7 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 
 		if opts.RawMode {
 			if err := rows.Scan(
-				&programURL, &platform, &handle,
+				&programURL, &platform, &handle, &strictInt,
 				&rawTarget, &baseCategory, &descNS,
 				&baseInScope, &isBBPInt,
 			); err != nil {
@@ -1195,6 +1198,7 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 				ProgramURL:           programURL,
 				Platform:             platform,
 				Handle:               handle,
+				Strict:               strictInt == 1,
 				BaseTargetRaw:        rawTarget,
 				BaseTargetNormalized: baseNorm,
 				TargetRaw:            rawTarget,
@@ -1213,7 +1217,7 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 				aiIDNS       sql.NullInt64
 			)
 			if err := rows.Scan(
-				&programURL, &platform, &handle,
+				&programURL, &platform, &handle, &strictInt,
 				&rawTarget, &baseCategory, &descNS,
 				&baseInScope, &isBBPInt,
 				&aiTargetNS, &aiCategoryNS, &aiInScopeNS, &aiIDNS,
@@ -1226,6 +1230,7 @@ func (d *DB) ListEntries(ctx context.Context, opts ListOptions) ([]Entry, error)
 				ProgramURL:           programURL,
 				Platform:             platform,
 				Handle:               handle,
+				Strict:               strictInt == 1,
 				BaseTargetRaw:        rawTarget,
 				BaseTargetNormalized: baseNorm,
 				TargetRaw:            rawTarget,

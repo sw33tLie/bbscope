@@ -128,7 +128,7 @@ func CollectWildcards(entries []storage.Entry, opts WildcardOptions) map[string]
 			} else {
 				utils.Log.Debug("[skip] ", e.TargetNormalized)
 			}
-		} else if opts.Aggressive {
+		} else if opts.Aggressive && !e.Strict {
 			category := strings.ToLower(e.Category)
 			target := strings.ToLower(e.TargetNormalized)
 
