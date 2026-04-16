@@ -1596,9 +1596,9 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 		JOIN programs p ON t.program_id = p.id
 		LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
 		WHERE p.is_ignored = 0 AND (
-			COALESCE(a.target_ai_normalized, t.target) LIKE $1 OR
-			t.description LIKE $2 OR
-			p.url LIKE $3
+			COALESCE(a.target_ai_normalized, t.target) ILIKE $1 OR
+			t.description ILIKE $2 OR
+			p.url ILIKE $3
 		)
 
 		UNION
@@ -1618,7 +1618,7 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 			NULL as ai_id,
 			'historical' as source
 		FROM scope_changes c
-		WHERE (c.target_normalized LIKE $4 OR c.target_ai_normalized LIKE $5 OR c.program_url LIKE $6)
+		WHERE (c.target_normalized ILIKE $4 OR c.target_ai_normalized ILIKE $5 OR c.program_url ILIKE $6)
 		AND NOT EXISTS (
 			SELECT 1 FROM targets_raw t2
 			JOIN programs p2 ON t2.program_id = p2.id
