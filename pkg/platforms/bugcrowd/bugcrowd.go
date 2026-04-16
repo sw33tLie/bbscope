@@ -73,25 +73,23 @@ func rateLimitedSendHTTPRequest(req *whttp.WHTTPReq, client *retryablehttp.Clien
 	return result.res, result.err
 }
 
-// Automated email + password login with Okta MFA flow.
-func Login(email, password, otpSecret, proxy string) (string, error) {
+// newLoginClient creates a cookie-jar-backed retryable HTTP client for the login flow,
+// optionally routing through proxy.
+func newLoginClient(proxy string) (*retryablehttp.Client, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-
-	retryClient := retryablehttp.NewClient()
-	retryClient.Logger = log.New(io.Discard, "", 0)
-	retryClient.RetryMax = 0 // No retries for login flow — redirects have side effects
-	retryClient.HTTPClient.Jar = jar
-
+	client := retryablehttp.NewClient()
+	client.Logger = log.New(io.Discard, "", 0)
+	client.RetryMax = 0 // No retries — redirects have side effects
+	client.HTTPClient.Jar = jar
 	if proxy != "" {
 		proxyURL, err := url.Parse(proxy)
 		if err != nil {
-			return "", fmt.Errorf("invalid proxy URL: %v", err)
+			return nil, fmt.Errorf("invalid proxy URL: %v", err)
 		}
-
-		retryClient.HTTPClient.Transport = &http.Transport{
+		client.HTTPClient.Transport = &http.Transport{
 			Proxy: http.ProxyURL(proxyURL),
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true,
@@ -106,117 +104,28 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 		}
 		whttp.SetupProxy(proxy)
 	}
+	return client, nil
+}
 
-	firstRes, err := rateLimitedSendHTTPRequest(
-		&whttp.WHTTPReq{
-			Method: "GET",
-			URL:    "https://identity.bugcrowd.com/login?user_hint=researcher&returnTo=https%3A%2F%2Fbugcrowd.com%2Fdashboard",
-			Headers: []whttp.WHTTPHeader{
-				{Name: "User-Agent", Value: USER_AGENT},
-			},
-		}, retryClient)
-	if err != nil {
-		return "", err
+// runOktaIDXFlow performs the Okta IDX authentication steps starting from the
+// authorize page. pageBody is the HTML of the Okta authorize page (containing
+// the stateToken). Returns the full cookie header for bugcrowd.com on success.
+func runOktaIDXFlow(client *retryablehttp.Client, pageBody, email, password, otpSecret string) (string, error) {
+	if pageBody == "" {
+		return "", errors.New("empty Okta authorize page body")
 	}
-	if firstRes.StatusCode == 403 || firstRes.StatusCode == 406 {
-		return "", errors.New(WAF_BANNED_ERROR)
-	}
-
-	identityURL, _ := url.Parse("https://identity.bugcrowd.com")
-	csrfTokenFromCookie := ""
-	for _, cookie := range retryClient.HTTPClient.Jar.Cookies(identityURL) {
-		if cookie.Name == "csrf-token" {
-			csrfTokenFromCookie = cookie.Value
-			break
+	if strings.Contains(pageBody, "unexpected internal error") || strings.Contains(pageBody, "Something went wrong") {
+		preview := pageBody
+		if len(preview) > 500 {
+			preview = preview[:500]
 		}
-	}
-	if csrfTokenFromCookie == "" {
-		return "", errors.New("csrf-token not found in identity.bugcrowd.com cookies")
-	}
-
-	firstLoginRes, err := rateLimitedSendHTTPRequest(
-		&whttp.WHTTPReq{
-			Method: "POST",
-			URL:    "https://identity.bugcrowd.com/login",
-			Headers: []whttp.WHTTPHeader{
-				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "X-Csrf-Token", Value: csrfTokenFromCookie},
-				{Name: "Content-Type", Value: "application/x-www-form-urlencoded; charset=UTF-8"},
-				{Name: "Origin", Value: "https://identity.bugcrowd.com"},
-				{Name: "Referer", Value: "https://identity.bugcrowd.com/login?user_hint=researcher&returnTo=https%3A%2F%2Fbugcrowd.com%2Fdashboard"},
-			},
-			Body: "username=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(password) + "&otp_code=&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
-		}, retryClient)
-	if err != nil {
-		return "", err
-	}
-	if firstLoginRes.StatusCode == 403 || firstLoginRes.StatusCode == 406 {
-		return "", errors.New(WAF_BANNED_ERROR)
-	}
-
-	redirectTo := gjson.Get(firstLoginRes.BodyString, "redirect_to").String()
-	if redirectTo == "" {
-		return "", errors.New("redirect_to not found in login response")
-	}
-
-	// Follow the redirect_to URL. The redirect chain from /user/sign_in goes through
-	// identity.bugcrowd.com and eventually lands on the Okta authorize page at
-	// login.hackers.bugcrowd.com. The cookie jar follows all 302 redirects automatically.
-	signInURL := redirectTo
-	signInRes, err := rateLimitedSendHTTPRequest(
-		&whttp.WHTTPReq{
-			Method: "GET",
-			URL:    signInURL,
-			Headers: []whttp.WHTTPHeader{
-				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "Referer", Value: "https://identity.bugcrowd.com/login"},
-			},
-		}, retryClient)
-	if err != nil {
-		return "", err
-	}
-	if signInRes.StatusCode == 403 || signInRes.StatusCode == 406 {
-		return "", errors.New(WAF_BANNED_ERROR)
-	}
-
-	// After following redirects, we should be on the Okta sign-in page
-	oktaAuthorizeRes := signInRes
-	authorizeURL := signInURL // Used as Referer for subsequent Okta API calls
-
-	// Try to find the actual authorize URL from the final response URL or page content
-	re := regexp.MustCompile(`https://login\.hackers\.bugcrowd\.com/oauth2/[^"'\s]+`)
-	if matches := re.FindString(signInRes.BodyString); matches != "" {
-		authorizeURL = matches
-	}
-
-	oktaStateTokenFromPage := extractOktaStateToken(oktaAuthorizeRes.BodyString)
-
-	if oktaAuthorizeRes.StatusCode >= 400 {
-		if strings.Contains(oktaAuthorizeRes.Headers.Get("Content-Type"), "application/json") {
-			errorMsg := gjson.Get(oktaAuthorizeRes.BodyString, "error").String()
-			errorDescription := gjson.Get(oktaAuthorizeRes.BodyString, "error_description").String()
-			if errorMsg != "" || errorDescription != "" {
-				return "", fmt.Errorf("okta error: %s - %s", errorMsg, errorDescription)
-			}
-		}
-		errorPreview := oktaAuthorizeRes.BodyString
-		if len(errorPreview) > 500 {
-			errorPreview = errorPreview[:500]
-		}
-		return "", fmt.Errorf("okta authorize endpoint returned error %d: %s", oktaAuthorizeRes.StatusCode, errorPreview)
-	}
-	if strings.Contains(oktaAuthorizeRes.BodyString, "unexpected internal error") ||
-		strings.Contains(oktaAuthorizeRes.BodyString, "Something went wrong") {
-		errorPreview := oktaAuthorizeRes.BodyString
-		if len(errorPreview) > 500 {
-			errorPreview = errorPreview[:500]
-		}
-		return "", fmt.Errorf("okta returned an error: %s", errorPreview)
+		return "", fmt.Errorf("okta returned an error: %s", preview)
 	}
 
 	stateToken := ""
 	stateHandle := ""
 
+	oktaStateTokenFromPage := extractOktaStateToken(pageBody)
 	introspectReqBody := map[string]interface{}{}
 	if oktaStateTokenFromPage != "" {
 		introspectReqBody["stateToken"] = oktaStateTokenFromPage
@@ -229,14 +138,10 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 			URL:    "https://login.hackers.bugcrowd.com/idp/idx/introspect",
 			Headers: []whttp.WHTTPHeader{
 				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "Content-Type", Value: "application/json"},
-				{Name: "Accept", Value: "application/json"},
-				{Name: "X-Requested-With", Value: "XMLHttpRequest"},
-				{Name: "Origin", Value: "https://login.hackers.bugcrowd.com"},
-				{Name: "Referer", Value: authorizeURL},
+				{Name: "Content-Type", Value: "application/ion+json; okta-version=1.0.0"},
 			},
 			Body: string(introspectBodyJSON),
-		}, retryClient)
+		}, client)
 	if err != nil {
 		return "", err
 	}
@@ -265,13 +170,9 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 				Headers: []whttp.WHTTPHeader{
 					{Name: "User-Agent", Value: USER_AGENT},
 					{Name: "Content-Type", Value: "application/json"},
-					{Name: "Accept", Value: "application/json"},
-					{Name: "X-Requested-With", Value: "XMLHttpRequest"},
-					{Name: "Origin", Value: "https://login.hackers.bugcrowd.com"},
-					{Name: "Referer", Value: authorizeURL},
 				},
 				Body: string(identifyBodyJSON),
-			}, retryClient)
+			}, client)
 		if err != nil {
 			return "", err
 		}
@@ -301,13 +202,9 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 				Headers: []whttp.WHTTPHeader{
 					{Name: "User-Agent", Value: USER_AGENT},
 					{Name: "Content-Type", Value: "application/json"},
-					{Name: "Accept", Value: "application/json"},
-					{Name: "X-Requested-With", Value: "XMLHttpRequest"},
-					{Name: "Origin", Value: "https://login.hackers.bugcrowd.com"},
-					{Name: "Referer", Value: authorizeURL},
 				},
 				Body: string(passwordChallengeBodyJSON),
-			}, retryClient)
+			}, client)
 		if err != nil {
 			return "", err
 		}
@@ -315,8 +212,7 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 			return "", errors.New(WAF_BANNED_ERROR)
 		}
 		if gjson.Get(passwordChallengeRes.BodyString, "errorSummary").String() != "" {
-			errorSummary := gjson.Get(passwordChallengeRes.BodyString, "errorSummary").String()
-			return "", fmt.Errorf("password verification failed: %s", errorSummary)
+			return "", fmt.Errorf("password verification failed: %s", gjson.Get(passwordChallengeRes.BodyString, "errorSummary").String())
 		}
 		updateOktaState(&stateToken, &stateHandle, passwordChallengeRes.BodyString)
 		if stateHandle == "" && stateToken == "" {
@@ -329,7 +225,7 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 		return "", fmt.Errorf("failed to generate TOTP: %v", err)
 	}
 	if otpCode == "" {
-		return "", fmt.Errorf("2FA code is empty")
+		return "", errors.New("2FA code is empty")
 	}
 
 	challengeAnswerBody := map[string]interface{}{
@@ -347,13 +243,9 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 			Headers: []whttp.WHTTPHeader{
 				{Name: "User-Agent", Value: USER_AGENT},
 				{Name: "Content-Type", Value: "application/json"},
-				{Name: "Accept", Value: "application/json"},
-				{Name: "X-Requested-With", Value: "XMLHttpRequest"},
-				{Name: "Origin", Value: "https://login.hackers.bugcrowd.com"},
-				{Name: "Referer", Value: authorizeURL},
 			},
 			Body: string(challengeAnswerBodyJSON),
-		}, retryClient)
+		}, client)
 	if err != nil {
 		return "", err
 	}
@@ -361,22 +253,18 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 		return "", errors.New(WAF_BANNED_ERROR)
 	}
 	if gjson.Get(challengeRes.BodyString, "errorSummary").String() != "" {
-		errorSummary := gjson.Get(challengeRes.BodyString, "errorSummary").String()
-		return "", fmt.Errorf("OTP verification failed: %s", errorSummary)
+		return "", fmt.Errorf("OTP verification failed: %s", gjson.Get(challengeRes.BodyString, "errorSummary").String())
 	}
 
 	// The OTP challenge response contains a success.href with the token redirect URL.
-	// This URL has the correct short stateToken (not the full stateHandle).
 	tokenRedirectURL := gjson.Get(challengeRes.BodyString, "success.href").String()
 	if tokenRedirectURL == "" {
-		// Fallback: try to extract stateToken from the response
 		updateOktaState(&stateToken, &stateHandle, challengeRes.BodyString)
 		newStateToken := gjson.Get(challengeRes.BodyString, "sessionToken").String()
 		if newStateToken == "" {
 			if stateToken != "" {
 				newStateToken = stateToken
 			} else if stateHandle != "" {
-				// Use only the part before ~c. as the actual stateToken
 				if idx := strings.Index(stateHandle, "~"); idx != -1 {
 					newStateToken = stateHandle[:idx]
 				} else {
@@ -386,15 +274,15 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 		}
 		tokenRedirectURL = fmt.Sprintf("https://login.hackers.bugcrowd.com/login/token/redirect?stateToken=%s", url.QueryEscape(newStateToken))
 	}
+
 	tokenRedirectRes, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
 			URL:    tokenRedirectURL,
 			Headers: []whttp.WHTTPHeader{
 				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "Referer", Value: authorizeURL},
 			},
-		}, retryClient)
+		}, client)
 	if err != nil {
 		return "", err
 	}
@@ -402,12 +290,135 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 		return "", errors.New(WAF_BANNED_ERROR)
 	}
 
-	if cookieHeader := buildCookieHeaderFromJar(retryClient.HTTPClient.Jar, "https://bugcrowd.com"); cookieHeader != "" {
+	if cookieHeader := buildCookieHeaderFromJar(client.HTTPClient.Jar, "https://bugcrowd.com"); cookieHeader != "" {
 		utils.Log.Info("Login OK. Fetching programs, please wait...")
 		return cookieHeader, nil
 	}
-
 	return "", errors.New("unable to obtain session cookie after completing login flow")
+}
+
+// loginLegacy authenticates via the identity.bugcrowd.com form flow (original flow).
+// It POSTs credentials to identity.bugcrowd.com/login, follows the redirect chain to
+// the Okta authorize page, then hands off to runOktaIDXFlow.
+func loginLegacy(email, password, otpSecret, proxy string) (string, error) {
+	client, err := newLoginClient(proxy)
+	if err != nil {
+		return "", err
+	}
+
+	firstRes, err := rateLimitedSendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "GET",
+			URL:    "https://identity.bugcrowd.com/login?user_hint=researcher&returnTo=https%3A%2F%2Fbugcrowd.com%2Fdashboard",
+			Headers: []whttp.WHTTPHeader{
+				{Name: "User-Agent", Value: USER_AGENT},
+			},
+		}, client)
+	if err != nil {
+		return "", err
+	}
+	if firstRes.StatusCode == 403 || firstRes.StatusCode == 406 {
+		return "", errors.New(WAF_BANNED_ERROR)
+	}
+
+	identityURL, _ := url.Parse("https://identity.bugcrowd.com")
+	csrfToken := ""
+	for _, cookie := range client.HTTPClient.Jar.Cookies(identityURL) {
+		if cookie.Name == "csrf-token" {
+			csrfToken = cookie.Value
+			break
+		}
+	}
+	if csrfToken == "" {
+		return "", errors.New("csrf-token not found in identity.bugcrowd.com cookies")
+	}
+
+	loginRes, err := rateLimitedSendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "POST",
+			URL:    "https://identity.bugcrowd.com/login",
+			Headers: []whttp.WHTTPHeader{
+				{Name: "User-Agent", Value: USER_AGENT},
+				{Name: "X-Csrf-Token", Value: csrfToken},
+				{Name: "Content-Type", Value: "application/x-www-form-urlencoded; charset=UTF-8"},
+			},
+			Body: "username=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(password) + "&otp_code=&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
+		}, client)
+	if err != nil {
+		return "", err
+	}
+	if loginRes.StatusCode == 403 || loginRes.StatusCode == 406 {
+		return "", errors.New(WAF_BANNED_ERROR)
+	}
+
+	redirectTo := gjson.Get(loginRes.BodyString, "redirect_to").String()
+	if redirectTo == "" {
+		return "", errors.New("redirect_to not found in login response")
+	}
+
+	signInRes, err := rateLimitedSendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "GET",
+			URL:    redirectTo,
+			Headers: []whttp.WHTTPHeader{
+				{Name: "User-Agent", Value: USER_AGENT},
+			},
+		}, client)
+	if err != nil {
+		return "", err
+	}
+	if signInRes.StatusCode == 403 || signInRes.StatusCode == 406 {
+		return "", errors.New(WAF_BANNED_ERROR)
+	}
+	if signInRes.StatusCode >= 400 {
+		return "", fmt.Errorf("sign-in redirect returned error %d", signInRes.StatusCode)
+	}
+
+	return runOktaIDXFlow(client, signInRes.BodyString, email, password, otpSecret)
+}
+
+// loginOktaIDX authenticates via the direct Okta IDX flow (new flow).
+// It starts at identity.bugcrowd.com/login/hacker which redirects through to the
+// Okta authorize page, then hands off to runOktaIDXFlow.
+func loginOktaIDX(email, password, otpSecret, proxy string) (string, error) {
+	client, err := newLoginClient(proxy)
+	if err != nil {
+		return "", err
+	}
+
+	// The redirect chain is: identity.bugcrowd.com/login/hacker
+	//   → identity.bugcrowd.com/login/hacker/oauth2/authorization/hacker
+	//   → login.hackers.bugcrowd.com/oauth2/default/v1/authorize?...  (200 HTML with stateToken)
+	initRes, err := rateLimitedSendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "GET",
+			URL:    "https://identity.bugcrowd.com/login/hacker",
+			Headers: []whttp.WHTTPHeader{
+				{Name: "User-Agent", Value: USER_AGENT},
+			},
+		}, client)
+	if err != nil {
+		return "", err
+	}
+	if initRes.StatusCode == 403 || initRes.StatusCode == 406 {
+		return "", errors.New(WAF_BANNED_ERROR)
+	}
+	if initRes.StatusCode >= 400 {
+		return "", fmt.Errorf("login/hacker entry point returned error %d", initRes.StatusCode)
+	}
+
+	return runOktaIDXFlow(client, initRes.BodyString, email, password, otpSecret)
+}
+
+// Login tries the legacy identity.bugcrowd.com form flow first, then falls back to
+// the direct Okta IDX flow via login.hackers.bugcrowd.com if the legacy flow fails.
+func Login(email, password, otpSecret, proxy string) (string, error) {
+	cookieHeader, err := loginOktaIDX(email, password, otpSecret, proxy)
+	if err == nil {
+		return cookieHeader, nil
+	}
+	utils.Log.Debug("Okta IDX flow failed, falling back to legacy auth flow: ", err)
+	return loginLegacy(email, password, otpSecret, proxy)
 }
 
 // StartSessionKeepalive starts a background goroutine that periodically refreshes
