@@ -122,54 +122,20 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 		return "", errors.New(WAF_BANNED_ERROR)
 	}
 
-	identityURL, _ := url.Parse("https://identity.bugcrowd.com")
-	csrfTokenFromCookie := ""
-	for _, cookie := range retryClient.HTTPClient.Jar.Cookies(identityURL) {
-		if cookie.Name == "csrf-token" {
-			csrfTokenFromCookie = cookie.Value
-			break
-		}
-	}
-	if csrfTokenFromCookie == "" {
-		return "", errors.New("csrf-token not found in identity.bugcrowd.com cookies")
-	}
-
-	firstLoginRes, err := rateLimitedSendHTTPRequest(
-		&whttp.WHTTPReq{
-			Method: "POST",
-			URL:    "https://identity.bugcrowd.com/login",
-			Headers: []whttp.WHTTPHeader{
-				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "X-Csrf-Token", Value: csrfTokenFromCookie},
-				{Name: "Content-Type", Value: "application/x-www-form-urlencoded; charset=UTF-8"},
-				{Name: "Origin", Value: "https://identity.bugcrowd.com"},
-				{Name: "Referer", Value: "https://identity.bugcrowd.com/login?user_hint=researcher&returnTo=https%3A%2F%2Fbugcrowd.com%2Fdashboard"},
-			},
-			Body: "username=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(password) + "&otp_code=&backup_otp_code=&user_type=RESEARCHER&remember_me=true",
-		}, retryClient)
-	if err != nil {
-		return "", err
-	}
-	if firstLoginRes.StatusCode == 403 || firstLoginRes.StatusCode == 406 {
-		return "", errors.New(WAF_BANNED_ERROR)
-	}
-
-	redirectTo := gjson.Get(firstLoginRes.BodyString, "redirect_to").String()
-	if redirectTo == "" {
-		return "", errors.New("redirect_to not found in login response")
-	}
-
-	// Follow the redirect_to URL. The redirect chain from /user/sign_in goes through
-	// identity.bugcrowd.com and eventually lands on the Okta authorize page at
-	// login.hackers.bugcrowd.com. The cookie jar follows all 302 redirects automatically.
-	signInURL := redirectTo
+	// Trigger the OAuth2 redirect chain from identity.bugcrowd.com to Okta.
+	// This hits /login/hacker/oauth2/authorization/hacker which 302-redirects to
+	// login.hackers.bugcrowd.com/oauth2/default/v1/authorize, where Okta renders
+	// the sign-in widget page containing the stateToken we need for the IDX flow.
+	// Note: the old POST /login endpoint on identity.bugcrowd.com no longer accepts
+	// credentials — it returns 405 Method Not Allowed. All auth now goes through Okta IDX.
+	signInURL := "https://identity.bugcrowd.com/login/hacker/oauth2/authorization/hacker?returnTo=https://bugcrowd.com/dashboard"
 	signInRes, err := rateLimitedSendHTTPRequest(
 		&whttp.WHTTPReq{
 			Method: "GET",
 			URL:    signInURL,
 			Headers: []whttp.WHTTPHeader{
 				{Name: "User-Agent", Value: USER_AGENT},
-				{Name: "Referer", Value: "https://identity.bugcrowd.com/login"},
+				{Name: "Referer", Value: "https://identity.bugcrowd.com/login?user_hint=researcher&returnTo=https%3A%2F%2Fbugcrowd.com%2Fdashboard"},
 			},
 		}, retryClient)
 	if err != nil {
