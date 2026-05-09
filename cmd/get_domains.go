@@ -7,7 +7,7 @@ var getDomainsCmd = &cobra.Command{
 	Short: "Get all targets that are domains (including wildcards)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		aggressive, _ := cmd.Flags().GetBool("aggressive")
-		return getAndPrintTargets("domains", aggressive)
+		return getAndPrintTargets(cmd, "domains", aggressive)
 	},
 }
 

@@ -16,7 +16,7 @@ var getCmd = &cobra.Command{
 	Short: "Extract specific scope types from the database based on format",
 }
 
-func getAndPrintTargets(targetType string, aggressive bool) error {
+func getAndPrintTargets(cmd *cobra.Command, targetType string, aggressive bool) error {
 	dbURL, err := GetDBConnectionString()
 	if err != nil {
 		return err
@@ -28,7 +28,10 @@ func getAndPrintTargets(targetType string, aggressive bool) error {
 	}
 	defer db.Close()
 
-	entries, err := db.ListEntries(context.Background(), storage.ListOptions{})
+	platform, _ := cmd.Flags().GetString("platform")
+	entries, err := db.ListEntries(context.Background(), storage.ListOptions{
+		Platform: platform,
+	})
 	if err != nil {
 		return err
 	}
@@ -60,4 +63,5 @@ func getAndPrintTargets(targetType string, aggressive bool) error {
 
 func init() {
 	dbCmd.AddCommand(getCmd)
+	getCmd.PersistentFlags().String("platform", "all", "Limit results to a specific platform (h1, bc, it, ywh, immunefi). Default: all platforms.")
 }

@@ -19,7 +19,6 @@ var getWildcardsCmd = &cobra.Command{
 
 func init() {
 	getWildcardsCmd.Flags().BoolP("aggressive", "a", false, "Extract root domains from all URL targets in addition to wildcards.")
-	getWildcardsCmd.Flags().String("platform", "all", "Limit results to a specific platform (e.g. h1, bugcrowd, intigriti).")
 	getWildcardsCmd.Flags().StringP("output", "o", "t", "Output flags. Supported: t (target), u (program URL). Example: -o tu")
 	getWildcardsCmd.Flags().StringP("delimiter", "d", " ", "Delimiter to use between output fields.")
 	getCmd.AddCommand(getWildcardsCmd)
