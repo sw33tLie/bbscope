@@ -1,6 +1,7 @@
 package bugcrowd
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -83,6 +84,9 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 	retryClient := retryablehttp.NewClient()
 	retryClient.Logger = log.New(io.Discard, "", 0)
 	retryClient.RetryMax = 0 // No retries for login flow — redirects have side effects
+	retryClient.CheckRetry = func(_ context.Context, _ *http.Response, _ error) (bool, error) {
+		return false, nil
+	}
 	retryClient.HTTPClient.Jar = jar
 
 	if proxy != "" {
@@ -288,6 +292,23 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 		if stateHandle == "" && stateToken == "" {
 			return "", errors.New("state token/handle not found in Okta password challenge response")
 		}
+
+		if remediationExists(passwordChallengeRes.BodyString, "select-authenticator-authenticate") {
+			selectRes, err := selectOktaOTPAuthenticator(passwordChallengeRes.BodyString, stateHandle, stateToken, authorizeURL, retryClient)
+			if err != nil {
+				return "", err
+			}
+			if selectRes.StatusCode == 403 || selectRes.StatusCode == 406 {
+				return "", errors.New(WAF_BANNED_ERROR)
+			}
+			if selectRes.StatusCode >= 400 {
+				return "", fmt.Errorf("OTP authenticator selection failed: %s", oktaErrorMessage(selectRes.BodyString, selectRes.StatusCode))
+			}
+			updateOktaState(&stateToken, &stateHandle, selectRes.BodyString)
+			if stateHandle == "" && stateToken == "" {
+				return "", errors.New("state token/handle not found in Okta OTP selection response")
+			}
+		}
 	}
 
 	otpCode, err := otp.GenerateTOTP(otpSecret, time.Now())
@@ -325,6 +346,9 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 	}
 	if challengeRes.StatusCode == 403 || challengeRes.StatusCode == 406 {
 		return "", errors.New(WAF_BANNED_ERROR)
+	}
+	if challengeRes.StatusCode >= 400 {
+		return "", fmt.Errorf("OTP verification failed: %s", oktaErrorMessage(challengeRes.BodyString, challengeRes.StatusCode))
 	}
 	if gjson.Get(challengeRes.BodyString, "errorSummary").String() != "" {
 		errorSummary := gjson.Get(challengeRes.BodyString, "errorSummary").String()
@@ -373,7 +397,119 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 		return cookieHeader, nil
 	}
 
+	dashboardRes, err := rateLimitedSendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "GET",
+			URL:    "https://bugcrowd.com/dashboard",
+			Headers: []whttp.WHTTPHeader{
+				{Name: "User-Agent", Value: USER_AGENT},
+				{Name: "Referer", Value: "https://identity.bugcrowd.com/"},
+			},
+		}, retryClient)
+	if err != nil {
+		return "", err
+	}
+	if dashboardRes.StatusCode == 403 || dashboardRes.StatusCode == 406 {
+		return "", errors.New(WAF_BANNED_ERROR)
+	}
+
+	if cookieHeader := buildCookieHeaderFromJar(retryClient.HTTPClient.Jar, "https://bugcrowd.com"); cookieHeader != "" {
+		utils.Log.Info("Login OK. Fetching programs, please wait...")
+		return cookieHeader, nil
+	}
+
 	return "", errors.New("unable to obtain session cookie after completing login flow")
+}
+
+func selectOktaOTPAuthenticator(body, stateHandle, stateToken, referer string, client *retryablehttp.Client) (*whttp.WHTTPRes, error) {
+	selectURL, authenticatorID := findOTPAuthenticatorSelection(body)
+	if selectURL == "" || authenticatorID == "" {
+		return nil, errors.New("Okta OTP authenticator option not found")
+	}
+
+	selectBody := map[string]interface{}{
+		"authenticator": map[string]interface{}{
+			"id": authenticatorID,
+		},
+	}
+	addStateFields(selectBody, stateHandle, stateToken)
+	selectBodyJSON, _ := json.Marshal(selectBody)
+
+	return rateLimitedSendHTTPRequest(
+		&whttp.WHTTPReq{
+			Method: "POST",
+			URL:    selectURL,
+			Headers: []whttp.WHTTPHeader{
+				{Name: "User-Agent", Value: USER_AGENT},
+				{Name: "Content-Type", Value: "application/json"},
+				{Name: "Accept", Value: "application/json"},
+				{Name: "X-Requested-With", Value: "XMLHttpRequest"},
+				{Name: "Origin", Value: "https://login.hackers.bugcrowd.com"},
+				{Name: "Referer", Value: referer},
+			},
+			Body: string(selectBodyJSON),
+		}, client)
+}
+
+func findOTPAuthenticatorSelection(body string) (string, string) {
+	var href, id string
+	gjson.Get(body, "remediation.value").ForEach(func(_, rem gjson.Result) bool {
+		if !strings.EqualFold(rem.Get("name").String(), "select-authenticator-authenticate") {
+			return true
+		}
+		href = rem.Get("href").String()
+		rem.Get("value").ForEach(func(_, field gjson.Result) bool {
+			if field.Get("name").String() != "authenticator" {
+				return true
+			}
+			field.Get("options").ForEach(func(_, option gjson.Result) bool {
+				optionLabel := strings.ToLower(option.Get("label").String())
+				if !strings.Contains(optionLabel, "otp") {
+					return true
+				}
+				id = authenticatorOptionID(option)
+				return id == ""
+			})
+			return id == ""
+		})
+		return id == ""
+	})
+	if href == "" {
+		href = "https://login.hackers.bugcrowd.com/idp/idx/challenge"
+	}
+	return href, id
+}
+
+func authenticatorOptionID(option gjson.Result) string {
+	if id := option.Get("value.id").String(); id != "" {
+		return id
+	}
+	if id := option.Get("relatesTo.id").String(); id != "" {
+		return id
+	}
+	var id string
+	option.Get("value.form.value").ForEach(func(_, field gjson.Result) bool {
+		if field.Get("name").String() == "id" {
+			id = field.Get("value").String()
+			return false
+		}
+		return true
+	})
+	return id
+}
+
+func oktaErrorMessage(body string, statusCode int) string {
+	for _, path := range []string{
+		"errorSummary",
+		"messages.value.0.message",
+		"error_description",
+		"error",
+	} {
+		if msg := gjson.Get(body, path).String(); msg != "" {
+			return msg
+		}
+	}
+	return fmt.Sprintf("Okta returned status %d", statusCode)
 }
 
 // StartSessionKeepalive starts a background goroutine that periodically refreshes
@@ -458,8 +594,11 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 
 		// Iterating over each element in the programs array
 		result.ForEach(func(key, value gjson.Result) bool {
-			programURL := value.Get("briefUrl").String()
+			programURL := normalizeBugcrowdHandle(value.Get("briefUrl").String())
 			accessStatus := value.Get("accessStatus").String()
+			if programURL == "" {
+				return true
+			}
 
 			// Maintain a counter of unique program URLs found
 			if !fetchedPrograms[programURL] {
@@ -490,6 +629,7 @@ func GetProgramHandles(sessionToken string, engagementType string, pvtOnly bool)
 }
 
 func GetProgramScope(handle string, categories string, token string) (pData scope.ProgramData, err error) {
+	handle = normalizeBugcrowdHandle(handle)
 	isEngagement := strings.HasPrefix(handle, "/engagements/")
 	if isEngagement {
 		handle = strings.TrimPrefix(handle, "/engagements/")
@@ -521,6 +661,29 @@ func GetProgramScope(handle string, categories string, token string) (pData scop
 	}
 
 	return pData, nil
+}
+
+func normalizeBugcrowdHandle(handle string) string {
+	handle = strings.TrimSpace(handle)
+	if handle == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(handle)
+	if err == nil && parsed.IsAbs() {
+		if !strings.EqualFold(parsed.Host, "bugcrowd.com") {
+			return handle
+		}
+		if parsed.RawQuery != "" {
+			return parsed.EscapedPath() + "?" + parsed.RawQuery
+		}
+		return parsed.EscapedPath()
+	}
+
+	if strings.HasPrefix(handle, "bugcrowd.com/") {
+		return "/" + strings.TrimPrefix(handle, "bugcrowd.com/")
+	}
+	return handle
 }
 
 func getEngagementBriefVersionDocument(handle string, token string) (string, error) {
