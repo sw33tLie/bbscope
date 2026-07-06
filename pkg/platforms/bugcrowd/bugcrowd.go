@@ -745,10 +745,21 @@ func getEngagementBriefVersionDocument(handle string, token string) (string, err
 		return "", err
 	}
 
-	div := doc.Find("div[data-react-class='ResearcherEngagementBrief']")
-
-	// Get the value of the data-api-endpoints attribute
-	apiEndpointsJSON, exists := div.Attr("data-api-endpoints")
+	// Bugcrowd now renders several elements carrying data-api-endpoints (navbar,
+	// footer, etc.), so we can't just grab the first one. Prefer the brief element,
+	// then fall back to any element whose endpoints actually include the brief key.
+	apiEndpointsJSON, exists := doc.Find("div[data-react-class='ResearcherEngagementBrief']").Attr("data-api-endpoints")
+	if !exists || gjson.Get(apiEndpointsJSON, "engagementBriefApi.getBriefVersionDocument").String() == "" {
+		doc.Find("[data-api-endpoints]").EachWithBreak(func(_ int, s *goquery.Selection) bool {
+			attr, _ := s.Attr("data-api-endpoints")
+			if gjson.Get(attr, "engagementBriefApi.getBriefVersionDocument").String() != "" {
+				apiEndpointsJSON = attr
+				exists = true
+				return false
+			}
+			return true
+		})
+	}
 	if !exists {
 		// This will be triggered when using a non-2FA token and
 		if strings.Contains(res.BodyString, "ResearcherEngagementCompliance") {
