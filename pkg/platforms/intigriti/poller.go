@@ -174,6 +174,7 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 		category    string
 		description string
 		inScope     bool
+		assetValue  string
 	}
 	var targets []target
 	isBBP := false
@@ -196,6 +197,7 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 					category:    categoryValue,
 					description: strings.ReplaceAll(description, "\n", "  "),
 					inScope:     true,
+					assetValue:  intigritiAssetValueFromTierID(tierID),
 				})
 				if tierValue != "No Bounty" {
 					isBBP = true
@@ -207,6 +209,7 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 				category:    categoryValue,
 				description: strings.ReplaceAll(description, "\n", "  "),
 				inScope:     false,
+				assetValue:  intigritiAssetValueFromTierID(tierID),
 			})
 		}
 		return true
@@ -241,6 +244,7 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 				category:    category,
 				description: strings.ReplaceAll(description, "\n", "  "),
 				inScope:     inScope,
+				assetValue:  intigritiAssetValueFromBountyTierID(tier),
 			})
 		}
 	}
@@ -252,6 +256,7 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 			Description: t.description,
 			Category:    t.category,
 			IsBBP:       isBBP,
+			AssetValue:  t.assetValue,
 		}
 		if t.inScope {
 			pData.InScope = append(pData.InScope, elem)
@@ -294,6 +299,64 @@ func getCategoryIDs(input string) []int {
 		}
 	}
 	return ids
+}
+
+// intigritiAssetValueFromTierID maps an Intigriti domains.content tier.id to
+// a normalized asset value string. tier.id >= 3 are primary assets (high),
+// 2 is secondary (medium), 1 is the lowest / No Bounty tier (low). A missing
+// tier yields an empty string.
+func intigritiAssetValueFromTierID(tierID int64) string {
+	switch {
+	case tierID == 0:
+		return ""
+	case tierID >= 3:
+		return "high"
+	case tierID == 2:
+		return "medium"
+	default: // tierID == 1
+		return "low"
+	}
+}
+
+// intigritiAssetValueFromBountyTierID maps an assetsCollection bountyTierId
+// (as a gjson.Result) to a normalized asset value string. >= 3 -> high,
+// 2 -> medium, 1 or 0 -> low. A missing tier yields an empty string.
+func intigritiAssetValueFromBountyTierID(tier gjson.Result) string {
+	if !tier.Exists() {
+		return ""
+	}
+	id := tier.Int()
+	switch {
+	case id >= 3:
+		return "high"
+	case id == 2:
+		return "medium"
+	default: // id == 1 or 0
+		return "low"
+	}
+}
+
+func getCategoryID(input string) []int {
+	input = strings.ToLower(input)
+	if input == "all" || input == "" {
+		return nil
+	}
+
+	categories := map[string][]int{
+		"url":      {1},
+		"cidr":     {4},
+		"mobile":   {2, 3},
+		"android":  {2},
+		"apple":    {3},
+		"device":   {5},
+		"other":    {6},
+		"wildcard": {7},
+	}
+	selected, ok := categories[input]
+	if !ok {
+		return nil // Default to all if category is invalid
+	}
+	return selected
 }
 
 func isInArray(val int, array []int) bool {

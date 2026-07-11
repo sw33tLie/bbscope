@@ -620,6 +620,21 @@ func programDetailAIToggleScript() g.Node {
     }
   }
 
+  function assetValueBadge(val) {
+    var v = (val || '').toLowerCase();
+    if (!v) return '<span class="text-zinc-600 text-xs">-</span>';
+    var styles = {
+      'critical': 'bg-red-900/60 text-red-300 border border-red-700',
+      'high': 'bg-orange-900/60 text-orange-300 border border-orange-700',
+      'medium': 'bg-yellow-900/60 text-yellow-300 border border-yellow-700',
+      'low': 'bg-blue-900/50 text-blue-300 border border-blue-700',
+      'very_low': 'bg-zinc-800 text-zinc-400 border border-zinc-600'
+    };
+    var cls = styles[v] || 'bg-zinc-800 text-zinc-400 border border-zinc-600';
+    var label = v === 'very_low' ? 'Very Low' : v.charAt(0).toUpperCase() + v.slice(1);
+    return '<span class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md ' + cls + '">' + escapeHtml(label) + '</span>';
+  }
+
   function assetLink(target, cat) {
     var c = cat.toLowerCase();
     if (c === 'url' || c === 'wildcard' || c === 'api') {
@@ -695,7 +710,8 @@ func programDetailAIToggleScript() g.Node {
     var html = '<div class="overflow-x-auto rounded-xl border border-zinc-700/50 mb-6"><table class="min-w-[640px] w-full divide-y divide-zinc-700"><thead class="bg-zinc-800/80"><tr>';
     html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Asset</th>';
     html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-28">Category</th>';
-    html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-24">Bounty</th>';
+    html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-24">Value</th>';
+    html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-20">Bounty</th>';
     if (showLinks) html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Quick Links</th>';
     html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-16"></th>';
     html += '</tr></thead><tbody class="bg-zinc-900/50 divide-y divide-zinc-800">';
@@ -707,6 +723,7 @@ func programDetailAIToggleScript() g.Node {
       html += '<tr class="border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors duration-150' + rowBg + '">';
       html += '<td class="px-4 py-3 text-sm text-zinc-200 break-all">' + assetLink(display, cat) + '</td>';
       html += '<td class="px-4 py-3 text-sm"><span class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md ' + categoryBadgeClass(cat) + '">' + escapeHtml(cat) + '</span></td>';
+      html += '<td class="px-4 py-3 text-sm">' + assetValueBadge(t.asset_value || '') + '</td>';
       var bountyBadge = t.is_bbp
         ? '<span class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md bg-emerald-900/50 text-emerald-300 border border-emerald-800">Yes</span>'
         : '<span class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md bg-red-900/50 text-red-300 border border-red-800">No</span>';
@@ -808,7 +825,8 @@ func assetTable(targets []storage.ProgramTarget, showQuickLinks bool) g.Node {
 	headerCols := []g.Node{
 		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider"), g.Text("Asset")),
 		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-28"), g.Text("Category")),
-		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-24"), g.Text("Bounty")),
+		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-24"), g.Text("Value")),
+		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-20"), g.Text("Bounty")),
 	}
 	if showQuickLinks {
 		headerCols = append(headerCols,
@@ -840,6 +858,9 @@ func assetTable(targets []storage.ProgramTarget, showQuickLinks bool) g.Node {
 			),
 			Td(Class("px-4 py-3 text-sm"),
 				categoryBadge(category),
+			),
+			Td(Class("px-4 py-3 text-sm"),
+				assetValueBadgeGo(t.AssetValue),
 			),
 			Td(Class("px-4 py-3 text-sm"),
 				bountyBadge,
@@ -922,6 +943,36 @@ func categoryBadge(category string) g.Node {
 		colors = "bg-red-900/50 text-red-300 border border-red-800"
 	}
 	return Span(Class("inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md "+colors), g.Text(category))
+}
+
+// assetValueBadgeGo renders a colored badge for the asset value severity.
+func assetValueBadgeGo(val string) g.Node {
+	v := strings.ToLower(strings.TrimSpace(val))
+	if v == "" {
+		return Span(Class("text-zinc-600 text-xs"), g.Text("-"))
+	}
+	var colors, label string
+	switch v {
+	case "critical":
+		colors = "bg-red-900/60 text-red-300 border border-red-700"
+		label = "Critical"
+	case "high":
+		colors = "bg-orange-900/60 text-orange-300 border border-orange-700"
+		label = "High"
+	case "medium":
+		colors = "bg-yellow-900/60 text-yellow-300 border border-yellow-700"
+		label = "Medium"
+	case "low":
+		colors = "bg-blue-900/50 text-blue-300 border border-blue-700"
+		label = "Low"
+	case "very_low":
+		colors = "bg-zinc-800 text-zinc-400 border border-zinc-600"
+		label = "Very Low"
+	default:
+		colors = "bg-zinc-800 text-zinc-400 border border-zinc-600"
+		label = strings.Title(v)
+	}
+	return Span(Class("inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md "+colors), g.Text(label))
 }
 
 // platformBadge renders a colored badge for the platform name.

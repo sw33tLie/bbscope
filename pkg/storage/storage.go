@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS targets_raw (
 	description       TEXT,
 	in_scope          INTEGER NOT NULL CHECK (in_scope IN (0,1)),
 	is_bbp            INTEGER NOT NULL DEFAULT 0 CHECK (is_bbp IN (0,1)),
+	asset_value        TEXT NOT NULL DEFAULT '',
 	first_seen_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	last_seen_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	FOREIGN KEY(program_id) REFERENCES programs(id),
@@ -132,6 +133,9 @@ CREATE TABLE IF NOT EXISTS program_metadata (
 	last_seen_at                    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_program_metadata_bounty ON program_metadata(bounty_reward_max);
+
+-- Migrations for existing databases (ADD COLUMN IF NOT EXISTS is idempotent)
+ALTER TABLE targets_raw ADD COLUMN IF NOT EXISTS asset_value TEXT NOT NULL DEFAULT '';
 `
 
 func Open(connectionString string) (*DB, error) {
@@ -252,17 +256,18 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 	}
 
 	type existingTarget struct {
-		ID       int64
-		Raw      string
-		Cat      string
-		Desc     string
-		InScope  bool
-		IsBBP    bool
-		Variants map[string]existingVariant
+		ID         int64
+		Raw        string
+		Cat        string
+		Desc       string
+		InScope    bool
+		IsBBP      bool
+		AssetValue string
+		Variants   map[string]existingVariant
 	}
 
 	// 2. Load existing targets for this program
-	rows, err := d.sql.QueryContext(ctx, "SELECT id, target, category, in_scope, description, is_bbp FROM targets_raw WHERE program_id = $1", programID)
+	rows, err := d.sql.QueryContext(ctx, "SELECT id, target, category, in_scope, description, is_bbp, COALESCE(asset_value, '') FROM targets_raw WHERE program_id = $1", programID)
 	if err != nil {
 		return nil, err
 	}
@@ -276,19 +281,21 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 			id, inScope, isBBP int64
 			raw, cat           string
 			desc               sql.NullString
+			assetVal           string
 		)
-		if err = rows.Scan(&id, &raw, &cat, &inScope, &desc, &isBBP); err != nil {
+		if err = rows.Scan(&id, &raw, &cat, &inScope, &desc, &isBBP, &assetVal); err != nil {
 			return nil, err
 		}
 		key := identityKey(raw, cat)
 		ex := &existingTarget{
-			ID:       id,
-			Raw:      raw,
-			Cat:      cat,
-			Desc:     desc.String,
-			InScope:  inScope == 1,
-			IsBBP:    isBBP == 1,
-			Variants: make(map[string]existingVariant),
+			ID:         id,
+			Raw:        raw,
+			Cat:        cat,
+			Desc:       desc.String,
+			InScope:    inScope == 1,
+			IsBBP:      isBBP == 1,
+			AssetValue: assetVal,
+			Variants:   make(map[string]existingVariant),
 		}
 		existingMap[key] = ex
 		existingByID[id] = ex
@@ -387,7 +394,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 				ChangeType:       "added",
 			})
 		} else {
-			if ex.Desc != e.Description || ex.InScope != e.InScope || ex.IsBBP != e.IsBBP {
+			if ex.Desc != e.Description || ex.InScope != e.InScope || ex.IsBBP != e.IsBBP || ex.AssetValue != e.AssetValue {
 				toUpdate = append(toUpdate, struct {
 					entry UpsertEntry
 					id    int64
@@ -439,6 +446,7 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		descriptions := make([]sql.NullString, len(toAdd))
 		inScopes := make([]int, len(toAdd))
 		isBBPs := make([]int, len(toAdd))
+		assetValues := make([]string, len(toAdd))
 
 		// Build a lookup map for matching returned rows
 		addEntryByKey := make(map[string]UpsertEntry, len(toAdd))
@@ -450,21 +458,23 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 			}
 			inScopes[i] = boolToInt(e.InScope)
 			isBBPs[i] = boolToInt(e.IsBBP)
+			assetValues[i] = e.AssetValue
 			addEntryByKey[identityKey(e.TargetRaw, e.Category)] = e
 		}
 
 		// Bulk insert using UNNEST - returns id, target, category to match back
 		rows, err := d.sql.QueryContext(ctx, `
-			INSERT INTO targets_raw(program_id, target, category, description, in_scope, is_bbp, first_seen_at, last_seen_at)
-			SELECT $1, t.target, t.category, t.description, t.in_scope, t.is_bbp, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-			FROM UNNEST($2::text[], $3::text[], $4::text[], $5::int[], $6::int[]) AS t(target, category, description, in_scope, is_bbp)
+			INSERT INTO targets_raw(program_id, target, category, description, in_scope, is_bbp, asset_value, first_seen_at, last_seen_at)
+			SELECT $1, t.target, t.category, t.description, t.in_scope, t.is_bbp, t.asset_value, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+			FROM UNNEST($2::text[], $3::text[], $4::text[], $5::int[], $6::int[], $7::text[]) AS t(target, category, description, in_scope, is_bbp, asset_value)
 			ON CONFLICT(program_id, category, target) DO UPDATE SET
 				description = excluded.description,
 				in_scope = excluded.in_scope,
 				is_bbp = excluded.is_bbp,
+				asset_value = excluded.asset_value,
 				last_seen_at = CURRENT_TIMESTAMP
 			RETURNING id, target, category
-		`, programID, pq.Array(targets), pq.Array(categories), pq.Array(descriptions), pq.Array(inScopes), pq.Array(isBBPs))
+		`, programID, pq.Array(targets), pq.Array(categories), pq.Array(descriptions), pq.Array(inScopes), pq.Array(isBBPs), pq.Array(assetValues))
 		if err != nil {
 			return nil, fmt.Errorf("bulk inserting targets: %w", err)
 		}
@@ -500,13 +510,13 @@ func (d *DB) UpsertProgramEntries(ctx context.Context, programURL, platform, han
 		if err != nil {
 			return nil, err
 		}
-		stmt, err := tx.PrepareContext(ctx, `UPDATE targets_raw SET description = $1, in_scope = $2, is_bbp = $3, last_seen_at = CURRENT_TIMESTAMP WHERE id = $4`)
+		stmt, err := tx.PrepareContext(ctx, `UPDATE targets_raw SET description = $1, in_scope = $2, is_bbp = $3, asset_value = $4, last_seen_at = CURRENT_TIMESTAMP WHERE id = $5`)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
 		}
 		for _, u := range toUpdate {
-			_, err := stmt.ExecContext(ctx, nullIfEmpty(u.entry.Description), boolToInt(u.entry.InScope), boolToInt(u.entry.IsBBP), u.id)
+			_, err := stmt.ExecContext(ctx, nullIfEmpty(u.entry.Description), boolToInt(u.entry.InScope), boolToInt(u.entry.IsBBP), u.entry.AssetValue, u.id)
 			if err != nil {
 				stmt.Close()
 				tx.Rollback()
@@ -1006,6 +1016,7 @@ func BuildEntries(programURL, platform, handle string, items []TargetItem) ([]Up
 			Description:      it.Description,
 			InScope:          it.InScope,
 			IsBBP:            it.IsBBP,
+			AssetValue:       it.AssetValue,
 		}
 
 		if len(it.Variants) > 0 {

@@ -428,6 +428,26 @@ func scopeProgramTypeFilter() g.Node {
 		Span(Class("mx-2 hidden sm:inline text-zinc-700"), g.Text("|")),
 		// Line break on mobile so Data: goes to new line
 		Div(Class("basis-full h-0 sm:hidden")),
+		// Min reward filter dropdown
+		Span(Class("text-sm text-zinc-500 mr-1"), g.Text("Min reward:")),
+		scopeMinRewardDropdown(),
+		// Spacer
+		Span(Class("mx-2 hidden sm:inline text-zinc-700"), g.Text("|")),
+		// Currency filter dropdown
+		Span(Class("text-sm text-zinc-500 mr-1"), g.Text("Currency:")),
+		scopeCurrencyDropdown(),
+		// Spacer
+		Span(Class("mx-2 hidden sm:inline text-zinc-700"), g.Text("|")),
+		// Has reports toggle
+		Span(
+			ID("scope-reports-toggle"),
+			Class("scope-type-pill px-4 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-700/50 cursor-pointer"),
+			g.Text("Has reports"),
+		),
+		// Spacer
+		Span(Class("mx-2 hidden sm:inline text-zinc-700"), g.Text("|")),
+		// Line break on mobile
+		Div(Class("basis-full h-0 sm:hidden")),
 		// Data source toggle — managed by scope-table.js
 		Span(Class("text-sm text-zinc-500 mr-1"), g.Text("Data:")),
 		Div(
@@ -445,6 +465,46 @@ func scopeProgramTypeFilter() g.Node {
 				g.Text("AI Enhanced"),
 			),
 		),
+	)
+}
+
+// scopeMinRewardDropdown renders a dropdown for filtering by minimum reward amount.
+func scopeMinRewardDropdown() g.Node {
+	options := []struct{ Value, Label string }{
+		{"", "Any"},
+		{"100", ">= 100"},
+		{"500", ">= 500"},
+		{"1000", ">= 1,000"},
+		{"5000", ">= 5,000"},
+		{"10000", ">= 10,000"},
+	}
+	var optNodes []g.Node
+	for _, o := range options {
+		optNodes = append(optNodes, Option(Value(o.Value), g.Text(o.Label)))
+	}
+	return Select(
+		ID("scope-min-reward-select"),
+		Class("px-2.5 py-1.5 border border-zinc-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm bg-zinc-800/50 text-zinc-200 transition-colors duration-200"),
+		g.Group(optNodes),
+	)
+}
+
+// scopeCurrencyDropdown renders a dropdown for filtering by reward currency.
+func scopeCurrencyDropdown() g.Node {
+	options := []struct{ Value, Label string }{
+		{"", "Any"},
+		{"USD", "USD"},
+		{"EUR", "EUR"},
+		{"GBP", "GBP"},
+	}
+	var optNodes []g.Node
+	for _, o := range options {
+		optNodes = append(optNodes, Option(Value(o.Value), g.Text(o.Label)))
+	}
+	return Select(
+		ID("scope-currency-select"),
+		Class("px-2.5 py-1.5 border border-zinc-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm bg-zinc-800/50 text-zinc-200 transition-colors duration-200"),
+		g.Group(optNodes),
 	)
 }
 
