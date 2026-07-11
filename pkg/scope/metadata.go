@@ -1,10 +1,15 @@
 package scope
 
+import "strconv"
+
 // RewardGrid captures bounties for a given dimension across severity levels.
 // The dimension varies by platform:
 //   - YesWeHack: asset value ("default", "low", "medium", "high", "critical")
 //   - Bugcrowd:  scope group name ("Core Assets", "Primary Assets", ...)
-//   - Intigriti: bounty tier ("tier2", "tier3", ...)
+//   - Intigriti: asset category (e.g. "Intel Cloud Services", "Intel Hardware")
+//     parsed from the markdown reward table embedded in the program rules —
+//     the researcher API does not expose structured bounty tables (only the
+//     company API does, which bbscope cannot reach with a researcher token).
 //
 // Severity levels are normalized across platforms:
 //   - YesWeHack: low/medium/high/critical (4 levels, single values → min=max)
@@ -98,6 +103,31 @@ func (m *ProgramMetadata) HasRewardInfo() bool {
 	}
 	return m.Currency != "" || m.BountyRewardMin != nil || m.BountyRewardMax != nil ||
 		len(m.RewardGrids) > 0
+}
+
+// FormatBountySlot renders a single severity slot of a RewardGrid as a
+// short string suitable for table cells. It considers both Min and Max so
+// that platforms which only set one bound (e.g. Intigriti's "Up to $X" cells,
+// which set only Max) still display a meaningful value instead of "-".
+//
+//   - both nil              -> "-"
+//   - min == nil, max set   -> strconv(max)             ("Up to $X" case)
+//   - min set, max == nil   -> strconv(min)             ("From $X" case)
+//   - min == max            -> strconv(min)             (YWH single-value case)
+//   - min != max (both set) -> "min - max"              (BC / Intigriti range case)
+func FormatBountySlot(min, max *int) string {
+	switch {
+	case min == nil && max == nil:
+		return "-"
+	case min == nil:
+		return strconv.Itoa(*max)
+	case max == nil:
+		return strconv.Itoa(*min)
+	case *min == *max:
+		return strconv.Itoa(*min)
+	default:
+		return strconv.Itoa(*min) + " - " + strconv.Itoa(*max)
+	}
 }
 
 // intPtr returns a pointer to the given int. Helper for building metadata.

@@ -165,6 +165,33 @@ cd docs && mdbook serve   # http://localhost:3000
 - `website/README.md` covers the self-hosted web UI; update it when the
   web server's flags or endpoints change.
 
+## Platform API references
+
+When debugging or extending a platform poller, consult the upstream API docs
+before assuming a field exists. Reverse-engineered assumptions go stale.
+
+- **Intigriti researcher API (v1.0)** — what bbscope actually polls:
+  https://api.intigriti.com/external/researcher/swagger/v1.0/swagger.json
+  - `GET /v1/programs` (listing): `ProgramOverviewViewModel` exposes only
+    `minBounty` / `maxBounty` (single `MoneyViewModel` values) + `industry`.
+  - `GET /v1/programs/{programId}` (detail): `ProgramDetailViewModel` has
+    `id`, `handle`, `name`, `following`, `confidentialityLevel`, `status`,
+    `type`, `domains`, `rulesOfEngagement`, `webLinks`, `industry`.
+  - **There is NO `bounties[]` array in the researcher detail response.**
+    Per-tier reward grids (tier × severity min/max matrix) are only exposed by
+    the *company* API, not the researcher API.
+  - `rulesOfEngagement.content.testingRequirements` carries `userAgent`,
+    `requestHeader`, `automatedTooling` (nullable int), `intigritiMe` (bool).
+- **Intigriti company API (v2.0)** — NOT used by bbscope, but documents the
+  reward grid shape that bbscope's `scope.RewardGrid` was modeled on:
+  https://api.intigriti.com/external/company/swagger/V2.0/swagger.json
+  - `GET /v2/programs/{programId}` (detail): `ProgramDetailViewModel.bounties`
+    is an array of `BountyViewModel` (each a `createdAt`-stamped snapshot).
+    `BountyViewModel.bountyRows[]` is an array of `BountyRowViewModel`, where
+    each row has `tier` (EnumerationViewModel) and `low` / `medium` / `high` /
+    `critical` / `exceptional` (`MoneyViewModel` with `value` + `currency`).
+  - bbscope cannot reach this endpoint with a researcher bearer token.
+
 ## Things to avoid
 
 - Don't add new top-level dependencies without strong justification. Prefer

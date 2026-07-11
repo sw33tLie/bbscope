@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -501,9 +500,12 @@ var programMetaCmd = &cobra.Command{
 				for _, g := range md.RewardGrids {
 					fmt.Printf("    [%s]  info=%s  low=%s  medium=%s  high=%s  critical=%s  exceptional=%s\n",
 						g.Dimension,
-						intOrDash(g.BountyInfoMin), intOrDash(g.BountyLowMin),
-						intOrDash(g.BountyMediumMin), intOrDash(g.BountyHighMin),
-						intOrDash(g.BountyCriticalMin), intOrDash(g.BountyExceptionalMin))
+						scope.FormatBountySlot(g.BountyInfoMin, g.BountyInfoMax),
+						scope.FormatBountySlot(g.BountyLowMin, g.BountyLowMax),
+						scope.FormatBountySlot(g.BountyMediumMin, g.BountyMediumMax),
+						scope.FormatBountySlot(g.BountyHighMin, g.BountyHighMax),
+						scope.FormatBountySlot(g.BountyCriticalMin, g.BountyCriticalMax),
+						scope.FormatBountySlot(g.BountyExceptionalMin, g.BountyExceptionalMax))
 				}
 			}
 		}
@@ -596,13 +598,6 @@ func boolOrDash(b *bool) string {
 		return "yes"
 	}
 	return "no"
-}
-
-func intOrDash(i *int) string {
-	if i == nil {
-		return "-"
-	}
-	return strconv.Itoa(*i)
 }
 
 func init() {
