@@ -3,6 +3,8 @@ package intigriti
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -265,6 +267,19 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 
 	pData.Metadata = extractIntigritiMetadata(res.BodyString, isBBP, p.handleToBounty[handle])
 
+	// The Intigriti researcher API does not expose bountyTables / bounties[] in
+	// the program detail response. For programs that publish a reward grid as
+	// a markdown table inside the rulesOfEngagement.content.description, parse
+	// it into structured RewardGrids so the WebUI / CLI render it like YWH / BC
+	// grids. The listing-level min/max/currency remain authoritative for
+	// BountyRewardMin/Max.
+	if pData.Metadata != nil && len(pData.Metadata.RewardGrids) == 0 && pData.Metadata.Rules != "" {
+		grids := parseIntigritiMarkdownRewardGrids(pData.Metadata.Rules)
+		if len(grids) > 0 {
+			pData.Metadata.RewardGrids = grids
+		}
+	}
+
 	return pData, nil
 }
 
@@ -452,4 +467,295 @@ func extractIntigritiMetadata(body string, isBBP bool, bi bountyInfo) *scope.Pro
 	}
 
 	return m
+}
+
+// amountRegex matches a single monetary amount, optionally prefixed by a
+// currency symbol ($, €, £) OR followed by a 3-letter currency code (USD,
+// EUR, GBP). The capture group holds the bare number with possible thousands
+// separators (e.g. "5,000"). Cells like "9.0 - 10.0" (CVSS score ranges)
+// deliberately do NOT match because they lack a currency symbol/code, which
+// lets us skip the "CVSS Score Range" column of Intigriti reward tables.
+var amountRegex = regexp.MustCompile(`(?:\$|€|£)\s*([\d,]+(?:\.\d+)?)|([\d,]+(?:\.\d+)?)\s*(?:USD|EUR|GBP)\b`)
+
+// tableRowRegex matches a single markdown table row like "| a | b | c |".
+// Leading/trailing pipes are stripped by the caller via splitTableRow.
+var tableRowRegex = regexp.MustCompile(`^\s*\|.*\|\s*$`)
+
+// separatorRegex matches a markdown table separator row like "| --- | --- |".
+var separatorRegex = regexp.MustCompile(`^\s*\|?\s*-{2,}\s*(\|\s*-{2,}\s*)*\|?\s*$`)
+
+// parseIntigritiMarkdownRewardGrids scans the rules markdown for tables that
+// look like bounty reward grids (severity rows × asset category columns with
+// currency amounts) and parses them into scope.RewardGrid entries — one per
+// asset category column.
+//
+// Tables that lack currency amounts (e.g. "Severity × Time to validate" SLA
+// tables, "Identifier × Format" header tables) are skipped, because their
+// cells do not contain a currency symbol/code that amountRegex recognises.
+//
+// Each produced grid has:
+//   - Dimension = the column header (e.g. "Intel Hardware")
+//   - BountyCriticalMin/Max, BountyHighMin/Max, BountyMediumMin/Max,
+//     BountyLowMin/Max set from the matching severity row
+//
+// For cells like "Up to $5,000" only the Max is set (Min stays nil). For
+// "$X - $Y" ranges both Min and Max are set.
+func parseIntigritiMarkdownRewardGrids(rules string) []scope.RewardGrid {
+	if rules == "" {
+		return nil
+	}
+	lines := strings.Split(rules, "\n")
+
+	var grids []scope.RewardGrid
+	i := 0
+	for i < len(lines) {
+		// Find the start of a potential markdown table block.
+		if !tableRowRegex.MatchString(lines[i]) {
+			i++
+			continue
+		}
+		// Collect consecutive table lines.
+		blockStart := i
+		for i < len(lines) && tableRowRegex.MatchString(lines[i]) {
+			i++
+		}
+		block := lines[blockStart:i]
+		// Parse the block; append any grids it produces.
+		if g := parseRewardTableBlock(block); len(g) > 0 {
+			grids = append(grids, g...)
+		}
+	}
+	return grids
+}
+
+// parseRewardTableBlock parses a single markdown table block (header +
+// separator + body rows) and returns RewardGrids for each column that
+// carries currency amounts. Returns nil for non-bounty tables.
+func parseRewardTableBlock(block []string) []scope.RewardGrid {
+	if len(block) < 3 {
+		return nil // need header + separator + at least one body row
+	}
+	header := splitTableRow(block[0])
+	if !separatorRegex.MatchString(block[1]) {
+		return nil
+	}
+	body := block[2:]
+
+	// Per-column accumulator: tracks whether the column ever had a parsed
+	// amount, and stores the partially-built RewardGrid keyed by header.
+	type colState struct {
+		header    string
+		hasAmount bool
+		grid      scope.RewardGrid
+	}
+	cols := make([]colState, len(header))
+	for i, h := range header {
+		cols[i] = colState{header: h, grid: scope.RewardGrid{Dimension: h}}
+	}
+
+	// Walk body rows. For each row, classify column 0 as a severity; for
+	// every other column, parse the cell and (if it has an amount) record
+	// it into the matching severity slot of that column's grid.
+	for _, row := range body {
+		cells := splitTableRow(row)
+		if len(cells) < 2 {
+			continue
+		}
+		sev := classifySeverity(cells[0])
+		if sev == "" {
+			continue
+		}
+		// cells[1..] are the value columns. cells may be shorter than cols;
+		// we only fill columns that exist in both header and row.
+		for ci := 1; ci < len(cols) && ci < len(cells); ci++ {
+			min, max := parseAmountCell(cells[ci])
+			if min == nil && max == nil {
+				continue
+			}
+			cols[ci].hasAmount = true
+			setSeverityBounty(&cols[ci].grid, sev, min, max)
+		}
+	}
+
+	// Emit grids only for columns that contained at least one currency
+	// amount. This naturally drops the "CVSS Score Range" column (no $/€/£
+	// and no USD/EUR/GBP code) and the "Time to validate" column (no
+	// currency amounts at all).
+	var out []scope.RewardGrid
+	for _, c := range cols {
+		if c.hasAmount {
+			out = append(out, c.grid)
+		}
+	}
+	return out
+}
+
+// splitTableRow splits a markdown table row like "| a | b | c |" into
+// ["a", "b", "c"], trimming whitespace from each cell.
+func splitTableRow(row string) []string {
+	s := strings.TrimSpace(row)
+	s = strings.TrimPrefix(s, "|")
+	s = strings.TrimSuffix(s, "|")
+	parts := strings.Split(s, "|")
+	out := make([]string, len(parts))
+	for i, p := range parts {
+		out[i] = strings.TrimSpace(p)
+	}
+	return out
+}
+
+// classifySeverity maps the first cell of a reward-table row to a canonical
+// severity token used by scope.RewardGrid: "critical", "high", "medium",
+// "low", "info", or "exceptional". Returns "" if the cell is not a severity
+// label (e.g. CVSS range, validation time).
+func classifySeverity(cell string) string {
+	// Take the first whitespace-delimited word, lowercased. This handles
+	// cells like "Critical", "Critical (9.0 - 10.0)", "Low (0.1 - 3.9)".
+	fields := strings.Fields(cell)
+	if len(fields) == 0 {
+		return ""
+	}
+	w := strings.ToLower(fields[0])
+	// Strip any trailing punctuation like "critical:" → "critical".
+	w = strings.TrimRight(w, ":.,;")
+	switch w {
+	case "exceptional":
+		return "exceptional"
+	case "critical":
+		return "critical"
+	case "high":
+		return "high"
+	case "medium":
+		return "medium"
+	case "low":
+		return "low"
+	case "info", "informational":
+		return "info"
+	}
+	// Some Intigriti programs use "P1"/"P2"/... instead of severity names.
+	switch w {
+	case "p1":
+		return "critical"
+	case "p2":
+		return "high"
+	case "p3":
+		return "medium"
+	case "p4":
+		return "low"
+	case "p5":
+		return "info"
+	}
+	return ""
+}
+
+// setSeverityBounty sets the min/max slot of g for the given severity.
+// sev is one of "info", "low", "medium", "high", "critical", "exceptional".
+// A nil min leaves Min unset; a nil max leaves Max unset. A non-nil value
+// only overrides the existing slot if it is currently unset (first-write-wins
+// across multiple body rows for the same severity — Intigriti tables have
+// one row per severity, so this is purely defensive).
+func setSeverityBounty(g *scope.RewardGrid, sev string, min, max *int) {
+	switch sev {
+	case "exceptional":
+		if g.BountyExceptionalMin == nil {
+			g.BountyExceptionalMin = min
+		}
+		if g.BountyExceptionalMax == nil {
+			g.BountyExceptionalMax = max
+		}
+	case "critical":
+		if g.BountyCriticalMin == nil {
+			g.BountyCriticalMin = min
+		}
+		if g.BountyCriticalMax == nil {
+			g.BountyCriticalMax = max
+		}
+	case "high":
+		if g.BountyHighMin == nil {
+			g.BountyHighMin = min
+		}
+		if g.BountyHighMax == nil {
+			g.BountyHighMax = max
+		}
+	case "medium":
+		if g.BountyMediumMin == nil {
+			g.BountyMediumMin = min
+		}
+		if g.BountyMediumMax == nil {
+			g.BountyMediumMax = max
+		}
+	case "low":
+		if g.BountyLowMin == nil {
+			g.BountyLowMin = min
+		}
+		if g.BountyLowMax == nil {
+			g.BountyLowMax = max
+		}
+	case "info":
+		if g.BountyInfoMin == nil {
+			g.BountyInfoMin = min
+		}
+		if g.BountyInfoMax == nil {
+			g.BountyInfoMax = max
+		}
+	}
+}
+
+// parseAmountCell parses a single reward-table cell into (min, max) integer
+// pointers. Returns (nil, nil) if no currency amount is found in the cell.
+//
+// Behaviour:
+//   - "Up to $5,000" → (nil, 5000)
+//   - "$5,000 - $10,000" → (5000, 10000)
+//   - "$5,000" (no prefix) → (5000, 5000)
+//   - "From $5,000" → (5000, nil)
+//   - "9.0 - 10.0" → (nil, nil)  (no currency marker)
+//   - "2 Working days" → (nil, nil)
+func parseAmountCell(cell string) (min, max *int) {
+	matches := amountRegex.FindAllStringSubmatch(cell, -1)
+	if len(matches) == 0 {
+		return nil, nil
+	}
+	values := make([]int, 0, 2)
+	for _, m := range matches {
+		// m[1] is the capture for the "$X" form; m[2] is for the "X USD" form.
+		raw := m[1]
+		if raw == "" {
+			raw = m[2]
+		}
+		raw = strings.ReplaceAll(raw, ",", "")
+		// Drop any decimal part — bounties are whole units, and a fractional
+		// value here would be a CVSS-like number that slipped through.
+		if i := strings.Index(raw, "."); i >= 0 {
+			raw = raw[:i]
+		}
+		if raw == "" {
+			continue
+		}
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			continue
+		}
+		values = append(values, n)
+	}
+	if len(values) == 0 {
+		return nil, nil
+	}
+
+	lower := strings.ToLower(strings.TrimSpace(cell))
+	switch {
+	case strings.HasPrefix(lower, "up to"), strings.HasPrefix(lower, "max "):
+		// Only an upper bound.
+		return nil, &values[0]
+	case strings.HasPrefix(lower, "from"), strings.HasPrefix(lower, "starting at"), strings.HasPrefix(lower, "min "), strings.HasPrefix(lower, "minimum"):
+		// Only a lower bound.
+		return &values[0], nil
+	case len(values) >= 2:
+		return &values[0], &values[1]
+	default:
+		// Single value, no prefix — treat as both min and max (matches the
+		// YWH convention where a single bounty value is min=max).
+		v := values[0]
+		return &v, &v
+	}
 }

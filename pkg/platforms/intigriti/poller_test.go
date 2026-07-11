@@ -2,7 +2,10 @@ package intigriti
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/sw33tLie/bbscope/v2/pkg/scope"
 )
 
 // TestExtractIntigritiMetadata verifies that extractIntigritiMetadata correctly
@@ -187,4 +190,164 @@ func ptrBoolStr(p *bool) string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("%v", *p)
+}
+
+// TestParseIntigritiMarkdownRewardGrids_Intel verifies that the Intel program's
+// embedded markdown reward table (severity × asset category × currency amount)
+// is parsed into one RewardGrid per asset category, with the Critical/High/
+// Medium/Low Max slots populated from the "Up to $X" cells, and Min slots left
+// nil (because "up to" only constrains the upper bound).
+func TestParseIntigritiMarkdownRewardGrids_Intel(t *testing.T) {
+	rules := `# Intel Bug Bounty Program
+
+Some intro text.
+
+| Vulnerability Severity | CVSS Score Range | Intel Cloud Services | Intel Software| Intel Firmware | Intel Hardware  |
+| ------------------------------ | -------------------------- | ---------------------------- | -------------------- | ---------------------- | ---------------------- |
+| Critical                           | 9.0 - 10.0                | Up to $5,000             | Up to $10,000 | Up to $30,000   | Up to $100,000 |
+| High                               | 7.0 - 8.9                  | Up to $2,500             | Up to $5,000   | Up to $15,000   | Up to $30,000    |
+| Medium                        | 4.0 - 6.9                  | Up to $750                 | Up to $1,500   | Up to $3,000    | Up to $5,000       |
+| Low                                | 0.1 - 3.9                  | Up to $250                 | Up to $500      | Up to $1,000    | Up to $2,000      |
+
+Some closing text.
+`
+	grids := parseIntigritiMarkdownRewardGrids(rules)
+	wantDims := []string{"Intel Cloud Services", "Intel Software", "Intel Firmware", "Intel Hardware"}
+	if len(grids) != len(wantDims) {
+		t.Fatalf("len(grids) = %d, want %d; dims=%v", len(grids), len(wantDims), gridDimensionsLocal(grids))
+	}
+	for i, want := range wantDims {
+		if grids[i].Dimension != want {
+			t.Errorf("grids[%d].Dimension = %q, want %q", i, grids[i].Dimension, want)
+		}
+	}
+
+	// Find the Intel Hardware grid (should have Critical Max = 100000).
+	var hw *scope.RewardGrid
+	for i := range grids {
+		if grids[i].Dimension == "Intel Hardware" {
+			hw = &grids[i]
+			break
+		}
+	}
+	if hw == nil {
+		t.Fatalf("no Intel Hardware grid found")
+	}
+	if hw.BountyCriticalMax == nil || *hw.BountyCriticalMax != 100000 {
+		t.Errorf("BountyCriticalMax = %s, want 100000", ptrIntStr(hw.BountyCriticalMax))
+	}
+	if hw.BountyCriticalMin != nil {
+		t.Errorf("BountyCriticalMin = %s, want nil (\"Up to\" => only max)", ptrIntStr(hw.BountyCriticalMin))
+	}
+	if hw.BountyHighMax == nil || *hw.BountyHighMax != 30000 {
+		t.Errorf("BountyHighMax = %s, want 30000", ptrIntStr(hw.BountyHighMax))
+	}
+	if hw.BountyMediumMax == nil || *hw.BountyMediumMax != 5000 {
+		t.Errorf("BountyMediumMax = %s, want 5000", ptrIntStr(hw.BountyMediumMax))
+	}
+	if hw.BountyLowMax == nil || *hw.BountyLowMax != 2000 {
+		t.Errorf("BountyLowMax = %s, want 2000", ptrIntStr(hw.BountyLowMax))
+	}
+
+	// The "CVSS Score Range" column should NOT produce a grid — its cells
+	// (e.g. "9.0 - 10.0") lack a currency marker, so amountRegex skips them.
+	for _, g := range grids {
+		if strings.Contains(strings.ToLower(g.Dimension), "cvss") {
+			t.Errorf("CVSS column leaked as grid: %q", g.Dimension)
+		}
+	}
+}
+
+// TestParseIntigritiMarkdownRewardGrids_ValidationTableSkipped verifies that
+// "Severity × Time to validate" SLA tables are NOT parsed as reward grids,
+// because their cells contain no currency amounts.
+func TestParseIntigritiMarkdownRewardGrids_ValidationTableSkipped(t *testing.T) {
+	rules := `**Validation times**
+
+| Vulnerability Severity | Time to validate |
+| -------- | -------- |
+| Exceptional | 2 Working days |
+| Critical | 2 Working days |
+| High | 5 Working days |
+`
+	grids := parseIntigritiMarkdownRewardGrids(rules)
+	if len(grids) != 0 {
+		t.Fatalf("len(grids) = %d, want 0 (no currency amounts in table); got %v", len(grids), gridDimensionsLocal(grids))
+	}
+}
+
+// TestParseIntigritiMarkdownRewardGrids_RangeSyntax verifies that "$X - $Y"
+// ranges set both Min and Max.
+func TestParseIntigritiMarkdownRewardGrids_RangeSyntax(t *testing.T) {
+	rules := `| Severity | Web | API |
+| --- | --- | --- |
+| Critical | $5,000 - $10,000 | $1,000 |
+| High | $2,500 - $5,000 | $500 |
+`
+	grids := parseIntigritiMarkdownRewardGrids(rules)
+	if len(grids) != 2 {
+		t.Fatalf("len(grids) = %d, want 2 (Web + API); got %v", len(grids), gridDimensionsLocal(grids))
+	}
+	var web *scope.RewardGrid
+	for i := range grids {
+		if grids[i].Dimension == "Web" {
+			web = &grids[i]
+		}
+	}
+	if web == nil {
+		t.Fatalf("no Web grid found")
+	}
+	if web.BountyCriticalMin == nil || *web.BountyCriticalMin != 5000 {
+		t.Errorf("BountyCriticalMin = %s, want 5000", ptrIntStr(web.BountyCriticalMin))
+	}
+	if web.BountyCriticalMax == nil || *web.BountyCriticalMax != 10000 {
+		t.Errorf("BountyCriticalMax = %s, want 10000", ptrIntStr(web.BountyCriticalMax))
+	}
+	// Single value cell "$1,000" => min=max=1000.
+	if web.BountyHighMin == nil || *web.BountyHighMin != 2500 {
+		t.Errorf("BountyHighMin = %s, want 2500", ptrIntStr(web.BountyHighMin))
+	}
+	if web.BountyHighMax == nil || *web.BountyHighMax != 5000 {
+		t.Errorf("BountyHighMax = %s, want 5000", ptrIntStr(web.BountyHighMax))
+	}
+	var api *scope.RewardGrid
+	for i := range grids {
+		if grids[i].Dimension == "API" {
+			api = &grids[i]
+		}
+	}
+	if api == nil {
+		t.Fatalf("no API grid found")
+	}
+	if api.BountyCriticalMin == nil || *api.BountyCriticalMin != 1000 {
+		t.Errorf("API BountyCriticalMin = %s, want 1000", ptrIntStr(api.BountyCriticalMin))
+	}
+	if api.BountyCriticalMax == nil || *api.BountyCriticalMax != 1000 {
+		t.Errorf("API BountyCriticalMax = %s, want 1000 (single value => min=max)", ptrIntStr(api.BountyCriticalMax))
+	}
+}
+
+// TestParseIntigritiMarkdownRewardGrids_NoTable verifies that rules text with
+// no markdown table returns nil.
+func TestParseIntigritiMarkdownRewardGrids_NoTable(t *testing.T) {
+	rules := `Some prose rules with no table.
+
+- bullet one
+- bullet two
+
+More text.`
+	if g := parseIntigritiMarkdownRewardGrids(rules); len(g) != 0 {
+		t.Fatalf("expected no grids, got %v", g)
+	}
+	if g := parseIntigritiMarkdownRewardGrids(""); len(g) != 0 {
+		t.Fatalf("expected no grids for empty input, got %v", g)
+	}
+}
+
+func gridDimensionsLocal(grids []scope.RewardGrid) []string {
+	out := make([]string, len(grids))
+	for i, g := range grids {
+		out[i] = g.Dimension
+	}
+	return out
 }

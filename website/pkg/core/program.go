@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -367,12 +368,12 @@ func metadataSection(md *scope.ProgramMetadata) g.Node {
 			for _, grid := range md.RewardGrids {
 				tbodyRows = append(tbodyRows, Tr(
 					Td(Class("px-3 py-2 text-sm text-zinc-200"), g.Text(grid.Dimension)),
-					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(intOrDashStr(grid.BountyInfoMin))),
-					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(intOrDashStr(grid.BountyLowMin))),
-					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(intOrDashStr(grid.BountyMediumMin))),
-					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(intOrDashStr(grid.BountyHighMin))),
-					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(intOrDashStr(grid.BountyCriticalMin))),
-					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(intOrDashStr(grid.BountyExceptionalMin))),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(scope.FormatBountySlot(grid.BountyInfoMin, grid.BountyInfoMax))),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(scope.FormatBountySlot(grid.BountyLowMin, grid.BountyLowMax))),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(scope.FormatBountySlot(grid.BountyMediumMin, grid.BountyMediumMax))),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(scope.FormatBountySlot(grid.BountyHighMin, grid.BountyHighMax))),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(scope.FormatBountySlot(grid.BountyCriticalMin, grid.BountyCriticalMax))),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(scope.FormatBountySlot(grid.BountyExceptionalMin, grid.BountyExceptionalMax))),
 				))
 			}
 			gridRows = append(gridRows, TBody(g.Group(tbodyRows)))
@@ -458,7 +459,71 @@ func metadataSection(md *scope.ProgramMetadata) g.Node {
 		nodes = append(nodes, P(Class("text-zinc-400 text-sm"), g.Textf("Can create test account: %v", *md.CanCreateTestAccount)))
 	}
 
+	// Rules (markdown / html). Embedded as a collapsible <details> because the
+	// rules can be very long and frequently repeat the reward grid in markdown
+	// table form. For markdown, we render via a small dependency-free
+	// renderer (renderMarkdown). For html (Bugcrowd), we sanitize minimally and
+	// inject via g.Raw.
+	if md.Rules != "" {
+		nodes = append(nodes, rulesSection(md))
+	}
+
 	return Div(Class("mt-8 border-t border-zinc-800/50 pt-6"), g.Group(nodes))
+}
+
+// rulesSection renders the program rules (rulesOfEngagement / description) as
+// a collapsible section. Markdown is converted to safe HTML by renderMarkdown;
+// HTML (Bugcrowd) is sanitised of <script>/<style>/on* attributes and injected
+// via g.Raw.
+func rulesSection(md *scope.ProgramMetadata) g.Node {
+	var inner g.Node
+	switch strings.ToLower(md.RulesFormat) {
+	case "html":
+		inner = g.Raw(sanitizeRulesHTML(md.Rules))
+	default: // markdown
+		inner = g.Raw(renderMarkdown(md.Rules))
+	}
+	return Details(Class("mt-4"),
+		Summary(Class("text-sm font-semibold text-zinc-300 cursor-pointer hover:text-zinc-100 transition-colors"), g.Text("Rules")),
+		Div(Class("mt-3 prose prose-invert max-w-none"), inner),
+	)
+}
+
+// sanitizeRulesHTML strips <script>, <style>, <iframe>, <object>, <embed>,
+// on*= attributes, and javascript: URLs from a Bugcrowd HTML rules payload.
+// It is intentionally conservative — Bugcrowd's HTML is rich, so we don't try
+// to keep tags/attributes the way a full allow-list sanitizer would; we just
+// neutralise the obvious XSS vectors.
+func sanitizeRulesHTML(s string) string {
+	// Drop entire script/style/iframe/object/embed blocks.
+	for _, tag := range []string{"script", "style", "iframe", "object", "embed"} {
+		for {
+			lo := strings.Index(strings.ToLower(s), "<"+tag)
+			if lo < 0 {
+				break
+			}
+			hi := strings.Index(strings.ToLower(s[lo:]), "</"+tag+">")
+			if hi < 0 {
+				s = s[:lo]
+				break
+			}
+			hi += lo + len(tag) + 3 // include closing tag
+			s = s[:lo] + s[hi:]
+		}
+	}
+	// Strip on*= event handler attributes (loose match, handles ' and ").
+	onRe := regexp.MustCompile(`(?i)\son[a-z]+=\\"[^\\"]*\\"`)
+	s = onRe.ReplaceAllString(s, "")
+	onRe2 := regexp.MustCompile(`(?i)\son[a-z]+='[^']*'`)
+	s = onRe2.ReplaceAllString(s, "")
+	onRe3 := regexp.MustCompile(`(?i)\son[a-z]+=(?:[^\\s>]+)`)
+	s = onRe3.ReplaceAllString(s, "")
+	// Neutralise javascript: URLs in href/src.
+	jsRe := regexp.MustCompile(`(?i)(href|src)\\s*=\\s*\\"javascript:[^\\"]*\\"`)
+	s = jsRe.ReplaceAllString(s, "href=\"#\"")
+	jsRe2 := regexp.MustCompile(`(?i)(href|src)\\s*=\\s*'javascript:[^']*'`)
+	s = jsRe2.ReplaceAllString(s, "href='#'")
+	return s
 }
 
 func intOrDashStr(i *int) string {
