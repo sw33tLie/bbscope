@@ -93,6 +93,18 @@ func (p *Poller) ListProgramHandles(ctx context.Context, opts platforms.PollOpti
 
 func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts platforms.PollOptions) (scope.ProgramData, error) {
 	pData := scope.ProgramData{Url: "https://hackerone.com/" + handle}
+
+	// Fetch program details for metadata. This is a single additional call;
+	// failure is non-fatal — scope collection proceeds without metadata.
+	progRes, progErr := whttp.SendHTTPRequest(&whttp.WHTTPReq{
+		Method:  "GET",
+		URL:     "https://api.hackerone.com/v1/hackers/programs/" + handle,
+		Headers: []whttp.WHTTPHeader{{Name: "Authorization", Value: "Basic " + p.authB64}},
+	}, nil)
+	if progErr == nil && progRes.StatusCode == 200 {
+		pData.Metadata = extractH1Metadata(progRes.BodyString)
+	}
+
 	currentPageURL := "https://api.hackerone.com/v1/hackers/programs/" + handle + "/structured_scopes?page%5Bnumber%5D=1&page%5Bsize%5D=100"
 	categoryStrings := scope.GetAllStringsForCategories(opts.Categories)
 
@@ -185,3 +197,40 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 	}
 	return pData, nil
 }
+
+// extractH1Metadata parses the body of GET /v1/hackers/programs/{handle} into a
+// ProgramMetadata. HackerOne's public API does not expose reward grids,
+// qualifying vulnerabilities, or testing instructions, so those fields remain nil.
+func extractH1Metadata(body string) *scope.ProgramMetadata {
+	handle := gjson.Get(body, "attributes.handle").Str
+	tagline := gjson.Get(body, "attributes.tagline").Str
+	offersBounties := gjson.Get(body, "attributes.offers_bounties").Bool()
+	state := gjson.Get(body, "attributes.state").Str
+	submissionState := gjson.Get(body, "attributes.submission_state").Str
+
+	title := handle
+	if tagline != "" {
+		title = tagline + " (" + handle + ")"
+	}
+
+	md := &scope.ProgramMetadata{
+		Title:      title,
+		Tagline:    tagline,
+		IsPublic:   boolPtr(state != "soft_launched"),
+		IsBounty:   boolPtr(offersBounties),
+		IsDisabled: boolPtr(submissionState == "paused" || submissionState == "closed"),
+	}
+
+	if !offersBounties && submissionState == "open" {
+		md.IsVDP = boolPtr(true)
+		md.ProgramType = "vdp"
+	} else {
+		md.ProgramType = "bug-bounty"
+	}
+
+	return md
+}
+
+// boolPtr returns a pointer to the given bool. scope.boolPtr is unexported, so
+// the hackerone package keeps a local copy.
+func boolPtr(v bool) *bool { return &v }

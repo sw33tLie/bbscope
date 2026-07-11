@@ -155,8 +155,19 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 	pData.InScope = tempScope
 	pData.OutOfScope = nil
 
+	pData.Metadata = &scope.ProgramMetadata{
+		Title:       strings.TrimSuffix(strings.TrimSuffix(handle, "/information/"), "/"),
+		ProgramType: "bug-bounty",
+		IsBounty:    boolPtr(true),
+		IsPublic:    boolPtr(true),
+	}
+
 	return pData, nil
 }
+
+// boolPtr returns a pointer to the given bool. scope.boolPtr is unexported, so
+// immunefi keeps a local copy.
+func boolPtr(v bool) *bool { return &v }
 
 // extractJSONArray extracts a JSON array starting at position 0 of the input string.
 // It handles nested brackets and returns the complete array including brackets.
