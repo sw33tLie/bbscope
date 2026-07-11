@@ -801,6 +801,10 @@ func extractScopeFromEngagement(getBriefVersionDocument string, token string, pD
 		// Check if the scope element is in-scope
 		inScope := value.Get("inScope").Bool()
 
+		// Derive the asset value for this scope group from the P1 max bounty
+		// (rewardRangeData.1.max). Groups without a P1 reward are "very_low".
+		assetValue := bugcrowdAssetValueFromP1Max(value.Get("rewardRangeData.1.max"))
+
 		// Extract the "targets" array for the current scope element
 		targetsArray := value.Get("targets")
 
@@ -817,9 +821,9 @@ func extractScopeFromEngagement(getBriefVersionDocument string, token string, pD
 			}
 
 			if inScope {
-				pData.InScope = append(pData.InScope, scope.ScopeElement{Target: uri, Description: description, Category: category})
+				pData.InScope = append(pData.InScope, scope.ScopeElement{Target: uri, Description: description, Category: category, AssetValue: assetValue})
 			} else {
-				pData.OutOfScope = append(pData.OutOfScope, scope.ScopeElement{Target: uri, Description: description, Category: category})
+				pData.OutOfScope = append(pData.OutOfScope, scope.ScopeElement{Target: uri, Description: description, Category: category, AssetValue: assetValue})
 			}
 
 			return true
@@ -950,6 +954,29 @@ func extractScopeFromTargetTable(scopeTableURL string, categories string, token 
 	}
 
 	return nil
+}
+
+// bugcrowdAssetValueFromP1Max maps a Bugcrowd scope group's P1 max bounty
+// (from rewardRangeData.1.max) to a normalized asset value string. A missing
+// or non-positive max is treated as "very_low".
+func bugcrowdAssetValueFromP1Max(p1Max gjson.Result) string {
+	if !p1Max.Exists() {
+		return "very_low"
+	}
+	max := p1Max.Int()
+	if max >= 5000 {
+		return "critical"
+	}
+	if max >= 1000 {
+		return "high"
+	}
+	if max >= 500 {
+		return "medium"
+	}
+	if max >= 100 {
+		return "low"
+	}
+	return "very_low"
 }
 
 // buildSessionCookieHeader returns the token as a Cookie header value.

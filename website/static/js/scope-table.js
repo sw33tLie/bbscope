@@ -1,23 +1,26 @@
 (function () {
-  'use strict';
+  "use strict";
 
   // --- State ---
   var state = {
-    search: '',
-    sortBy: 'handle',
-    sortOrder: 'asc',
-    platform: '',      // comma-separated or empty
-    programType: '',   // '', 'bbp', 'vdp'
-    assetType: '',     // comma-separated unified categories or empty
+    search: "",
+    sortBy: "handle",
+    sortOrder: "asc",
+    platform: "", // comma-separated or empty
+    programType: "", // '', 'bbp', 'vdp'
+    assetType: "", // comma-separated unified categories or empty
+    minReward: "", // '', '100', '500', '1000', '5000', '10000'
+    currency: "", // '', 'USD', 'EUR', etc.
+    hasReports: false, // boolean: filter to programs with reports_count > 0
     page: 1,
     perPage: 50,
   };
 
-  var allPrograms = [];       // currently active dataset (AI or raw)
-  var cachedAI = null;        // cached AI-enhanced programs
-  var cachedRaw = null;       // cached raw programs
-  var aiMode = false;          // true = AI enhanced, false = raw
-  var container = document.getElementById('scope-table-container');
+  var allPrograms = []; // currently active dataset (AI or raw)
+  var cachedAI = null; // cached AI-enhanced programs
+  var cachedRaw = null; // cached raw programs
+  var aiMode = false; // true = AI enhanced, false = raw
+  var container = document.getElementById("scope-table-container");
   var debounceTimer = null;
 
   // --- Init ---
@@ -36,7 +39,7 @@
       render(); // shows spinner
     }
 
-    var url = aiMode ? '/api/v1/programs' : '/api/v1/programs?raw=true';
+    var url = aiMode ? "/api/v1/programs" : "/api/v1/programs?raw=true";
     var cache = aiMode ? cachedAI : cachedRaw;
 
     if (cache) {
@@ -46,7 +49,9 @@
     }
 
     fetch(url)
-      .then(function (res) { return res.json(); })
+      .then(function (res) {
+        return res.json();
+      })
       .then(function (data) {
         var programs = data.programs || [];
         if (aiMode) {
@@ -58,54 +63,64 @@
         render();
       })
       .catch(function (err) {
-        console.error('Failed to load programs:', err);
-        container.innerHTML = '<div class="text-red-400 text-center py-8">Failed to load scope data. Please try refreshing the page.</div>';
+        console.error("Failed to load programs:", err);
+        container.innerHTML =
+          '<div class="text-red-400 text-center py-8">Failed to load scope data. Please try refreshing the page.</div>';
       });
   }
 
   function syncAIToggle() {
-    var rawBtn = document.getElementById('scope-toggle-raw');
-    var aiBtn = document.getElementById('scope-toggle-ai');
+    var rawBtn = document.getElementById("scope-toggle-raw");
+    var aiBtn = document.getElementById("scope-toggle-ai");
     if (!rawBtn || !aiBtn) return;
-    var active = 'px-3 py-1.5 text-sm font-medium cursor-pointer transition-all duration-200 bg-cyan-500 text-white';
-    var inactive = 'px-3 py-1.5 text-sm font-medium cursor-pointer transition-all duration-200 text-zinc-400 hover:text-zinc-200';
+    var active =
+      "px-3 py-1.5 text-sm font-medium cursor-pointer transition-all duration-200 bg-cyan-500 text-white";
+    var inactive =
+      "px-3 py-1.5 text-sm font-medium cursor-pointer transition-all duration-200 text-zinc-400 hover:text-zinc-200";
     if (aiMode) {
       rawBtn.className = inactive;
-      aiBtn.className = active + ' flex items-center gap-1.5';
+      aiBtn.className = active + " flex items-center gap-1.5";
     } else {
       rawBtn.className = active;
-      aiBtn.className = inactive + ' flex items-center gap-1.5';
+      aiBtn.className = inactive + " flex items-center gap-1.5";
     }
   }
 
   function parseURLState() {
     var params = new URLSearchParams(window.location.search);
-    state.search = params.get('search') || '';
-    state.platform = params.get('platform') || '';
-    state.programType = params.get('programType') || '';
-    state.assetType = params.get('assetType') || '';
-    state.page = parseInt(params.get('page'), 10) || 1;
-    state.perPage = parseInt(params.get('perPage'), 10) || 50;
+    state.search = params.get("search") || "";
+    state.platform = params.get("platform") || "";
+    state.programType = params.get("programType") || "";
+    state.assetType = params.get("assetType") || "";
+    state.minReward = params.get("minReward") || "";
+    state.currency = params.get("currency") || "";
+    state.hasReports = params.get("hasReports") === "1";
+    state.page = parseInt(params.get("page"), 10) || 1;
+    state.perPage = parseInt(params.get("perPage"), 10) || 50;
 
     // Validate
     var validPerPages = [25, 50, 100, 250, 500];
     if (validPerPages.indexOf(state.perPage) === -1) state.perPage = 50;
-    if (state.programType !== 'bbp' && state.programType !== 'vdp') state.programType = '';
+    if (state.programType !== "bbp" && state.programType !== "vdp")
+      state.programType = "";
     if (state.page < 1) state.page = 1;
   }
 
   function pushState() {
     var params = new URLSearchParams();
-    if (state.search) params.set('search', state.search);
-    if (state.platform) params.set('platform', state.platform);
-    if (state.programType) params.set('programType', state.programType);
-    if (state.assetType) params.set('assetType', state.assetType);
-    if (state.page > 1) params.set('page', String(state.page));
-    if (state.perPage !== 50) params.set('perPage', String(state.perPage));
+    if (state.search) params.set("search", state.search);
+    if (state.platform) params.set("platform", state.platform);
+    if (state.programType) params.set("programType", state.programType);
+    if (state.assetType) params.set("assetType", state.assetType);
+    if (state.minReward) params.set("minReward", state.minReward);
+    if (state.currency) params.set("currency", state.currency);
+    if (state.hasReports) params.set("hasReports", "1");
+    if (state.page > 1) params.set("page", String(state.page));
+    if (state.perPage !== 50) params.set("perPage", String(state.perPage));
 
     var qs = params.toString();
-    var url = '/scope' + (qs ? '?' + qs : '');
-    history.replaceState(null, '', url);
+    var url = "/scope" + (qs ? "?" + qs : "");
+    history.replaceState(null, "", url);
   }
 
   // --- Filter pipeline ---
@@ -114,7 +129,7 @@
 
     // Platform filter
     if (state.platform) {
-      var platforms = state.platform.toLowerCase().split(',');
+      var platforms = state.platform.toLowerCase().split(",");
       var platSet = {};
       for (var i = 0; i < platforms.length; i++) {
         var p = platforms[i].trim();
@@ -126,15 +141,19 @@
     }
 
     // Program type filter
-    if (state.programType === 'bbp') {
-      list = list.filter(function (prog) { return prog.is_bbp; });
-    } else if (state.programType === 'vdp') {
-      list = list.filter(function (prog) { return !prog.is_bbp; });
+    if (state.programType === "bbp") {
+      list = list.filter(function (prog) {
+        return prog.is_bbp;
+      });
+    } else if (state.programType === "vdp") {
+      list = list.filter(function (prog) {
+        return !prog.is_bbp;
+      });
     }
 
     // Asset type filter
     if (state.assetType) {
-      var types = state.assetType.toLowerCase().split(',');
+      var types = state.assetType.toLowerCase().split(",");
       var typeSet = {};
       for (var t = 0; t < types.length; t++) {
         var typ = types[t].trim();
@@ -164,34 +183,64 @@
       });
     }
 
+    // Min reward filter
+    if (state.minReward) {
+      var minVal = parseInt(state.minReward, 10);
+      list = list.filter(function (prog) {
+        var max = prog.bounty_reward_max || 0;
+        return max >= minVal;
+      });
+    }
+
+    // Currency filter
+    if (state.currency) {
+      var cur = state.currency.toUpperCase();
+      list = list.filter(function (prog) {
+        return (prog.currency || "").toUpperCase() === cur;
+      });
+    }
+
+    // Has reports filter
+    if (state.hasReports) {
+      list = list.filter(function (prog) {
+        return prog.reports_count && prog.reports_count > 0;
+      });
+    }
+
     return list;
   }
 
   function sortPrograms(list) {
     var key = state.sortBy;
-    var asc = state.sortOrder === 'asc';
+    var asc = state.sortOrder === "asc";
 
     list.sort(function (a, b) {
       var va, vb;
-      if (key === 'handle') {
+      if (key === "handle") {
         va = a.handle.toLowerCase();
         vb = b.handle.toLowerCase();
-      } else if (key === 'platform') {
+      } else if (key === "platform") {
         va = a.platform.toLowerCase();
         vb = b.platform.toLowerCase();
-      } else if (key === 'in_scope_count') {
+      } else if (key === "in_scope_count") {
         va = a.in_scope_count;
         vb = b.in_scope_count;
-      } else if (key === 'out_of_scope_count') {
+      } else if (key === "out_of_scope_count") {
         va = a.out_of_scope_count;
         vb = b.out_of_scope_count;
+      } else if (key === "bounty_reward_max") {
+        va = a.bounty_reward_max || 0;
+        vb = b.bounty_reward_max || 0;
+      } else if (key === "reports_count") {
+        va = a.reports_count || 0;
+        vb = b.reports_count || 0;
       }
 
       if (va < vb) return asc ? -1 : 1;
       if (va > vb) return asc ? 1 : -1;
 
       // Secondary sort by handle
-      if (key !== 'handle') {
+      if (key !== "handle") {
         var ha = a.handle.toLowerCase();
         var hb = b.handle.toLowerCase();
         if (ha < hb) return -1;
@@ -205,23 +254,29 @@
 
   // --- Platform helpers ---
   var platformNames = {
-    h1: 'HackerOne',
-    bc: 'Bugcrowd',
-    it: 'Intigriti',
-    ywh: 'YesWeHack',
+    h1: "HackerOne",
+    bc: "Bugcrowd",
+    it: "Intigriti",
+    ywh: "YesWeHack",
   };
   var platformColors = {
-    h1: 'bg-blue-900/50 text-blue-300 border border-blue-800',
-    bc: 'bg-orange-900/50 text-orange-300 border border-orange-800',
-    it: 'bg-purple-900/50 text-purple-300 border border-purple-800',
-    ywh: 'bg-yellow-900/50 text-yellow-300 border border-yellow-800',
+    h1: "bg-blue-900/50 text-blue-300 border border-blue-800",
+    bc: "bg-orange-900/50 text-orange-300 border border-orange-800",
+    it: "bg-purple-900/50 text-purple-300 border border-purple-800",
+    ywh: "bg-yellow-900/50 text-yellow-300 border border-yellow-800",
   };
 
   function platformBadgeHTML(plat) {
     var p = plat.toLowerCase();
     var name = platformNames[p] || plat;
-    var colors = platformColors[p] || 'bg-zinc-700 text-zinc-300';
-    return '<span class="inline-flex items-center px-2.5 py-0.5 text-[11px] font-semibold rounded-md ' + colors + '">' + escapeHTML(name) + '</span>';
+    var colors = platformColors[p] || "bg-zinc-700 text-zinc-300";
+    return (
+      '<span class="inline-flex items-center px-2.5 py-0.5 text-[11px] font-semibold rounded-md ' +
+      colors +
+      '">' +
+      escapeHTML(name) +
+      "</span>"
+    );
   }
 
   function programTypeBadgeHTML(isBBP) {
@@ -232,9 +287,20 @@
   }
 
   function escapeHTML(str) {
-    var div = document.createElement('div');
+    var div = document.createElement("div");
     div.appendChild(document.createTextNode(str));
     return div.innerHTML;
+  }
+
+  function formatRewards(min, max, currency) {
+    if (!min && !max) return '<span class="text-zinc-600">-</span>';
+    var cur = currency ? " " + escapeHTML(currency) : "";
+    if (min && max) {
+      if (min === max) return escapeHTML(String(max)) + cur;
+      return escapeHTML(String(min)) + " - " + escapeHTML(String(max)) + cur;
+    }
+    if (max) return "≤ " + escapeHTML(String(max)) + cur;
+    return "≥ " + escapeHTML(String(min)) + cur;
   }
 
   // --- Render ---
@@ -246,7 +312,7 @@
         '<div class="flex flex-col items-center justify-center py-20 gap-4">' +
         '<div class="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>' +
         '<span class="text-zinc-400 text-sm">Loading scope data...</span>' +
-        '</div>';
+        "</div>";
       return;
     }
 
@@ -264,123 +330,218 @@
 
     pushState();
 
-    var html = '';
+    var html = "";
 
     // --- Controls row ---
-    var resultsText = '';
+    var resultsText = "";
     if (totalCount > 0) {
-      resultsText = 'Showing ' + (startIdx + 1) + ' to ' + endIdx + ' of ' + totalCount + ' programs.';
+      resultsText =
+        "Showing " +
+        (startIdx + 1) +
+        " to " +
+        endIdx +
+        " of " +
+        totalCount +
+        " programs.";
     } else if (state.search) {
       resultsText = "No programs found for '" + escapeHTML(state.search) + "'.";
     } else {
-      resultsText = 'No programs to display.';
+      resultsText = "No programs to display.";
     }
 
-    html += '<div class="flex flex-col sm:flex-row justify-between items-center mb-3 gap-4">';
-    html += '<div class="text-sm text-zinc-400">' + resultsText + '</div>';
-    html += '<div class="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3 w-full sm:w-auto">';
+    html +=
+      '<div class="flex flex-col sm:flex-row justify-between items-center mb-3 gap-4">';
+    html += '<div class="text-sm text-zinc-400">' + resultsText + "</div>";
+    html +=
+      '<div class="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3 w-full sm:w-auto">';
     html += renderPerPageSelector();
-    html += '</div>';
-    html += '</div>';
+    html += "</div>";
+    html += "</div>";
 
     // --- Table ---
-    html += '<div class="overflow-x-auto rounded-none sm:rounded-xl border-y sm:border border-zinc-700/50 sm:shadow-xl sm:shadow-black/10">';
+    html +=
+      '<div class="overflow-x-auto rounded-none sm:rounded-xl border-y sm:border border-zinc-700/50 sm:shadow-xl sm:shadow-black/10">';
     html += '<table class="min-w-full divide-y divide-zinc-700">';
     html += '<thead class="bg-zinc-800/80">';
-    html += '<tr>';
-    html += renderSortHeader('Program', 'handle', 'w-2/5');
-    html += renderSortHeader('Platform', 'platform', 'w-1/5');
-    html += renderSortHeader('In Scope', 'in_scope_count', 'w-1/5 text-center');
-    html += renderSortHeader('Out of Scope', 'out_of_scope_count', 'w-1/5 text-center');
-    html += '</tr>';
-    html += '</thead>';
+    html += "<tr>";
+    html += renderSortHeader("Program", "handle", "w-2/5");
+    html += renderSortHeader("Platform", "platform", "w-1/5");
+    html += renderSortHeader(
+      "Rewards",
+      "bounty_reward_max",
+      "w-1/5 text-center whitespace-nowrap",
+    );
+    html += renderSortHeader("Reports", "reports_count", "w-1/5 text-center");
+    html += renderSortHeader("In Scope", "in_scope_count", "w-1/5 text-center");
+    html += renderSortHeader(
+      "Out of Scope",
+      "out_of_scope_count",
+      "w-1/5 text-center",
+    );
+    html += "</tr>";
+    html += "</thead>";
     html += '<tbody class="bg-zinc-900/50 divide-y divide-zinc-800">';
 
     if (pagePrograms.length === 0) {
-      html += '<tr><td colspan="4" class="text-center py-16 text-zinc-500">';
+      html += '<tr><td colspan="6" class="text-center py-16 text-zinc-500">';
       html += '<div class="flex flex-col items-center gap-3">';
-      html += '<svg class="w-12 h-12 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>';
-      html += '<span>' + (state.search ? "No programs found for '" + escapeHTML(state.search) + "'." : 'No programs to display.') + '</span>';
-      html += '</div>';
-      html += '</td></tr>';
+      html +=
+        '<svg class="w-12 h-12 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>';
+      html +=
+        "<span>" +
+        (state.search
+          ? "No programs found for '" + escapeHTML(state.search) + "'."
+          : "No programs to display.") +
+        "</span>";
+      html += "</div>";
+      html += "</td></tr>";
     } else {
       for (var i = 0; i < pagePrograms.length; i++) {
         var p = pagePrograms[i];
-        var rowBg = i % 2 === 1 ? ' bg-zinc-800/20' : '';
-        var programURL = '/program/' + encodeURIComponent(p.platform.toLowerCase()) + '/' + encodeURIComponent(p.handle);
-        var externalURL = escapeHTML(p.url.replace('api.yeswehack.com', 'yeswehack.com'));
+        var rowBg = i % 2 === 1 ? " bg-zinc-800/20" : "";
+        var programURL =
+          "/program/" +
+          encodeURIComponent(p.platform.toLowerCase()) +
+          "/" +
+          encodeURIComponent(p.handle);
+        var externalURL = escapeHTML(
+          p.url.replace("api.yeswehack.com", "yeswehack.com"),
+        );
 
-        html += '<tr class="border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors duration-150 cursor-pointer' + rowBg + '" data-href="' + escapeHTML(programURL) + '">';
+        html +=
+          '<tr class="border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors duration-150 cursor-pointer' +
+          rowBg +
+          '" data-href="' +
+          escapeHTML(programURL) +
+          '">';
 
         // Program cell
         html += '<td class="px-4 py-3 text-sm text-zinc-200 w-2/5">';
         html += '<div class="flex items-center gap-2">';
-        html += '<a href="' + externalURL + '" target="_blank" rel="noopener noreferrer" class="text-zinc-500 hover:text-cyan-400 transition-colors flex-shrink-0" onclick="event.stopPropagation()" title="Open program page">';
-        html += '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>';
-        html += '</a>';
-        var displayHandle = p.handle.replace(/^\/engagements\//, '');
-        html += '<span class="font-medium text-zinc-100">' + escapeHTML(displayHandle) + '</span>';
+        html +=
+          '<a href="' +
+          externalURL +
+          '" target="_blank" rel="noopener noreferrer" class="text-zinc-500 hover:text-cyan-400 transition-colors flex-shrink-0" onclick="event.stopPropagation()" title="Open program page">';
+        html +=
+          '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>';
+        html += "</a>";
+        var displayHandle = p.handle.replace(/^\/engagements\//, "");
+        html +=
+          '<span class="font-medium text-zinc-100">' +
+          escapeHTML(displayHandle) +
+          "</span>";
         html += programTypeBadgeHTML(p.is_bbp);
-        html += '</div>';
-        html += '</td>';
+        html += "</div>";
+        html += "</td>";
 
         // Platform cell
-        html += '<td class="px-4 py-3 text-sm w-1/5">' + platformBadgeHTML(p.platform) + '</td>';
+        html +=
+          '<td class="px-4 py-3 text-sm w-1/5">' +
+          platformBadgeHTML(p.platform) +
+          "</td>";
+
+        // Rewards cell (min-max + currency)
+        var rewardsText = formatRewards(
+          p.bounty_reward_min,
+          p.bounty_reward_max,
+          p.currency,
+        );
+        html +=
+          '<td class="px-4 py-3 text-sm text-zinc-200 w-1/5 text-center whitespace-nowrap">' +
+          rewardsText +
+          "</td>";
+
+        // Reports cell
+        var reportsText = p.reports_count ? String(p.reports_count) : "-";
+        html +=
+          '<td class="px-4 py-3 text-sm text-zinc-200 w-1/5 text-center">' +
+          reportsText +
+          "</td>";
 
         // In scope count
-        html += '<td class="px-4 py-3 text-sm text-zinc-200 w-1/5 text-center"><span class="text-emerald-400 font-medium">' + p.in_scope_count + '</span></td>';
+        html +=
+          '<td class="px-4 py-3 text-sm text-zinc-200 w-1/5 text-center"><span class="text-emerald-400 font-medium">' +
+          p.in_scope_count +
+          "</span></td>";
 
         // Out of scope count
-        html += '<td class="px-4 py-3 text-sm text-zinc-200 w-1/5 text-center">' + p.out_of_scope_count + '</td>';
+        html +=
+          '<td class="px-4 py-3 text-sm text-zinc-200 w-1/5 text-center">' +
+          p.out_of_scope_count +
+          "</td>";
 
-        html += '</tr>';
+        html += "</tr>";
       }
     }
 
-    html += '</tbody></table></div>';
+    html += "</tbody></table></div>";
 
     // --- Pagination ---
     if (totalPages > 1) {
       html += '<div class="mt-6 flex justify-center">';
       html += renderPagination(state.page, totalPages);
-      html += '</div>';
+      html += "</div>";
     }
 
     container.innerHTML = html;
   }
 
   function renderSortHeader(label, key, extraClasses) {
-    var indicator = '';
+    var indicator = "";
     if (state.sortBy === key) {
-      indicator = state.sortOrder === 'asc' ? ' \u25B2' : ' \u25BC';
+      indicator = state.sortOrder === "asc" ? " \u25B2" : " \u25BC";
     }
-    return '<th class="px-4 py-3 text-xs font-semibold text-zinc-500 uppercase tracking-wider ' + extraClasses + '">' +
-      '<a href="#" class="hover:text-zinc-200 transition-colors scope-sort" data-sort="' + key + '">' + label + indicator + '</a>' +
-      '</th>';
+    return (
+      '<th class="px-4 py-3 text-xs font-semibold text-zinc-500 uppercase tracking-wider ' +
+      extraClasses +
+      '">' +
+      '<a href="#" class="hover:text-zinc-200 transition-colors scope-sort" data-sort="' +
+      key +
+      '">' +
+      label +
+      indicator +
+      "</a>" +
+      "</th>"
+    );
   }
 
   function renderPerPageSelector() {
     var options = [25, 50, 100, 250, 500];
-    var html = '<div class="w-full sm:w-auto flex items-center justify-center sm:justify-start gap-1 sm:gap-2 text-sm">';
-    html += '<label for="perPageSelect" class="text-zinc-400 whitespace-nowrap">Items per page:</label>';
-    html += '<select id="perPageSelect" class="px-2.5 py-1.5 border border-zinc-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm bg-zinc-800/50 text-zinc-200 transition-colors duration-200 scope-perpage">';
+    var html =
+      '<div class="w-full sm:w-auto flex items-center justify-center sm:justify-start gap-1 sm:gap-2 text-sm">';
+    html +=
+      '<label for="perPageSelect" class="text-zinc-400 whitespace-nowrap">Items per page:</label>';
+    html +=
+      '<select id="perPageSelect" class="px-2.5 py-1.5 border border-zinc-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm bg-zinc-800/50 text-zinc-200 transition-colors duration-200 scope-perpage">';
     for (var i = 0; i < options.length; i++) {
-      var sel = options[i] === state.perPage ? ' selected' : '';
-      html += '<option value="' + options[i] + '"' + sel + '>' + options[i] + ' items</option>';
+      var sel = options[i] === state.perPage ? " selected" : "";
+      html +=
+        '<option value="' +
+        options[i] +
+        '"' +
+        sel +
+        ">" +
+        options[i] +
+        " items</option>";
     }
-    html += '</select>';
-    html += '</div>';
+    html += "</select>";
+    html += "</div>";
     return html;
   }
 
   function renderPagination(currentPage, totalPages) {
-    var html = '<nav class="inline-flex items-center gap-1 bg-zinc-800/30 rounded-full px-1 py-1">';
+    var html =
+      '<nav class="inline-flex items-center gap-1 bg-zinc-800/30 rounded-full px-1 py-1">';
 
     // Previous
     if (currentPage <= 1) {
-      html += '<span class="px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-600 cursor-not-allowed"><span class="hidden sm:inline">Previous</span><span class="sm:hidden">&larr;</span></span>';
+      html +=
+        '<span class="px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-600 cursor-not-allowed"><span class="hidden sm:inline">Previous</span><span class="sm:hidden">&larr;</span></span>';
     } else {
-      html += '<a href="#" class="px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-all duration-200 scope-page" data-page="' + (currentPage - 1) + '"><span class="hidden sm:inline">Previous</span><span class="sm:hidden">&larr;</span></a>';
+      html +=
+        '<a href="#" class="px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-all duration-200 scope-page" data-page="' +
+        (currentPage - 1) +
+        '"><span class="hidden sm:inline">Previous</span><span class="sm:hidden">&larr;</span></a>';
     }
 
     // Page numbers
@@ -388,39 +549,63 @@
     var end = Math.min(totalPages, currentPage + 2);
 
     if (start > 1) {
-      html += '<a href="#" class="px-3 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-all duration-200 scope-page" data-page="1">1</a>';
+      html +=
+        '<a href="#" class="px-3 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-all duration-200 scope-page" data-page="1">1</a>';
       if (start > 2) {
-        html += '<span class="px-1 sm:px-2 py-1.5 text-sm text-zinc-600">...</span>';
+        html +=
+          '<span class="px-1 sm:px-2 py-1.5 text-sm text-zinc-600">...</span>';
       }
     }
 
     for (var i = start; i <= end; i++) {
-      var hideOnMobile = '';
+      var hideOnMobile = "";
       if (i !== currentPage && (i < currentPage - 1 || i > currentPage + 1)) {
-        hideOnMobile = ' hidden sm:inline-flex';
+        hideOnMobile = " hidden sm:inline-flex";
       }
       if (i === currentPage) {
-        html += '<span class="px-3 py-1.5 text-sm font-medium rounded-full bg-cyan-600 text-white shadow-md shadow-cyan-500/20' + hideOnMobile + '">' + i + '</span>';
+        html +=
+          '<span class="px-3 py-1.5 text-sm font-medium rounded-full bg-cyan-600 text-white shadow-md shadow-cyan-500/20' +
+          hideOnMobile +
+          '">' +
+          i +
+          "</span>";
       } else {
-        html += '<a href="#" class="px-3 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-all duration-200 scope-page' + hideOnMobile + '" data-page="' + i + '">' + i + '</a>';
+        html +=
+          '<a href="#" class="px-3 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-all duration-200 scope-page' +
+          hideOnMobile +
+          '" data-page="' +
+          i +
+          '">' +
+          i +
+          "</a>";
       }
     }
 
     if (end < totalPages) {
       if (end < totalPages - 1) {
-        html += '<span class="px-1 sm:px-2 py-1.5 text-sm text-zinc-600">...</span>';
+        html +=
+          '<span class="px-1 sm:px-2 py-1.5 text-sm text-zinc-600">...</span>';
       }
-      html += '<a href="#" class="px-3 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-all duration-200 scope-page" data-page="' + totalPages + '">' + totalPages + '</a>';
+      html +=
+        '<a href="#" class="px-3 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-all duration-200 scope-page" data-page="' +
+        totalPages +
+        '">' +
+        totalPages +
+        "</a>";
     }
 
     // Next
     if (currentPage >= totalPages) {
-      html += '<span class="px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-600 cursor-not-allowed"><span class="hidden sm:inline">Next</span><span class="sm:hidden">&rarr;</span></span>';
+      html +=
+        '<span class="px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-600 cursor-not-allowed"><span class="hidden sm:inline">Next</span><span class="sm:hidden">&rarr;</span></span>';
     } else {
-      html += '<a href="#" class="px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-all duration-200 scope-page" data-page="' + (currentPage + 1) + '"><span class="hidden sm:inline">Next</span><span class="sm:hidden">&rarr;</span></a>';
+      html +=
+        '<a href="#" class="px-2 py-1.5 text-sm font-medium rounded-full bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-all duration-200 scope-page" data-page="' +
+        (currentPage + 1) +
+        '"><span class="hidden sm:inline">Next</span><span class="sm:hidden">&rarr;</span></a>';
     }
 
-    html += '</nav>';
+    html += "</nav>";
     return html;
   }
 
@@ -429,17 +614,17 @@
   // that get replaced by render() (sort headers, pagination, rows, per-page select).
   // Attached once, never stacks.
   function attachContainerListener() {
-    container.addEventListener('click', function (e) {
+    container.addEventListener("click", function (e) {
       // Sort headers
-      var sortEl = e.target.closest('.scope-sort');
+      var sortEl = e.target.closest(".scope-sort");
       if (sortEl) {
         e.preventDefault();
-        var key = sortEl.getAttribute('data-sort');
+        var key = sortEl.getAttribute("data-sort");
         if (state.sortBy === key) {
-          state.sortOrder = state.sortOrder === 'asc' ? 'desc' : 'asc';
+          state.sortOrder = state.sortOrder === "asc" ? "desc" : "asc";
         } else {
           state.sortBy = key;
-          state.sortOrder = 'asc';
+          state.sortOrder = "asc";
         }
         state.page = 1;
         render();
@@ -447,26 +632,26 @@
       }
 
       // Pagination
-      var pageEl = e.target.closest('.scope-page');
+      var pageEl = e.target.closest(".scope-page");
       if (pageEl) {
         e.preventDefault();
-        state.page = parseInt(pageEl.getAttribute('data-page'), 10);
+        state.page = parseInt(pageEl.getAttribute("data-page"), 10);
         render();
-        window.scrollTo({ top: container.offsetTop - 80, behavior: 'smooth' });
+        window.scrollTo({ top: container.offsetTop - 80, behavior: "smooth" });
         return;
       }
 
       // Row navigation
-      var row = e.target.closest('tr[data-href]');
-      if (row && !e.target.closest('a')) {
-        window.location.href = row.getAttribute('data-href');
+      var row = e.target.closest("tr[data-href]");
+      if (row && !e.target.closest("a")) {
+        window.location.href = row.getAttribute("data-href");
         return;
       }
     });
 
     // Per-page select (uses change event, also delegated)
-    container.addEventListener('change', function (e) {
-      if (e.target.classList.contains('scope-perpage')) {
+    container.addEventListener("change", function (e) {
+      if (e.target.classList.contains("scope-perpage")) {
         state.perPage = parseInt(e.target.value, 10);
         state.page = 1;
         render();
@@ -477,9 +662,9 @@
   // One-time listeners on elements outside the container that never get replaced.
   function attachOuterListeners() {
     // Search input
-    var searchInput = document.getElementById('scope-search-input');
+    var searchInput = document.getElementById("scope-search-input");
     if (searchInput) {
-      searchInput.addEventListener('input', function () {
+      searchInput.addEventListener("input", function () {
         clearTimeout(debounceTimer);
         var val = this.value;
         debounceTimer = setTimeout(function () {
@@ -488,8 +673,8 @@
           render();
         }, 200);
       });
-      searchInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
+      searchInput.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") {
           e.preventDefault();
           clearTimeout(debounceTimer);
           state.search = this.value.trim();
@@ -500,30 +685,32 @@
     }
 
     // Clear search
-    var clearBtn = document.getElementById('scope-search-clear');
+    var clearBtn = document.getElementById("scope-search-clear");
     if (clearBtn) {
-      clearBtn.addEventListener('click', function () {
-        state.search = '';
+      clearBtn.addEventListener("click", function () {
+        state.search = "";
         state.page = 1;
-        var input = document.getElementById('scope-search-input');
-        if (input) input.value = '';
+        var input = document.getElementById("scope-search-input");
+        if (input) input.value = "";
         render();
       });
     }
 
     // Platform filter apply
-    var platformApplyBtn = document.getElementById('platform-apply-btn');
+    var platformApplyBtn = document.getElementById("platform-apply-btn");
     if (platformApplyBtn) {
-      platformApplyBtn.addEventListener('click', function () {
+      platformApplyBtn.addEventListener("click", function () {
         applyPlatformFilter();
       });
     }
 
     // Platform "All" button
-    var platformAllBtn = document.getElementById('platform-all-btn');
+    var platformAllBtn = document.getElementById("platform-all-btn");
     if (platformAllBtn) {
-      platformAllBtn.addEventListener('click', function () {
-        var checkboxes = document.querySelectorAll('#platform-dropdown-menu input[type=checkbox]');
+      platformAllBtn.addEventListener("click", function () {
+        var checkboxes = document.querySelectorAll(
+          "#platform-dropdown-menu input[type=checkbox]",
+        );
         for (var i = 0; i < checkboxes.length; i++) {
           checkboxes[i].checked = false;
         }
@@ -532,11 +719,11 @@
     }
 
     // Program type pills
-    var typePills = document.querySelectorAll('.scope-type-pill');
+    var typePills = document.querySelectorAll(".scope-type-pill");
     for (var i = 0; i < typePills.length; i++) {
-      typePills[i].addEventListener('click', function (e) {
+      typePills[i].addEventListener("click", function (e) {
         e.preventDefault();
-        state.programType = this.getAttribute('data-type');
+        state.programType = this.getAttribute("data-type");
         state.page = 1;
         syncOuterControls();
         render();
@@ -544,10 +731,10 @@
     }
 
     // Data source toggle (Raw / AI Enhanced)
-    var scopeToggleRaw = document.getElementById('scope-toggle-raw');
-    var scopeToggleAI = document.getElementById('scope-toggle-ai');
+    var scopeToggleRaw = document.getElementById("scope-toggle-raw");
+    var scopeToggleAI = document.getElementById("scope-toggle-ai");
     if (scopeToggleRaw) {
-      scopeToggleRaw.addEventListener('click', function (e) {
+      scopeToggleRaw.addEventListener("click", function (e) {
         e.preventDefault();
         if (!aiMode) return;
         aiMode = false;
@@ -556,7 +743,7 @@
       });
     }
     if (scopeToggleAI) {
-      scopeToggleAI.addEventListener('click', function (e) {
+      scopeToggleAI.addEventListener("click", function (e) {
         e.preventDefault();
         if (aiMode) return;
         aiMode = true;
@@ -566,31 +753,33 @@
     }
 
     // Platform dropdown toggle
-    var dropdownBtn = document.getElementById('platform-dropdown-btn');
-    var dropdownMenu = document.getElementById('platform-dropdown-menu');
+    var dropdownBtn = document.getElementById("platform-dropdown-btn");
+    var dropdownMenu = document.getElementById("platform-dropdown-menu");
     if (dropdownBtn && dropdownMenu) {
-      dropdownBtn.addEventListener('click', function (e) {
+      dropdownBtn.addEventListener("click", function (e) {
         e.stopPropagation();
-        dropdownMenu.classList.toggle('hidden');
+        dropdownMenu.classList.toggle("hidden");
         // Close asset type dropdown if open
-        var atMenu = document.getElementById('asset-type-dropdown-menu');
-        if (atMenu) atMenu.classList.add('hidden');
+        var atMenu = document.getElementById("asset-type-dropdown-menu");
+        if (atMenu) atMenu.classList.add("hidden");
       });
     }
 
     // Asset type filter apply
-    var assetTypeApplyBtn = document.getElementById('asset-type-apply-btn');
+    var assetTypeApplyBtn = document.getElementById("asset-type-apply-btn");
     if (assetTypeApplyBtn) {
-      assetTypeApplyBtn.addEventListener('click', function () {
+      assetTypeApplyBtn.addEventListener("click", function () {
         applyAssetTypeFilter();
       });
     }
 
     // Asset type "All" button
-    var assetTypeAllBtn = document.getElementById('asset-type-all-btn');
+    var assetTypeAllBtn = document.getElementById("asset-type-all-btn");
     if (assetTypeAllBtn) {
-      assetTypeAllBtn.addEventListener('click', function () {
-        var checkboxes = document.querySelectorAll('#asset-type-dropdown-menu input[type=checkbox]');
+      assetTypeAllBtn.addEventListener("click", function () {
+        var checkboxes = document.querySelectorAll(
+          "#asset-type-dropdown-menu input[type=checkbox]",
+        );
         for (var i = 0; i < checkboxes.length; i++) {
           checkboxes[i].checked = false;
         }
@@ -599,139 +788,185 @@
     }
 
     // Asset type dropdown toggle
-    var assetTypeBtn = document.getElementById('asset-type-dropdown-btn');
-    var assetTypeMenu = document.getElementById('asset-type-dropdown-menu');
+    var assetTypeBtn = document.getElementById("asset-type-dropdown-btn");
+    var assetTypeMenu = document.getElementById("asset-type-dropdown-menu");
     if (assetTypeBtn && assetTypeMenu) {
-      assetTypeBtn.addEventListener('click', function (e) {
+      assetTypeBtn.addEventListener("click", function (e) {
         e.stopPropagation();
-        assetTypeMenu.classList.toggle('hidden');
+        assetTypeMenu.classList.toggle("hidden");
         // Close platform dropdown if open
-        var pMenu = document.getElementById('platform-dropdown-menu');
-        if (pMenu) pMenu.classList.add('hidden');
+        var pMenu = document.getElementById("platform-dropdown-menu");
+        if (pMenu) pMenu.classList.add("hidden");
       });
     }
 
     // Close dropdowns when clicking outside
-    document.addEventListener('click', function (e) {
-      var platformFilter = document.getElementById('platform-filter');
-      var platformMenu = document.getElementById('platform-dropdown-menu');
-      if (platformFilter && platformMenu && !platformFilter.contains(e.target)) {
-        platformMenu.classList.add('hidden');
+    document.addEventListener("click", function (e) {
+      var platformFilter = document.getElementById("platform-filter");
+      var platformMenu = document.getElementById("platform-dropdown-menu");
+      if (
+        platformFilter &&
+        platformMenu &&
+        !platformFilter.contains(e.target)
+      ) {
+        platformMenu.classList.add("hidden");
       }
-      var assetFilter = document.getElementById('asset-type-filter');
-      var assetMenu = document.getElementById('asset-type-dropdown-menu');
+      var assetFilter = document.getElementById("asset-type-filter");
+      var assetMenu = document.getElementById("asset-type-dropdown-menu");
       if (assetFilter && assetMenu && !assetFilter.contains(e.target)) {
-        assetMenu.classList.add('hidden');
+        assetMenu.classList.add("hidden");
       }
     });
+
+    // Min reward filter
+    var minRewardSelect = document.getElementById("scope-min-reward-select");
+    if (minRewardSelect) {
+      minRewardSelect.addEventListener("change", function () {
+        state.minReward = this.value;
+        state.page = 1;
+        render();
+      });
+    }
+
+    // Currency filter
+    var currencySelect = document.getElementById("scope-currency-select");
+    if (currencySelect) {
+      currencySelect.addEventListener("change", function () {
+        state.currency = this.value;
+        state.page = 1;
+        render();
+      });
+    }
+
+    // Has reports toggle
+    var reportsToggle = document.getElementById("scope-reports-toggle");
+    if (reportsToggle) {
+      reportsToggle.addEventListener("click", function (e) {
+        e.preventDefault();
+        state.hasReports = !state.hasReports;
+        state.page = 1;
+        syncRewardFilters();
+        render();
+      });
+    }
   }
 
   function applyPlatformFilter() {
     var checked = [];
-    var checkboxes = document.querySelectorAll('#platform-dropdown-menu input[type=checkbox]:checked');
+    var checkboxes = document.querySelectorAll(
+      "#platform-dropdown-menu input[type=checkbox]:checked",
+    );
     for (var i = 0; i < checkboxes.length; i++) {
       checked.push(checkboxes[i].value);
     }
-    state.platform = checked.join(',');
+    state.platform = checked.join(",");
     state.page = 1;
 
-    var menu = document.getElementById('platform-dropdown-menu');
-    if (menu) menu.classList.add('hidden');
+    var menu = document.getElementById("platform-dropdown-menu");
+    if (menu) menu.classList.add("hidden");
 
     updatePlatformButtonLabel();
     render();
   }
 
   function updatePlatformButtonLabel() {
-    var btn = document.getElementById('platform-dropdown-btn');
+    var btn = document.getElementById("platform-dropdown-btn");
     if (!btn) return;
 
     if (!state.platform) {
-      btn.firstChild.textContent = 'All Platforms';
+      btn.firstChild.textContent = "All Platforms";
       return;
     }
 
-    var platforms = state.platform.split(',');
+    var platforms = state.platform.split(",");
     var names = [];
     for (var i = 0; i < platforms.length; i++) {
       names.push(platformNames[platforms[i]] || platforms[i]);
     }
-    btn.firstChild.textContent = names.length <= 2 ? names.join(', ') : names.length + ' platforms';
+    btn.firstChild.textContent =
+      names.length <= 2 ? names.join(", ") : names.length + " platforms";
   }
 
   var assetTypeNames = {
-    wildcard: 'Wildcard',
-    url: 'URL',
-    cidr: 'CIDR',
-    android: 'Android',
-    ios: 'iOS',
-    ai: 'AI',
-    hardware: 'Hardware',
-    blockchain: 'Blockchain',
-    binary: 'Binary',
-    code: 'Code',
-    other: 'Other',
+    wildcard: "Wildcard",
+    url: "URL",
+    cidr: "CIDR",
+    android: "Android",
+    ios: "iOS",
+    ai: "AI",
+    hardware: "Hardware",
+    blockchain: "Blockchain",
+    binary: "Binary",
+    code: "Code",
+    other: "Other",
   };
 
   function applyAssetTypeFilter() {
     var checked = [];
-    var checkboxes = document.querySelectorAll('#asset-type-dropdown-menu input[type=checkbox]:checked');
+    var checkboxes = document.querySelectorAll(
+      "#asset-type-dropdown-menu input[type=checkbox]:checked",
+    );
     for (var i = 0; i < checkboxes.length; i++) {
       checked.push(checkboxes[i].value);
     }
-    state.assetType = checked.join(',');
+    state.assetType = checked.join(",");
     state.page = 1;
 
-    var menu = document.getElementById('asset-type-dropdown-menu');
-    if (menu) menu.classList.add('hidden');
+    var menu = document.getElementById("asset-type-dropdown-menu");
+    if (menu) menu.classList.add("hidden");
 
     updateAssetTypeButtonLabel();
     render();
   }
 
   function updateAssetTypeButtonLabel() {
-    var btn = document.getElementById('asset-type-dropdown-btn');
+    var btn = document.getElementById("asset-type-dropdown-btn");
     if (!btn) return;
 
     if (!state.assetType) {
-      btn.firstChild.textContent = 'All Asset Types';
+      btn.firstChild.textContent = "All Asset Types";
       return;
     }
 
-    var types = state.assetType.split(',');
+    var types = state.assetType.split(",");
     var names = [];
     for (var i = 0; i < types.length; i++) {
       names.push(assetTypeNames[types[i]] || types[i]);
     }
-    btn.firstChild.textContent = names.length <= 2 ? names.join(', ') : names.length + ' types';
+    btn.firstChild.textContent =
+      names.length <= 2 ? names.join(", ") : names.length + " types";
   }
 
   // Sync outer controls (pills, search, platform checkboxes) to match current state.
   // Called once on init and when state changes from outer control interactions.
   function syncOuterControls() {
     // Program type pills
-    var pills = document.querySelectorAll('.scope-type-pill');
+    var pills = document.querySelectorAll(".scope-type-pill");
     for (var i = 0; i < pills.length; i++) {
-      var pillType = pills[i].getAttribute('data-type');
+      var pillType = pills[i].getAttribute("data-type");
       if (pillType === state.programType) {
-        pills[i].className = 'scope-type-pill px-4 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 bg-cyan-500 text-white shadow-md shadow-cyan-500/20 cursor-pointer';
+        pills[i].className =
+          "scope-type-pill px-4 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 bg-cyan-500 text-white shadow-md shadow-cyan-500/20 cursor-pointer";
       } else {
-        pills[i].className = 'scope-type-pill px-4 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-700/50 cursor-pointer';
+        pills[i].className =
+          "scope-type-pill px-4 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-700/50 cursor-pointer";
       }
     }
 
     // Search input
-    var searchInput = document.getElementById('scope-search-input');
+    var searchInput = document.getElementById("scope-search-input");
     if (searchInput) searchInput.value = state.search;
 
     // Platform checkboxes
     if (state.platform) {
       var selected = {};
-      var parts = state.platform.split(',');
+      var parts = state.platform.split(",");
       for (var j = 0; j < parts.length; j++) {
         selected[parts[j].trim()] = true;
       }
-      var checkboxes = document.querySelectorAll('#platform-dropdown-menu input[type=checkbox]');
+      var checkboxes = document.querySelectorAll(
+        "#platform-dropdown-menu input[type=checkbox]",
+      );
       for (var k = 0; k < checkboxes.length; k++) {
         checkboxes[k].checked = !!selected[checkboxes[k].value];
       }
@@ -741,21 +976,44 @@
     // Asset type checkboxes
     if (state.assetType) {
       var selectedTypes = {};
-      var typeParts = state.assetType.split(',');
+      var typeParts = state.assetType.split(",");
       for (var m = 0; m < typeParts.length; m++) {
         selectedTypes[typeParts[m].trim()] = true;
       }
-      var atCheckboxes = document.querySelectorAll('#asset-type-dropdown-menu input[type=checkbox]');
+      var atCheckboxes = document.querySelectorAll(
+        "#asset-type-dropdown-menu input[type=checkbox]",
+      );
       for (var n = 0; n < atCheckboxes.length; n++) {
         atCheckboxes[n].checked = !!selectedTypes[atCheckboxes[n].value];
       }
     }
     updateAssetTypeButtonLabel();
+    syncRewardFilters();
+  }
+
+  // Sync reward/currency/reports filter controls to match current state.
+  function syncRewardFilters() {
+    var minRewardSelect = document.getElementById("scope-min-reward-select");
+    if (minRewardSelect) minRewardSelect.value = state.minReward;
+
+    var currencySelect = document.getElementById("scope-currency-select");
+    if (currencySelect) currencySelect.value = state.currency;
+
+    var reportsToggle = document.getElementById("scope-reports-toggle");
+    if (reportsToggle) {
+      if (state.hasReports) {
+        reportsToggle.className =
+          "px-4 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 bg-cyan-500 text-white shadow-md shadow-cyan-500/20 cursor-pointer";
+      } else {
+        reportsToggle.className =
+          "px-4 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-700/50 cursor-pointer";
+      }
+    }
   }
 
   // --- Kick off ---
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
   } else {
     init();
   }

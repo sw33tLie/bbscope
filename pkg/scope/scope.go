@@ -14,6 +14,7 @@ type ScopeElement struct {
 	Description string
 	Category    string
 	IsBBP       bool
+	AssetValue  string // normalized: critical, high, medium, low, very_low, or ""
 }
 
 type ProgramData struct {

@@ -25,6 +25,7 @@ type Entry struct {
 	Description  string
 	InScope      bool
 	IsBBP        bool
+	AssetValue   string
 	IsHistorical bool
 	Source       string
 }
@@ -55,6 +56,7 @@ type UpsertEntry struct {
 	Description      string
 	InScope          bool
 	IsBBP            bool
+	AssetValue       string
 	Variants         []EntryVariant
 }
 
@@ -74,6 +76,7 @@ type TargetItem struct {
 	Description string
 	InScope     bool
 	IsBBP       bool
+	AssetValue  string
 	Variants    []TargetVariant
 }
 

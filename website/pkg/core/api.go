@@ -270,6 +270,7 @@ func apiProgramDetailHandler(w http.ResponseWriter, r *http.Request) {
 			Category:    t.Category,
 			Description: t.Description,
 			IsBBP:       t.IsBBP,
+			AssetValue:  t.AssetValue,
 		}
 		if t.InScope {
 			inScope = append(inScope, dt)
@@ -313,6 +314,7 @@ type programDetailTarget struct {
 	Category    string `json:"category"`
 	Description string `json:"description"`
 	IsBBP       bool   `json:"is_bbp"`
+	AssetValue  string `json:"asset_value"`
 }
 
 type programDetailResponse struct {

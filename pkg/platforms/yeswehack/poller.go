@@ -101,7 +101,7 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 		return pData, err
 	}
 
-	chunkData := gjson.GetMany(res.BodyString, "scopes.#.scope", "scopes.#.scope_type", "out_of_scope")
+	chunkData := gjson.GetMany(res.BodyString, "scopes.#.scope", "scopes.#.scope_type", "scopes.#.asset_value", "out_of_scope")
 
 	// Get the list of categories to filter by.
 	// If nil, we'll include all categories.
@@ -116,9 +116,10 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 		// If selectedCategories is nil, it means "all" were selected, so we don't filter.
 		if selectedCategories == nil {
 			pData.InScope = append(pData.InScope, scope.ScopeElement{
-				Target:   target,
-				Category: scopeType,
-				IsBBP:    isBBP,
+				Target:     target,
+				Category:   scopeType,
+				IsBBP:      isBBP,
+				AssetValue: strings.ToLower(chunkData[2].Array()[i].Str),
 			})
 			continue
 		}
@@ -134,15 +135,16 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 
 		if catMatches {
 			pData.InScope = append(pData.InScope, scope.ScopeElement{
-				Target:   target,
-				Category: scopeType,
-				IsBBP:    isBBP,
+				Target:     target,
+				Category:   scopeType,
+				IsBBP:      isBBP,
+				AssetValue: strings.ToLower(chunkData[2].Array()[i].Str),
 			})
 		}
 	}
 
 	// Handle out of scope
-	outOfScopeItems := chunkData[2].Array()
+	outOfScopeItems := chunkData[3].Array()
 	for _, item := range outOfScopeItems {
 		pData.OutOfScope = append(pData.OutOfScope, scope.ScopeElement{
 			Target:   item.String(),

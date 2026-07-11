@@ -262,10 +262,10 @@ func processOneProgram(
 func buildTargetItems(pd scope.ProgramData) []storage.TargetItem {
 	items := make([]storage.TargetItem, 0, len(pd.InScope)+len(pd.OutOfScope))
 	for _, s := range pd.InScope {
-		items = append(items, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: true, IsBBP: s.IsBBP})
+		items = append(items, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: true, IsBBP: s.IsBBP, AssetValue: s.AssetValue})
 	}
 	for _, s := range pd.OutOfScope {
-		items = append(items, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: false, IsBBP: s.IsBBP})
+		items = append(items, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: false, IsBBP: s.IsBBP, AssetValue: s.AssetValue})
 	}
 	return items
 }
