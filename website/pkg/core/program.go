@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"time"
@@ -117,6 +118,8 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 
 	programURL := strings.ReplaceAll(program.URL, "api.yeswehack.com", "yeswehack.com")
 
+	md, _ := db.GetProgramMetadata(ctx, program.ID)
+
 	title := fmt.Sprintf("%s on %s - Bug Bounty Scope | bbscope.com", displayHandle(program.Platform, program.Handle), capitalizedPlatform(program.Platform))
 	description := buildProgramDescription(program, targets, inScopeCount, isBBP)
 	canonicalURL := fmt.Sprintf("/program/%s/%s", url.PathEscape(strings.ToLower(program.Platform)), url.PathEscape(program.Handle))
@@ -125,7 +128,7 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 		title,
 		description,
 		Navbar("/scope"),
-		ProgramDetailContent(program, targets, changes, programURL, inScopeCount, oosCount, isBBP),
+		ProgramDetailContent(program, targets, changes, programURL, inScopeCount, oosCount, isBBP, md),
 		FooterEl(),
 		canonicalURL,
 		false,
@@ -133,7 +136,7 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // ProgramDetailContent renders the program detail page content.
-func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTarget, changes []storage.Change, programURL string, inScopeCount, oosCount int, isBBP bool) g.Node {
+func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTarget, changes []storage.Change, programURL string, inScopeCount, oosCount int, isBBP bool, md *scope.ProgramMetadata) g.Node {
 	var inScope, outOfScope []storage.ProgramTarget
 	for _, t := range targets {
 		if t.InScope {
@@ -229,6 +232,11 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 		),
 	}
 
+	// Metadata section (rewards, qualifying vulns, testing instructions, etc.)
+	if md != nil {
+		content = append(content, metadataSection(md))
+	}
+
 	// Scope tables container (swapped by JS on AI toggle)
 	scopeTables := scopeTablesNode(inScope, outOfScope)
 	content = append(content, Div(ID("scope-tables-container"), scopeTables))
@@ -289,6 +297,175 @@ func scopeTablesNode(inScope, outOfScope []storage.ProgramTarget) g.Node {
 	}
 
 	return g.Group(nodes)
+}
+
+// metadataSection renders the program metadata section (rewards, qualifying vulns, etc.)
+func metadataSection(md *scope.ProgramMetadata) g.Node {
+	var nodes []g.Node
+
+	nodes = append(nodes,
+		H2(Class("text-lg font-semibold text-zinc-200 mb-4 mt-8 flex items-center gap-2"),
+			g.Raw(`<svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`),
+			g.Text("Program Information"),
+		),
+	)
+
+	// Basic info grid
+	var infoNodes []g.Node
+	if md.Title != "" {
+		infoNodes = append(infoNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Title")), Div(Class("text-zinc-200"), g.Text(md.Title)))
+	}
+	if md.CompanyName != "" {
+		infoNodes = append(infoNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Company")), Div(Class("text-zinc-200"), g.Text(md.CompanyName)))
+	}
+	if md.Industry != "" {
+		infoNodes = append(infoNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Industry")), Div(Class("text-zinc-200"), g.Text(md.Industry)))
+	}
+	if md.ProgramType != "" {
+		infoNodes = append(infoNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Type")), Div(Class("text-zinc-200"), g.Text(md.ProgramType)))
+	}
+	if md.SafeHarbor != "" {
+		infoNodes = append(infoNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Safe Harbor")), Div(Class("text-zinc-200"), g.Text(md.SafeHarbor)))
+	}
+	if md.Secured != nil {
+		infoNodes = append(infoNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("2FA Required")), Div(Class("text-zinc-200"), g.Text(fmt.Sprintf("%v", *md.Secured))))
+	}
+	if len(infoNodes) > 0 {
+		nodes = append(nodes, Div(Class("grid grid-cols-2 gap-x-6 gap-y-2 mb-6"), g.Group(infoNodes)))
+	}
+
+	// Reward grids
+	if md.HasRewardInfo() {
+		nodes = append(nodes, H3(Class("text-sm font-semibold text-zinc-300 mb-2 mt-4"), g.Text("Rewards")))
+		if md.Currency != "" {
+			nodes = append(nodes, P(Class("text-zinc-400 text-sm"), g.Textf("Currency: %s", md.Currency)))
+		}
+		if md.BountyRewardMin != nil || md.BountyRewardMax != nil {
+			minStr, maxStr := "-", "-"
+			if md.BountyRewardMin != nil {
+				minStr = strconv.Itoa(*md.BountyRewardMin)
+			}
+			if md.BountyRewardMax != nil {
+				maxStr = strconv.Itoa(*md.BountyRewardMax)
+			}
+			nodes = append(nodes, P(Class("text-zinc-400 text-sm"), g.Textf("Range: %s - %s", minStr, maxStr)))
+		}
+		if len(md.RewardGrids) > 0 {
+			var gridRows []g.Node
+			gridRows = append(gridRows,
+				THead(Tr(
+					Th(Class("px-3 py-2 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider"), g.Text("Tier")),
+					Th(Class("px-3 py-2 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider"), g.Text("Info")),
+					Th(Class("px-3 py-2 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider"), g.Text("Low")),
+					Th(Class("px-3 py-2 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider"), g.Text("Medium")),
+					Th(Class("px-3 py-2 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider"), g.Text("High")),
+					Th(Class("px-3 py-2 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider"), g.Text("Critical")),
+					Th(Class("px-3 py-2 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider"), g.Text("Exceptional")),
+				)),
+			)
+			var tbodyRows []g.Node
+			for _, grid := range md.RewardGrids {
+				tbodyRows = append(tbodyRows, Tr(
+					Td(Class("px-3 py-2 text-sm text-zinc-200"), g.Text(grid.Dimension)),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(intOrDashStr(grid.BountyInfoMin))),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(intOrDashStr(grid.BountyLowMin))),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(intOrDashStr(grid.BountyMediumMin))),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(intOrDashStr(grid.BountyHighMin))),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(intOrDashStr(grid.BountyCriticalMin))),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(intOrDashStr(grid.BountyExceptionalMin))),
+				))
+			}
+			gridRows = append(gridRows, TBody(g.Group(tbodyRows)))
+			nodes = append(nodes, Div(Class("overflow-x-auto mt-2 mb-4"),
+				Table(Class("min-w-full divide-y divide-zinc-700/50 border border-zinc-700/50 rounded-lg"),
+					g.Group(gridRows),
+				),
+			),
+			)
+		}
+	}
+
+	// Reports stats
+	if md.ReportsCount != nil || md.TotalPayout != nil || md.AvgReward != nil {
+		nodes = append(nodes, H3(Class("text-sm font-semibold text-zinc-300 mb-2 mt-4"), g.Text("Reports")))
+		var statNodes []g.Node
+		if md.ReportsCount != nil {
+			statNodes = append(statNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Total")), Div(Class("text-zinc-200"), g.Text(strconv.Itoa(*md.ReportsCount))))
+		}
+		if md.TotalPayout != nil {
+			statNodes = append(statNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Total Payout")), Div(Class("text-zinc-200"), g.Text(fmt.Sprintf("%d %s", *md.TotalPayout, md.TotalPayoutCurrency))))
+		}
+		if md.AvgReward != nil {
+			statNodes = append(statNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Avg Reward")), Div(Class("text-zinc-200"), g.Text(fmt.Sprintf("%d %s", *md.AvgReward, md.TotalPayoutCurrency))))
+		}
+		if md.AvgFirstResponseDays != nil {
+			statNodes = append(statNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Avg Response")), Div(Class("text-zinc-200"), g.Text(fmt.Sprintf("%.1f days", *md.AvgFirstResponseDays))))
+		}
+		nodes = append(nodes, Div(Class("grid grid-cols-2 gap-x-6 gap-y-2 mb-4"), g.Group(statNodes)))
+	}
+
+	// Testing instructions
+	var testNodes []g.Node
+	if md.UserAgent != "" {
+		testNodes = append(testNodes, P(Class("text-zinc-400 text-sm"), g.Textf("User-Agent: %s", md.UserAgent)))
+	}
+	if md.RequestHeader != "" {
+		testNodes = append(testNodes, P(Class("text-zinc-400 text-sm"), g.Textf("Required header: %s", md.RequestHeader)))
+	}
+	if md.AutomatedToolingLimit != nil {
+		testNodes = append(testNodes, P(Class("text-zinc-400 text-sm"), g.Textf("Automated tooling limit: %d req/s", *md.AutomatedToolingLimit)))
+	}
+	if md.VPNRequired != nil && *md.VPNRequired {
+		testNodes = append(testNodes, P(Class("text-zinc-400 text-sm"), g.Text("VPN required")))
+	}
+	if len(testNodes) > 0 {
+		nodes = append(nodes, H3(Class("text-sm font-semibold text-zinc-300 mb-2 mt-4"), g.Text("Testing Instructions")), g.Group(testNodes))
+	}
+
+	// Qualifying vulnerabilities
+	if len(md.QualifyingVulnerabilities) > 0 {
+		var vulnNodes []g.Node
+		for _, v := range md.QualifyingVulnerabilities {
+			vulnNodes = append(vulnNodes, Li(Class("text-zinc-400 text-sm"), g.Text(v)))
+		}
+		nodes = append(nodes,
+			Details(Class("mt-4"),
+				Summary(Class("text-sm font-semibold text-zinc-300 cursor-pointer hover:text-zinc-100 transition-colors"), g.Textf("Qualifying Vulnerabilities (%d)", len(md.QualifyingVulnerabilities))),
+				Ul(Class("mt-2 ml-4 list-disc space-y-1"), g.Group(vulnNodes)),
+			),
+		)
+	}
+
+	// Non-qualifying vulnerabilities
+	if len(md.NonQualifyingVulnerabilities) > 0 {
+		var vulnNodes []g.Node
+		for _, v := range md.NonQualifyingVulnerabilities {
+			vulnNodes = append(vulnNodes, Li(Class("text-zinc-400 text-sm"), g.Text(v)))
+		}
+		nodes = append(nodes,
+			Details(Class("mt-4"),
+				Summary(Class("text-sm font-semibold text-zinc-300 cursor-pointer hover:text-zinc-100 transition-colors"), g.Textf("Non-Qualifying Vulnerabilities (%d)", len(md.NonQualifyingVulnerabilities))),
+				Ul(Class("mt-2 ml-4 list-disc space-y-1"), g.Group(vulnNodes)),
+			),
+		)
+	}
+
+	// Account access
+	if md.AccountAccess != "" {
+		nodes = append(nodes, H3(Class("text-sm font-semibold text-zinc-300 mb-2 mt-4"), g.Text("Account Access")), P(Class("text-zinc-400 text-sm"), g.Text(md.AccountAccess)))
+	}
+	if md.CanCreateTestAccount != nil {
+		nodes = append(nodes, P(Class("text-zinc-400 text-sm"), g.Textf("Can create test account: %v", *md.CanCreateTestAccount)))
+	}
+
+	return Div(Class("mt-8 border-t border-zinc-800/50 pt-6"), g.Group(nodes))
+}
+
+func intOrDashStr(i *int) string {
+	if i == nil {
+		return "-"
+	}
+	return strconv.Itoa(*i)
 }
 
 // scopeChangesSection renders the collapsible scope changes timeline for a program.

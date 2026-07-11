@@ -83,6 +83,55 @@ CREATE INDEX IF NOT EXISTS idx_changes_category_program ON scope_changes(categor
 CREATE INDEX IF NOT EXISTS idx_programs_platform_handle ON programs(platform, handle);
 CREATE INDEX IF NOT EXISTS idx_programs_disabled_ignored ON programs(disabled, is_ignored);
 CREATE INDEX IF NOT EXISTS idx_targets_raw_in_scope ON targets_raw(program_id, in_scope);
+CREATE TABLE IF NOT EXISTS program_metadata (
+	program_id                      INTEGER PRIMARY KEY REFERENCES programs(id) ON DELETE CASCADE,
+	-- 1. Classification & Context
+	title                           TEXT NOT NULL DEFAULT '',
+	tagline                         TEXT NOT NULL DEFAULT '',
+	company_name                    TEXT NOT NULL DEFAULT '',
+	industry                        TEXT NOT NULL DEFAULT '',
+	program_type                    TEXT NOT NULL DEFAULT '',
+	is_public                       INTEGER,
+	is_bounty                       INTEGER,
+	is_vdp                          INTEGER,
+	is_disabled                     INTEGER,
+	-- 2. Rewards
+	currency                        TEXT NOT NULL DEFAULT '',
+	bounty_reward_min               INTEGER,
+	bounty_reward_max               INTEGER,
+	reward_grids                    JSONB,
+	-- 3. Scope Rules
+	rules                           TEXT NOT NULL DEFAULT '',
+	rules_format                    TEXT NOT NULL DEFAULT '',
+	in_scope_description            TEXT NOT NULL DEFAULT '',
+	qualifying_vulnerabilities      JSONB,
+	non_qualifying_vulnerabilities  JSONB,
+	out_of_scope_summary            JSONB,
+	faqs                            TEXT NOT NULL DEFAULT '',
+	-- 4. Testing Instructions
+	user_agent                      TEXT NOT NULL DEFAULT '',
+	request_header                  TEXT NOT NULL DEFAULT '',
+	automated_tooling_limit         INTEGER,
+	vpn_required                    INTEGER,
+	vpn_ips                         JSONB,
+	secured                         INTEGER,
+	safe_harbor                     TEXT NOT NULL DEFAULT '',
+	-- 5. Account Setup
+	account_access                  TEXT NOT NULL DEFAULT '',
+	can_create_test_account         INTEGER,
+	-- 6. Program Stats
+	reports_count                   INTEGER,
+	total_payout                    INTEGER,
+	total_payout_currency           TEXT NOT NULL DEFAULT '',
+	avg_reward                      INTEGER,
+	avg_first_response_days         DOUBLE PRECISION,
+	scopes_count                    INTEGER,
+	tags                            JSONB,
+	-- Timestamps
+	first_seen_at                   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	last_seen_at                    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_program_metadata_bounty ON program_metadata(bounty_reward_max);
 `
 
 func Open(connectionString string) (*DB, error) {
@@ -1583,7 +1632,7 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 	likeQuery := fmt.Sprintf("%%%s%%", searchTerm)
 
 	query := `
-		SELECT 
+		SELECT
 			p.url,
 			p.platform,
 			p.handle,
@@ -1608,7 +1657,7 @@ func (d *DB) SearchTargets(ctx context.Context, searchTerm string) ([]Entry, err
 
 		UNION
 
-		SELECT 
+		SELECT
 			c.program_url,
 			c.platform,
 			c.handle,

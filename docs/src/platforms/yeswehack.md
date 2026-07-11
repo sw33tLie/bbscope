@@ -42,3 +42,19 @@ YWH_OTP=YOUR_TOTP_SECRET
 ## Platform name
 
 Used in database records and API responses: **`ywh`**
+
+## Program metadata captured
+
+The YesWeHack poller extracts and stores the following program-level metadata
+(queryable via `bbscope db program ywh/<slug>`):
+
+- Title, program type, public/private, bounty/VDP flags, 2FA required
+- Currency, bounty reward min/max
+- Reward grids per asset value (low / default / medium / high / critical)
+- Reports count, average first response time, average reward
+- Rules (markdown), qualifying and non-qualifying vulnerability lists
+- Out-of-scope summary, tags
+- Account access instructions, test-account-creation flag
+- Suggested User-Agent for testing
+- VPN requirement + VPN IPs
+- Scope count

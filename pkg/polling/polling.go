@@ -235,11 +235,16 @@ func processOneProgram(
 	if err != nil {
 		if errors.Is(err, storage.ErrAbortingScopeWipe) {
 			log.Warnf("Potential scope wipe detected for program %s. Skipping update.", pd.Url)
-			// Return the URL so it's still counted as polled, but no changes.
 			return &programResult{programURL: pd.Url}, nil
 		}
 		log.Warnf("Database error for program %s: %v", pd.Url, err)
 		return nil, err
+	}
+
+	if pd.Metadata != nil {
+		if err := db.UpsertProgramMetadata(ctx, pd.Url, pd.Metadata); err != nil {
+			log.Warnf("Could not save metadata for program %s: %v", pd.Url, err)
+		}
 	}
 
 	if !isFirstRun {
