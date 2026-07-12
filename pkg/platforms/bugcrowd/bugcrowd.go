@@ -801,6 +801,10 @@ func extractScopeFromEngagement(getBriefVersionDocument string, token string, pD
 		// Check if the scope element is in-scope
 		inScope := value.Get("inScope").Bool()
 
+		// Derive the asset value for this scope group from the P1 max bounty
+		// (rewardRangeData.1.max). Groups without a P1 reward are "very_low".
+		assetValue := bugcrowdAssetValueFromP1Max(value.Get("rewardRangeData.1.max"))
+
 		// Extract the "targets" array for the current scope element
 		targetsArray := value.Get("targets")
 
@@ -817,9 +821,9 @@ func extractScopeFromEngagement(getBriefVersionDocument string, token string, pD
 			}
 
 			if inScope {
-				pData.InScope = append(pData.InScope, scope.ScopeElement{Target: uri, Description: description, Category: category})
+				pData.InScope = append(pData.InScope, scope.ScopeElement{Target: uri, Description: description, Category: category, AssetValue: assetValue})
 			} else {
-				pData.OutOfScope = append(pData.OutOfScope, scope.ScopeElement{Target: uri, Description: description, Category: category})
+				pData.OutOfScope = append(pData.OutOfScope, scope.ScopeElement{Target: uri, Description: description, Category: category, AssetValue: assetValue})
 			}
 
 			return true
@@ -827,6 +831,8 @@ func extractScopeFromEngagement(getBriefVersionDocument string, token string, pD
 
 		return true
 	})
+
+	pData.Metadata = extractBugcrowdMetadata(res.BodyString, false)
 
 	return nil
 }
@@ -948,6 +954,29 @@ func extractScopeFromTargetTable(scopeTableURL string, categories string, token 
 	}
 
 	return nil
+}
+
+// bugcrowdAssetValueFromP1Max maps a Bugcrowd scope group's P1 max bounty
+// (from rewardRangeData.1.max) to a normalized asset value string. A missing
+// or non-positive max is treated as "very_low".
+func bugcrowdAssetValueFromP1Max(p1Max gjson.Result) string {
+	if !p1Max.Exists() {
+		return "very_low"
+	}
+	max := p1Max.Int()
+	if max >= 5000 {
+		return "critical"
+	}
+	if max >= 1000 {
+		return "high"
+	}
+	if max >= 500 {
+		return "medium"
+	}
+	if max >= 100 {
+		return "low"
+	}
+	return "very_low"
 }
 
 // buildSessionCookieHeader returns the token as a Cookie header value.
@@ -1085,3 +1114,247 @@ func authenticatorRequiresPassword(body string) bool {
 	})
 	return found
 }
+
+// extractBugcrowdMetadata parses a Bugcrowd engagement brief JSON response body
+// and returns the program-level metadata. It is defensive: missing or
+// zero-valued fields are left nil rather than producing zero pointers. The
+// result is never nil.
+//
+// isBBP is used as a fallback for IsBounty/IsVDP when the JSON does not expose
+// engagementTypeDetail.iconVariant.
+func extractBugcrowdMetadata(body string, isBBP bool) *scope.ProgramMetadata {
+	m := &scope.ProgramMetadata{}
+
+	// 1. Classification & Context
+	m.Title = gjson.Get(body, "data.brief.name").String()
+	m.Tagline = gjson.Get(body, "data.brief.tagline").String()
+	m.Industry = gjson.Get(body, "industryName").String()
+
+	productLabel := gjson.Get(body, "engagementTypeDetail.productLabel").String()
+	if strings.EqualFold(productLabel, "Bug Bounty") {
+		m.ProgramType = "bug-bounty"
+	} else if productLabel != "" {
+		m.ProgramType = strings.ToLower(productLabel)
+	}
+
+	iconVariant := gjson.Get(body, "engagementTypeDetail.iconVariant").String()
+	switch iconVariant {
+	case "bug-bounty", "bug_bounty":
+		m.IsBounty = boolPtr(true)
+		m.IsVDP = boolPtr(false)
+	case "vdp":
+		m.IsBounty = boolPtr(false)
+		m.IsVDP = boolPtr(true)
+	default:
+		m.IsBounty = boolPtr(isBBP)
+		m.IsVDP = boolPtr(!isBBP)
+	}
+
+	if v := gjson.Get(body, "engagementHiddenData.isPrivate"); v.Exists() {
+		m.IsPublic = boolPtr(!v.Bool())
+	}
+	if v := gjson.Get(body, "data.engagement.state"); v.Exists() {
+		m.IsDisabled = boolPtr(v.String() != "in_progress")
+	}
+
+	// 2. Rewards — one RewardGrid per scope group + overall min/max
+	var bountyMin, bountyMax *int
+	var scopesCount int
+	var oosSummary []string
+	tagSet := map[string]bool{}
+
+	gjson.Get(body, "data.scope").ForEach(func(_, group gjson.Result) bool {
+		name := group.Get("name").String()
+		inScope := group.Get("inScope").Bool()
+
+		if inScope {
+			scopesCount++
+		} else {
+			group.Get("targets").ForEach(func(_, target gjson.Result) bool {
+				if tn := target.Get("name").String(); tn != "" {
+					oosSummary = append(oosSummary, tn)
+				}
+				return true
+			})
+		}
+
+		// Tags: collect from all scope groups (in and out of scope).
+		group.Get("targets").ForEach(func(_, target gjson.Result) bool {
+			target.Get("tags").ForEach(func(_, tag gjson.Result) bool {
+				if tn := tag.Get("name").String(); tn != "" {
+					tagSet[tn] = true
+				}
+				return true
+			})
+			return true
+		})
+
+		// Reward grid. Bugcrowd rewardRangeData is keyed by priority 1..5:
+		// P1=Critical, P2=High, P3=Medium, P4=Low, P5=Info.
+		rrd := group.Get("rewardRangeData")
+		if rrd.Exists() {
+			grid := scope.RewardGrid{Dimension: name}
+			if p := numberIntPtr(rrd.Get("1.min")); p != nil {
+				grid.BountyCriticalMin = p
+				bountyMin = minIntPtr(bountyMin, p)
+			}
+			if p := numberIntPtr(rrd.Get("1.max")); p != nil {
+				grid.BountyCriticalMax = p
+				bountyMax = maxIntPtr(bountyMax, p)
+			}
+			if p := numberIntPtr(rrd.Get("2.min")); p != nil {
+				grid.BountyHighMin = p
+				bountyMin = minIntPtr(bountyMin, p)
+			}
+			if p := numberIntPtr(rrd.Get("2.max")); p != nil {
+				grid.BountyHighMax = p
+				bountyMax = maxIntPtr(bountyMax, p)
+			}
+			if p := numberIntPtr(rrd.Get("3.min")); p != nil {
+				grid.BountyMediumMin = p
+				bountyMin = minIntPtr(bountyMin, p)
+			}
+			if p := numberIntPtr(rrd.Get("3.max")); p != nil {
+				grid.BountyMediumMax = p
+				bountyMax = maxIntPtr(bountyMax, p)
+			}
+			if p := numberIntPtr(rrd.Get("4.min")); p != nil {
+				grid.BountyLowMin = p
+				bountyMin = minIntPtr(bountyMin, p)
+			}
+			if p := numberIntPtr(rrd.Get("4.max")); p != nil {
+				grid.BountyLowMax = p
+				bountyMax = maxIntPtr(bountyMax, p)
+			}
+			if p := numberIntPtr(rrd.Get("5.min")); p != nil {
+				grid.BountyInfoMin = p
+				bountyMin = minIntPtr(bountyMin, p)
+			}
+			if p := numberIntPtr(rrd.Get("5.max")); p != nil {
+				grid.BountyInfoMax = p
+				bountyMax = maxIntPtr(bountyMax, p)
+			}
+			m.RewardGrids = append(m.RewardGrids, grid)
+		}
+
+		return true
+	})
+
+	m.BountyRewardMin = bountyMin
+	m.BountyRewardMax = bountyMax
+
+	// 3. Scope Rules
+	descriptionHTML := gjson.Get(body, "data.brief.description").String()
+	if descriptionHTML != "" {
+		m.Rules = descriptionHTML
+		m.RulesFormat = "html"
+	}
+	m.InScopeDescription = gjson.Get(body, "data.brief.targetsOverview").String()
+	m.SafeHarbor = gjson.Get(body, "safeHarborStatus.status").String()
+	if len(oosSummary) > 0 {
+		m.OutOfScopeSummary = oosSummary
+	}
+
+	// 5. Account Setup
+	if credentialsURL := gjson.Get(body, "credentialsUrl").String(); credentialsURL != "" {
+		m.CanCreateTestAccount = boolPtr(true)
+	}
+	if descriptionHTML != "" {
+		m.AccountAccess = extractAccessSection(descriptionHTML)
+	}
+
+	// 6. Program Stats
+	if scopesCount > 0 {
+		m.ScopesCount = intPtr(scopesCount)
+	}
+	if len(tagSet) > 0 {
+		tags := make([]string, 0, len(tagSet))
+		for t := range tagSet {
+			tags = append(tags, t)
+		}
+		m.Tags = tags
+	}
+
+	return m
+}
+
+// extractAccessSection parses an HTML fragment and returns the text content of
+// the section under the first h2 whose heading contains "Access". The section
+// ends at the next h2. Returns "" if no such section is found or the HTML cannot
+// be parsed.
+func extractAccessSection(htmlStr string) string {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlStr))
+	if err != nil {
+		return ""
+	}
+
+	accessH2 := doc.Find("h2").FilterFunction(func(i int, s *goquery.Selection) bool {
+		return strings.Contains(strings.ToLower(strings.TrimSpace(s.Text())), "access")
+	}).First()
+
+	if accessH2.Length() == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	accessH2.NextAll().EachWithBreak(func(i int, s *goquery.Selection) bool {
+		if goquery.NodeName(s) == "h2" {
+			return false
+		}
+		if text := strings.TrimSpace(s.Text()); text != "" {
+			sb.WriteString(text)
+			sb.WriteString("\n")
+		}
+		return true
+	})
+
+	return strings.TrimSpace(sb.String())
+}
+
+// numberIntPtr returns a pointer to v.Int() when the gjson Result is a JSON
+// number, or nil otherwise (missing, null, or non-numeric).
+func numberIntPtr(v gjson.Result) *int {
+	if v.Type != gjson.Number {
+		return nil
+	}
+	i := int(v.Int())
+	return &i
+}
+
+// minIntPtr returns the pointer to the smaller of the two values, or the
+// non-nil one if the other is nil.
+func minIntPtr(a, b *int) *int {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	if *b < *a {
+		return b
+	}
+	return a
+}
+
+// maxIntPtr returns the pointer to the larger of the two values, or the
+// non-nil one if the other is nil.
+func maxIntPtr(a, b *int) *int {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	if *b > *a {
+		return b
+	}
+	return a
+}
+
+// intPtr returns a pointer to v. Local helper for building metadata, mirroring
+// the unexported scope.intPtr helper.
+func intPtr(v int) *int { return &v }
+
+// boolPtr returns a pointer to v. Local helper for building metadata, mirroring
+// the unexported scope.boolPtr helper.
+func boolPtr(v bool) *bool { return &v }

@@ -85,6 +85,13 @@ type ProgramListEntry struct {
 	IsBBP           bool     `json:"is_bbp"`
 	Targets         []string `json:"targets,omitempty"`    // target display names for search
 	Categories      []string `json:"categories,omitempty"` // distinct unified categories
+
+	// Metadata (from program_metadata table, may be zero/empty for programs
+	// that have not been polled since the metadata feature was added)
+	BountyRewardMin *int   `json:"bounty_reward_min,omitempty"`
+	BountyRewardMax *int   `json:"bounty_reward_max,omitempty"`
+	Currency        string `json:"currency,omitempty"`
+	ReportsCount    *int   `json:"reports_count,omitempty"`
 }
 
 // ProgramListResult holds paginated results.
@@ -98,12 +105,13 @@ type ProgramListResult struct {
 
 // ProgramTarget represents a single target within a program detail view.
 type ProgramTarget struct {
-	TargetDisplay string `json:"target"`     // AI-normalized if available, else raw
+	TargetDisplay string `json:"target"` // AI-normalized if available, else raw
 	TargetRaw     string `json:"target_raw"`
 	Category      string `json:"category"`
 	Description   string `json:"description"`
 	InScope       bool   `json:"in_scope"`
 	IsBBP         bool   `json:"is_bbp"`
+	AssetValue    string `json:"asset_value"`
 }
 
 // ProgramSlug holds the platform and handle for URL generation.
@@ -122,11 +130,13 @@ func (d *DB) ListAllProgramsFlat(ctx context.Context, rawMode bool) ([]ProgramLi
 			SELECT p.id, p.platform, p.handle, p.url,
 				COALESCE(SUM(CASE WHEN t.in_scope = 1 THEN 1 ELSE 0 END), 0) AS in_scope_count,
 				COALESCE(SUM(CASE WHEN t.in_scope = 0 THEN 1 ELSE 0 END), 0) AS out_of_scope_count,
-				COALESCE(MAX(t.is_bbp), 0) AS has_bbp
+				COALESCE(MAX(t.is_bbp), 0) AS has_bbp,
+				md.bounty_reward_min, md.bounty_reward_max, COALESCE(md.currency, ''), md.reports_count
 			FROM programs p
 			LEFT JOIN targets_raw t ON t.program_id = p.id
+			LEFT JOIN program_metadata md ON md.program_id = p.id
 			WHERE p.disabled = 0 AND p.is_ignored = 0
-			GROUP BY p.id, p.platform, p.handle, p.url
+			GROUP BY p.id, p.platform, p.handle, p.url, md.bounty_reward_min, md.bounty_reward_max, md.currency, md.reports_count
 			ORDER BY LOWER(p.handle) ASC
 		`
 	} else {
@@ -134,12 +144,14 @@ func (d *DB) ListAllProgramsFlat(ctx context.Context, rawMode bool) ([]ProgramLi
 			SELECT p.id, p.platform, p.handle, p.url,
 				COALESCE(SUM(CASE WHEN COALESCE(a.in_scope, t.in_scope) = 1 THEN 1 ELSE 0 END), 0) AS in_scope_count,
 				COALESCE(SUM(CASE WHEN COALESCE(a.in_scope, t.in_scope) = 0 THEN 1 ELSE 0 END), 0) AS out_of_scope_count,
-				COALESCE(MAX(t.is_bbp), 0) AS has_bbp
+				COALESCE(MAX(t.is_bbp), 0) AS has_bbp,
+				md.bounty_reward_min, md.bounty_reward_max, COALESCE(md.currency, ''), md.reports_count
 			FROM programs p
 			LEFT JOIN targets_raw t ON t.program_id = p.id
 			LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
+			LEFT JOIN program_metadata md ON md.program_id = p.id
 			WHERE p.disabled = 0 AND p.is_ignored = 0
-			GROUP BY p.id, p.platform, p.handle, p.url
+			GROUP BY p.id, p.platform, p.handle, p.url, md.bounty_reward_min, md.bounty_reward_max, md.currency, md.reports_count
 			ORDER BY LOWER(p.handle) ASC
 		`
 	}
@@ -156,10 +168,23 @@ func (d *DB) ListAllProgramsFlat(ctx context.Context, rawMode bool) ([]ProgramLi
 		var p ProgramListEntry
 		var id int64
 		var hasBBP int
-		if err := rows.Scan(&id, &p.Platform, &p.Handle, &p.URL, &p.InScopeCount, &p.OutOfScopeCount, &hasBBP); err != nil {
+		var bountyMin, bountyMax, reportsCount sql.NullInt64
+		if err := rows.Scan(&id, &p.Platform, &p.Handle, &p.URL, &p.InScopeCount, &p.OutOfScopeCount, &hasBBP, &bountyMin, &bountyMax, &p.Currency, &reportsCount); err != nil {
 			return nil, err
 		}
 		p.IsBBP = hasBBP == 1
+		if bountyMin.Valid {
+			v := int(bountyMin.Int64)
+			p.BountyRewardMin = &v
+		}
+		if bountyMax.Valid {
+			v := int(bountyMax.Int64)
+			p.BountyRewardMax = &v
+		}
+		if reportsCount.Valid {
+			v := int(reportsCount.Int64)
+			p.ReportsCount = &v
+		}
 		idToIdx[id] = len(programs)
 		programs = append(programs, p)
 	}
@@ -431,10 +456,20 @@ func (d *DB) ListProgramTargets(ctx context.Context, programID int64, rawMode bo
 				t.category,
 				COALESCE(t.description, '') AS description,
 				t.in_scope,
-				t.is_bbp
+				t.is_bbp,
+				COALESCE(t.asset_value, '') AS asset_value
 			FROM targets_raw t
 			WHERE t.program_id = $1
-			ORDER BY t.in_scope DESC, t.target
+			ORDER BY t.in_scope DESC,
+				CASE COALESCE(LOWER(t.asset_value), '')
+					WHEN 'critical' THEN 0
+					WHEN 'high' THEN 1
+					WHEN 'medium' THEN 2
+					WHEN 'low' THEN 3
+					WHEN 'very_low' THEN 4
+					ELSE 5
+				END,
+				t.target
 		`
 	} else {
 		query = `
@@ -444,11 +479,20 @@ func (d *DB) ListProgramTargets(ctx context.Context, programID int64, rawMode bo
 				COALESCE(NULLIF(a.category, ''), t.category) AS category,
 				COALESCE(t.description, '') AS description,
 				COALESCE(a.in_scope, t.in_scope) AS in_scope,
-				t.is_bbp
+				t.is_bbp,
+				COALESCE(t.asset_value, '') AS asset_value
 			FROM targets_raw t
 			LEFT JOIN targets_ai_enhanced a ON a.target_id = t.id
 			WHERE t.program_id = $1
 			ORDER BY COALESCE(a.in_scope, t.in_scope) DESC,
+				CASE COALESCE(LOWER(t.asset_value), '')
+					WHEN 'critical' THEN 0
+					WHEN 'high' THEN 1
+					WHEN 'medium' THEN 2
+					WHEN 'low' THEN 3
+					WHEN 'very_low' THEN 4
+					ELSE 5
+				END,
 				COALESCE(NULLIF(a.target_ai_normalized, ''), t.target)
 		`
 	}
@@ -464,7 +508,7 @@ func (d *DB) ListProgramTargets(ctx context.Context, programID int64, rawMode bo
 		var t ProgramTarget
 		var inScope, isBBP int
 		var descNS sql.NullString
-		if err := rows.Scan(&t.TargetDisplay, &t.TargetRaw, &t.Category, &descNS, &inScope, &isBBP); err != nil {
+		if err := rows.Scan(&t.TargetDisplay, &t.TargetRaw, &t.Category, &descNS, &inScope, &isBBP, &t.AssetValue); err != nil {
 			return nil, err
 		}
 		t.Description = descNS.String

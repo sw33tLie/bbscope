@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sw33tLie/bbscope/v2/pkg/otp"
@@ -100,7 +101,7 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 		return pData, err
 	}
 
-	chunkData := gjson.GetMany(res.BodyString, "scopes.#.scope", "scopes.#.scope_type", "out_of_scope")
+	chunkData := gjson.GetMany(res.BodyString, "scopes.#.scope", "scopes.#.scope_type", "scopes.#.asset_value", "out_of_scope")
 
 	// Get the list of categories to filter by.
 	// If nil, we'll include all categories.
@@ -115,9 +116,10 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 		// If selectedCategories is nil, it means "all" were selected, so we don't filter.
 		if selectedCategories == nil {
 			pData.InScope = append(pData.InScope, scope.ScopeElement{
-				Target:   target,
-				Category: scopeType,
-				IsBBP:    isBBP,
+				Target:     target,
+				Category:   scopeType,
+				IsBBP:      isBBP,
+				AssetValue: strings.ToLower(chunkData[2].Array()[i].Str),
 			})
 			continue
 		}
@@ -133,15 +135,16 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 
 		if catMatches {
 			pData.InScope = append(pData.InScope, scope.ScopeElement{
-				Target:   target,
-				Category: scopeType,
-				IsBBP:    isBBP,
+				Target:     target,
+				Category:   scopeType,
+				IsBBP:      isBBP,
+				AssetValue: strings.ToLower(chunkData[2].Array()[i].Str),
 			})
 		}
 	}
 
 	// Handle out of scope
-	outOfScopeItems := chunkData[2].Array()
+	outOfScopeItems := chunkData[3].Array()
 	for _, item := range outOfScopeItems {
 		pData.OutOfScope = append(pData.OutOfScope, scope.ScopeElement{
 			Target:   item.String(),
@@ -150,7 +153,169 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 		})
 	}
 
+	pData.Metadata = extractYWHMetadata(res.BodyString, isBBP)
+
 	return pData, nil
+}
+
+// extractYWHMetadata parses a YesWeHack program API response body and returns
+// the program-level metadata. It is defensive: missing or zero-valued fields are
+// left nil rather than producing zero pointers. The result is never nil.
+func extractYWHMetadata(body string, isBBP bool) *scope.ProgramMetadata {
+	m := &scope.ProgramMetadata{}
+
+	// 1. Classification & Context
+	m.Title = gjson.Get(body, "title").String()
+	m.ProgramType = gjson.Get(body, "type").String()
+	if v := gjson.Get(body, "public"); v.Exists() {
+		m.IsPublic = boolPtr(v.Bool())
+	}
+	if v := gjson.Get(body, "bounty"); v.Exists() {
+		m.IsBounty = boolPtr(v.Bool())
+	}
+	if v := gjson.Get(body, "vdp"); v.Exists() {
+		m.IsVDP = boolPtr(v.Bool())
+	}
+	if v := gjson.Get(body, "disabled"); v.Exists() {
+		m.IsDisabled = boolPtr(v.Bool())
+	}
+	if v := gjson.Get(body, "secured"); v.Exists() {
+		m.Secured = boolPtr(v.Bool())
+	}
+
+	// 2. Rewards
+	m.Currency = gjson.Get(body, "business_unit.currency").String()
+	if v := gjson.Get(body, "bounty_reward_min").Int(); v > 0 {
+		m.BountyRewardMin = intPtr(int(v))
+	}
+	if v := gjson.Get(body, "bounty_reward_max").Int(); v > 0 {
+		m.BountyRewardMax = intPtr(int(v))
+	}
+
+	// Reward grids. YWH exposes one object per asset value (very_low, low,
+	// default, medium, high, critical), each with a single bounty per severity.
+	// We normalize min=max=the value and skip grids where all 4 severities are 0.
+	ywhGrids := []struct {
+		dimension string
+		path      string
+	}{
+		{"very_low", "reward_grid_very_low"},
+		{"low", "reward_grid_low"},
+		{"default", "reward_grid_default"},
+		{"medium", "reward_grid_medium"},
+		{"high", "reward_grid_high"},
+		{"critical", "reward_grid_critical"},
+	}
+	for _, g := range ywhGrids {
+		grid := gjson.Get(body, g.path)
+		if !grid.Exists() {
+			continue
+		}
+		low := int(grid.Get("bounty_low").Int())
+		medium := int(grid.Get("bounty_medium").Int())
+		high := int(grid.Get("bounty_high").Int())
+		critical := int(grid.Get("bounty_critical").Int())
+		if low == 0 && medium == 0 && high == 0 && critical == 0 {
+			continue
+		}
+		rg := scope.RewardGrid{Dimension: g.dimension}
+		if low != 0 {
+			rg.BountyLowMin = intPtr(low)
+			rg.BountyLowMax = intPtr(low)
+		}
+		if medium != 0 {
+			rg.BountyMediumMin = intPtr(medium)
+			rg.BountyMediumMax = intPtr(medium)
+		}
+		if high != 0 {
+			rg.BountyHighMin = intPtr(high)
+			rg.BountyHighMax = intPtr(high)
+		}
+		if critical != 0 {
+			rg.BountyCriticalMin = intPtr(critical)
+			rg.BountyCriticalMax = intPtr(critical)
+		}
+		m.RewardGrids = append(m.RewardGrids, rg)
+	}
+
+	// 3. Scope Rules
+	if v := gjson.Get(body, "rules"); v.Exists() {
+		m.Rules = v.String()
+		m.RulesFormat = "markdown"
+	}
+	m.QualifyingVulnerabilities = gjsonSlice(body, "qualifying_vulnerability")
+	m.NonQualifyingVulnerabilities = gjsonSlice(body, "non_qualifying_vulnerability")
+	m.OutOfScopeSummary = gjsonSlice(body, "out_of_scope")
+
+	// 4. Testing Instructions
+	m.UserAgent = gjson.Get(body, "user_agent").String()
+	if v := gjson.Get(body, "vpn_active"); v.Exists() {
+		m.VPNRequired = boolPtr(v.Bool())
+	}
+	m.VNPIPs = gjsonSlice(body, "vpn_ips")
+
+	// 5. Account Setup
+	m.AccountAccess = gjson.Get(body, "account_access").String()
+	if m.AccountAccess != "" {
+		aaLower := strings.ToLower(m.AccountAccess)
+		if strings.Contains(aaLower, "test account") ||
+			strings.Contains(aaLower, "yeswehack.ninja") ||
+			strings.Contains(aaLower, "registration") {
+			m.CanCreateTestAccount = boolPtr(true)
+		}
+	}
+
+	// 6. Program Stats
+	if v := gjson.Get(body, "scopes_count").Int(); v > 0 {
+		m.ScopesCount = intPtr(int(v))
+	}
+	reportsCount := int(gjson.Get(body, "reports_count").Int())
+	if reportsCount == 0 {
+		// Fall back to stats.total_reports when the top-level field is missing/zero.
+		reportsCount = int(gjson.Get(body, "stats.total_reports").Int())
+	}
+	if reportsCount > 0 {
+		m.ReportsCount = intPtr(reportsCount)
+	}
+	if v := gjson.Get(body, "stats.average_reward").Int(); v > 0 {
+		m.AvgReward = intPtr(int(v))
+	}
+	if v := gjson.Get(body, "stats.average_first_time_response"); v.Exists() {
+		f := v.Float()
+		m.AvgFirstResponseDays = &f
+	}
+
+	// Tags
+	if tags := gjsonSlice(body, "tags"); len(tags) > 0 {
+		m.Tags = tags
+	}
+
+	// Tagline / CompanyName / Industry are not exposed by the YWH program
+	// endpoint in the fields we model here; leave them empty.
+
+	return m
+}
+
+// intPtr returns a pointer to v. Local helper for building metadata, mirroring
+// the unexported scope.intPtr helper.
+func intPtr(v int) *int { return &v }
+
+// boolPtr returns a pointer to v. Local helper for building metadata, mirroring
+// the unexported scope.boolPtr helper.
+func boolPtr(v bool) *bool { return &v }
+
+// gjsonSlice returns the string elements of the array at path in body, or nil
+// if the path does not exist or is not an array.
+func gjsonSlice(body, path string) []string {
+	arr := gjson.Get(body, path).Array()
+	if len(arr) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, a := range arr {
+		out = append(out, a.String())
+	}
+	return out
 }
 
 func login(email string, password, otpSecret, proxy string) (string, error) {

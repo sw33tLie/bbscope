@@ -14,12 +14,18 @@ type ScopeElement struct {
 	Description string
 	Category    string
 	IsBBP       bool
+	AssetValue  string // normalized: critical, high, medium, low, very_low, or ""
 }
 
 type ProgramData struct {
 	Url        string
 	InScope    []ScopeElement
 	OutOfScope []ScopeElement
+
+	// Metadata holds program-level info (rewards, qualifying vulnerabilities,
+	// reports stats, etc.) that pollers extract from each platform's API. May be
+	// nil when a poller does not produce metadata for this program.
+	Metadata *ProgramMetadata
 }
 
 func PrintProgramScope(programScope ProgramData, outputFlags string, delimiter string, includeOOS bool) {

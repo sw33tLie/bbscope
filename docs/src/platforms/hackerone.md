@@ -46,3 +46,14 @@ bbscope poll h1 -p
 ## Platform name
 
 Used in database records and API responses: **`h1`**
+
+## Program metadata captured
+
+The HackerOne poller extracts limited program-level metadata (queryable via
+`bbscope db program h1/<handle>`):
+
+- Title, tagline, program type (bug-bounty/vdp)
+- Bounty/VDP flags, public/private status, disabled flag
+
+HackerOne's public hacker API does not expose reward grids, qualifying
+vulnerability lists, or testing instructions. These fields are left empty.

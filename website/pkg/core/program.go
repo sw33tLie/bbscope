@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"time"
@@ -117,6 +119,8 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 
 	programURL := strings.ReplaceAll(program.URL, "api.yeswehack.com", "yeswehack.com")
 
+	md, _ := db.GetProgramMetadata(ctx, program.ID)
+
 	title := fmt.Sprintf("%s on %s - Bug Bounty Scope | bbscope.com", displayHandle(program.Platform, program.Handle), capitalizedPlatform(program.Platform))
 	description := buildProgramDescription(program, targets, inScopeCount, isBBP)
 	canonicalURL := fmt.Sprintf("/program/%s/%s", url.PathEscape(strings.ToLower(program.Platform)), url.PathEscape(program.Handle))
@@ -125,7 +129,7 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 		title,
 		description,
 		Navbar("/scope"),
-		ProgramDetailContent(program, targets, changes, programURL, inScopeCount, oosCount, isBBP),
+		ProgramDetailContent(program, targets, changes, programURL, inScopeCount, oosCount, isBBP, md),
 		FooterEl(),
 		canonicalURL,
 		false,
@@ -133,7 +137,7 @@ func programDetailHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // ProgramDetailContent renders the program detail page content.
-func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTarget, changes []storage.Change, programURL string, inScopeCount, oosCount int, isBBP bool) g.Node {
+func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTarget, changes []storage.Change, programURL string, inScopeCount, oosCount int, isBBP bool, md *scope.ProgramMetadata) g.Node {
 	var inScope, outOfScope []storage.ProgramTarget
 	for _, t := range targets {
 		if t.InScope {
@@ -229,6 +233,11 @@ func ProgramDetailContent(program *storage.Program, targets []storage.ProgramTar
 		),
 	}
 
+	// Metadata section (rewards, qualifying vulns, testing instructions, etc.)
+	if md != nil {
+		content = append(content, metadataSection(md))
+	}
+
 	// Scope tables container (swapped by JS on AI toggle)
 	scopeTables := scopeTablesNode(inScope, outOfScope)
 	content = append(content, Div(ID("scope-tables-container"), scopeTables))
@@ -289,6 +298,239 @@ func scopeTablesNode(inScope, outOfScope []storage.ProgramTarget) g.Node {
 	}
 
 	return g.Group(nodes)
+}
+
+// metadataSection renders the program metadata section (rewards, qualifying vulns, etc.)
+func metadataSection(md *scope.ProgramMetadata) g.Node {
+	var nodes []g.Node
+
+	nodes = append(nodes,
+		H2(Class("text-lg font-semibold text-zinc-200 mb-4 mt-8 flex items-center gap-2"),
+			g.Raw(`<svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`),
+			g.Text("Program Information"),
+		),
+	)
+
+	// Basic info grid
+	var infoNodes []g.Node
+	if md.Title != "" {
+		infoNodes = append(infoNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Title")), Div(Class("text-zinc-200"), g.Text(md.Title)))
+	}
+	if md.CompanyName != "" {
+		infoNodes = append(infoNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Company")), Div(Class("text-zinc-200"), g.Text(md.CompanyName)))
+	}
+	if md.Industry != "" {
+		infoNodes = append(infoNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Industry")), Div(Class("text-zinc-200"), g.Text(md.Industry)))
+	}
+	if md.ProgramType != "" {
+		infoNodes = append(infoNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Type")), Div(Class("text-zinc-200"), g.Text(md.ProgramType)))
+	}
+	if md.SafeHarbor != "" {
+		infoNodes = append(infoNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Safe Harbor")), Div(Class("text-zinc-200"), g.Text(md.SafeHarbor)))
+	}
+	if md.Secured != nil {
+		infoNodes = append(infoNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("2FA Required")), Div(Class("text-zinc-200"), g.Text(fmt.Sprintf("%v", *md.Secured))))
+	}
+	if len(infoNodes) > 0 {
+		nodes = append(nodes, Div(Class("grid grid-cols-2 gap-x-6 gap-y-2 mb-6"), g.Group(infoNodes)))
+	}
+
+	// Reward grids
+	if md.HasRewardInfo() {
+		nodes = append(nodes, H3(Class("text-sm font-semibold text-zinc-300 mb-2 mt-4"), g.Text("Rewards")))
+		if md.Currency != "" {
+			nodes = append(nodes, P(Class("text-zinc-400 text-sm"), g.Textf("Currency: %s", md.Currency)))
+		}
+		if md.BountyRewardMin != nil || md.BountyRewardMax != nil {
+			minStr, maxStr := "-", "-"
+			if md.BountyRewardMin != nil {
+				minStr = strconv.Itoa(*md.BountyRewardMin)
+			}
+			if md.BountyRewardMax != nil {
+				maxStr = strconv.Itoa(*md.BountyRewardMax)
+			}
+			nodes = append(nodes, P(Class("text-zinc-400 text-sm"), g.Textf("Range: %s - %s", minStr, maxStr)))
+		}
+		if len(md.RewardGrids) > 0 {
+			var gridRows []g.Node
+			gridRows = append(gridRows,
+				THead(Tr(
+					Th(Class("px-3 py-2 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider"), g.Text("Tier")),
+					Th(Class("px-3 py-2 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider"), g.Text("Info")),
+					Th(Class("px-3 py-2 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider"), g.Text("Low")),
+					Th(Class("px-3 py-2 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider"), g.Text("Medium")),
+					Th(Class("px-3 py-2 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider"), g.Text("High")),
+					Th(Class("px-3 py-2 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider"), g.Text("Critical")),
+					Th(Class("px-3 py-2 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider"), g.Text("Exceptional")),
+				)),
+			)
+			var tbodyRows []g.Node
+			for _, grid := range md.RewardGrids {
+				tbodyRows = append(tbodyRows, Tr(
+					Td(Class("px-3 py-2 text-sm text-zinc-200"), g.Text(grid.Dimension)),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(scope.FormatBountySlot(grid.BountyInfoMin, grid.BountyInfoMax))),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(scope.FormatBountySlot(grid.BountyLowMin, grid.BountyLowMax))),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(scope.FormatBountySlot(grid.BountyMediumMin, grid.BountyMediumMax))),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(scope.FormatBountySlot(grid.BountyHighMin, grid.BountyHighMax))),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(scope.FormatBountySlot(grid.BountyCriticalMin, grid.BountyCriticalMax))),
+					Td(Class("px-3 py-2 text-sm text-zinc-400"), g.Text(scope.FormatBountySlot(grid.BountyExceptionalMin, grid.BountyExceptionalMax))),
+				))
+			}
+			gridRows = append(gridRows, TBody(g.Group(tbodyRows)))
+			nodes = append(nodes, Div(Class("overflow-x-auto mt-2 mb-4"),
+				Table(Class("min-w-full divide-y divide-zinc-700/50 border border-zinc-700/50 rounded-lg"),
+					g.Group(gridRows),
+				),
+			),
+			)
+		}
+	}
+
+	// Reports stats
+	if md.ReportsCount != nil || md.TotalPayout != nil || md.AvgReward != nil {
+		nodes = append(nodes, H3(Class("text-sm font-semibold text-zinc-300 mb-2 mt-4"), g.Text("Reports")))
+		var statNodes []g.Node
+		if md.ReportsCount != nil {
+			statNodes = append(statNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Total")), Div(Class("text-zinc-200"), g.Text(strconv.Itoa(*md.ReportsCount))))
+		}
+		if md.TotalPayout != nil {
+			statNodes = append(statNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Total Payout")), Div(Class("text-zinc-200"), g.Text(fmt.Sprintf("%d %s", *md.TotalPayout, md.TotalPayoutCurrency))))
+		}
+		if md.AvgReward != nil {
+			statNodes = append(statNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Avg Reward")), Div(Class("text-zinc-200"), g.Text(fmt.Sprintf("%d %s", *md.AvgReward, md.TotalPayoutCurrency))))
+		}
+		if md.AvgFirstResponseDays != nil {
+			statNodes = append(statNodes, Div(Class("text-xs uppercase tracking-wider text-zinc-500"), g.Text("Avg Response")), Div(Class("text-zinc-200"), g.Text(fmt.Sprintf("%.1f days", *md.AvgFirstResponseDays))))
+		}
+		nodes = append(nodes, Div(Class("grid grid-cols-2 gap-x-6 gap-y-2 mb-4"), g.Group(statNodes)))
+	}
+
+	// Testing instructions
+	var testNodes []g.Node
+	if md.UserAgent != "" {
+		testNodes = append(testNodes, P(Class("text-zinc-400 text-sm"), g.Textf("User-Agent: %s", md.UserAgent)))
+	}
+	if md.RequestHeader != "" {
+		testNodes = append(testNodes, P(Class("text-zinc-400 text-sm"), g.Textf("Required header: %s", md.RequestHeader)))
+	}
+	if md.AutomatedToolingLimit != nil {
+		testNodes = append(testNodes, P(Class("text-zinc-400 text-sm"), g.Textf("Automated tooling limit: %d req/s", *md.AutomatedToolingLimit)))
+	}
+	if md.VPNRequired != nil && *md.VPNRequired {
+		testNodes = append(testNodes, P(Class("text-zinc-400 text-sm"), g.Text("VPN required")))
+	}
+	if len(testNodes) > 0 {
+		nodes = append(nodes, H3(Class("text-sm font-semibold text-zinc-300 mb-2 mt-4"), g.Text("Testing Instructions")), g.Group(testNodes))
+	}
+
+	// Qualifying vulnerabilities
+	if len(md.QualifyingVulnerabilities) > 0 {
+		var vulnNodes []g.Node
+		for _, v := range md.QualifyingVulnerabilities {
+			vulnNodes = append(vulnNodes, Li(Class("text-zinc-400 text-sm"), g.Text(v)))
+		}
+		nodes = append(nodes,
+			Details(Class("mt-4"),
+				Summary(Class("text-sm font-semibold text-zinc-300 cursor-pointer hover:text-zinc-100 transition-colors"), g.Textf("Qualifying Vulnerabilities (%d)", len(md.QualifyingVulnerabilities))),
+				Ul(Class("mt-2 ml-4 list-disc space-y-1"), g.Group(vulnNodes)),
+			),
+		)
+	}
+
+	// Non-qualifying vulnerabilities
+	if len(md.NonQualifyingVulnerabilities) > 0 {
+		var vulnNodes []g.Node
+		for _, v := range md.NonQualifyingVulnerabilities {
+			vulnNodes = append(vulnNodes, Li(Class("text-zinc-400 text-sm"), g.Text(v)))
+		}
+		nodes = append(nodes,
+			Details(Class("mt-4"),
+				Summary(Class("text-sm font-semibold text-zinc-300 cursor-pointer hover:text-zinc-100 transition-colors"), g.Textf("Non-Qualifying Vulnerabilities (%d)", len(md.NonQualifyingVulnerabilities))),
+				Ul(Class("mt-2 ml-4 list-disc space-y-1"), g.Group(vulnNodes)),
+			),
+		)
+	}
+
+	// Account access
+	if md.AccountAccess != "" {
+		nodes = append(nodes, H3(Class("text-sm font-semibold text-zinc-300 mb-2 mt-4"), g.Text("Account Access")), P(Class("text-zinc-400 text-sm"), g.Text(md.AccountAccess)))
+	}
+	if md.CanCreateTestAccount != nil {
+		nodes = append(nodes, P(Class("text-zinc-400 text-sm"), g.Textf("Can create test account: %v", *md.CanCreateTestAccount)))
+	}
+
+	// Rules (markdown / html). Embedded as a collapsible <details> because the
+	// rules can be very long and frequently repeat the reward grid in markdown
+	// table form. For markdown, we render via a small dependency-free
+	// renderer (renderMarkdown). For html (Bugcrowd), we sanitize minimally and
+	// inject via g.Raw.
+	if md.Rules != "" {
+		nodes = append(nodes, rulesSection(md))
+	}
+
+	return Div(Class("mt-8 border-t border-zinc-800/50 pt-6"), g.Group(nodes))
+}
+
+// rulesSection renders the program rules (rulesOfEngagement / description) as
+// a collapsible section. Markdown is converted to safe HTML by renderMarkdown;
+// HTML (Bugcrowd) is sanitised of <script>/<style>/on* attributes and injected
+// via g.Raw.
+func rulesSection(md *scope.ProgramMetadata) g.Node {
+	var inner g.Node
+	switch strings.ToLower(md.RulesFormat) {
+	case "html":
+		inner = g.Raw(sanitizeRulesHTML(md.Rules))
+	default: // markdown
+		inner = g.Raw(renderMarkdown(md.Rules))
+	}
+	return Details(Class("mt-4"),
+		Summary(Class("text-sm font-semibold text-zinc-300 cursor-pointer hover:text-zinc-100 transition-colors"), g.Text("Rules")),
+		Div(Class("mt-3 prose prose-invert max-w-none"), inner),
+	)
+}
+
+// sanitizeRulesHTML strips <script>, <style>, <iframe>, <object>, <embed>,
+// on*= attributes, and javascript: URLs from a Bugcrowd HTML rules payload.
+// It is intentionally conservative — Bugcrowd's HTML is rich, so we don't try
+// to keep tags/attributes the way a full allow-list sanitizer would; we just
+// neutralise the obvious XSS vectors.
+func sanitizeRulesHTML(s string) string {
+	// Drop entire script/style/iframe/object/embed blocks.
+	for _, tag := range []string{"script", "style", "iframe", "object", "embed"} {
+		for {
+			lo := strings.Index(strings.ToLower(s), "<"+tag)
+			if lo < 0 {
+				break
+			}
+			hi := strings.Index(strings.ToLower(s[lo:]), "</"+tag+">")
+			if hi < 0 {
+				s = s[:lo]
+				break
+			}
+			hi += lo + len(tag) + 3 // include closing tag
+			s = s[:lo] + s[hi:]
+		}
+	}
+	// Strip on*= event handler attributes (loose match, handles ' and ").
+	onRe := regexp.MustCompile(`(?i)\son[a-z]+=\\"[^\\"]*\\"`)
+	s = onRe.ReplaceAllString(s, "")
+	onRe2 := regexp.MustCompile(`(?i)\son[a-z]+='[^']*'`)
+	s = onRe2.ReplaceAllString(s, "")
+	onRe3 := regexp.MustCompile(`(?i)\son[a-z]+=(?:[^\\s>]+)`)
+	s = onRe3.ReplaceAllString(s, "")
+	// Neutralise javascript: URLs in href/src.
+	jsRe := regexp.MustCompile(`(?i)(href|src)\\s*=\\s*\\"javascript:[^\\"]*\\"`)
+	s = jsRe.ReplaceAllString(s, "href=\"#\"")
+	jsRe2 := regexp.MustCompile(`(?i)(href|src)\\s*=\\s*'javascript:[^']*'`)
+	s = jsRe2.ReplaceAllString(s, "href='#'")
+	return s
+}
+
+func intOrDashStr(i *int) string {
+	if i == nil {
+		return "-"
+	}
+	return strconv.Itoa(*i)
 }
 
 // scopeChangesSection renders the collapsible scope changes timeline for a program.
@@ -443,6 +685,21 @@ func programDetailAIToggleScript() g.Node {
     }
   }
 
+  function assetValueBadge(val) {
+    var v = (val || '').toLowerCase();
+    if (!v) return '<span class="text-zinc-600 text-xs">-</span>';
+    var styles = {
+      'critical': 'bg-red-900/60 text-red-300 border border-red-700',
+      'high': 'bg-orange-900/60 text-orange-300 border border-orange-700',
+      'medium': 'bg-yellow-900/60 text-yellow-300 border border-yellow-700',
+      'low': 'bg-blue-900/50 text-blue-300 border border-blue-700',
+      'very_low': 'bg-zinc-800 text-zinc-400 border border-zinc-600'
+    };
+    var cls = styles[v] || 'bg-zinc-800 text-zinc-400 border border-zinc-600';
+    var label = v === 'very_low' ? 'Very Low' : v.charAt(0).toUpperCase() + v.slice(1);
+    return '<span class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md ' + cls + '">' + escapeHtml(label) + '</span>';
+  }
+
   function assetLink(target, cat) {
     var c = cat.toLowerCase();
     if (c === 'url' || c === 'wildcard' || c === 'api') {
@@ -518,7 +775,8 @@ func programDetailAIToggleScript() g.Node {
     var html = '<div class="overflow-x-auto rounded-xl border border-zinc-700/50 mb-6"><table class="min-w-[640px] w-full divide-y divide-zinc-700"><thead class="bg-zinc-800/80"><tr>';
     html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Asset</th>';
     html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-28">Category</th>';
-    html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-24">Bounty</th>';
+    html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-24">Value</th>';
+    html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-20">Bounty</th>';
     if (showLinks) html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Quick Links</th>';
     html += '<th class="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-16"></th>';
     html += '</tr></thead><tbody class="bg-zinc-900/50 divide-y divide-zinc-800">';
@@ -530,6 +788,7 @@ func programDetailAIToggleScript() g.Node {
       html += '<tr class="border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors duration-150' + rowBg + '">';
       html += '<td class="px-4 py-3 text-sm text-zinc-200 break-all">' + assetLink(display, cat) + '</td>';
       html += '<td class="px-4 py-3 text-sm"><span class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md ' + categoryBadgeClass(cat) + '">' + escapeHtml(cat) + '</span></td>';
+      html += '<td class="px-4 py-3 text-sm">' + assetValueBadge(t.asset_value || '') + '</td>';
       var bountyBadge = t.is_bbp
         ? '<span class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md bg-emerald-900/50 text-emerald-300 border border-emerald-800">Yes</span>'
         : '<span class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md bg-red-900/50 text-red-300 border border-red-800">No</span>';
@@ -631,7 +890,8 @@ func assetTable(targets []storage.ProgramTarget, showQuickLinks bool) g.Node {
 	headerCols := []g.Node{
 		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider"), g.Text("Asset")),
 		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-28"), g.Text("Category")),
-		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-24"), g.Text("Bounty")),
+		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-24"), g.Text("Value")),
+		Th(Class("px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider w-20"), g.Text("Bounty")),
 	}
 	if showQuickLinks {
 		headerCols = append(headerCols,
@@ -663,6 +923,9 @@ func assetTable(targets []storage.ProgramTarget, showQuickLinks bool) g.Node {
 			),
 			Td(Class("px-4 py-3 text-sm"),
 				categoryBadge(category),
+			),
+			Td(Class("px-4 py-3 text-sm"),
+				assetValueBadgeGo(t.AssetValue),
 			),
 			Td(Class("px-4 py-3 text-sm"),
 				bountyBadge,
@@ -745,6 +1008,36 @@ func categoryBadge(category string) g.Node {
 		colors = "bg-red-900/50 text-red-300 border border-red-800"
 	}
 	return Span(Class("inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md "+colors), g.Text(category))
+}
+
+// assetValueBadgeGo renders a colored badge for the asset value severity.
+func assetValueBadgeGo(val string) g.Node {
+	v := strings.ToLower(strings.TrimSpace(val))
+	if v == "" {
+		return Span(Class("text-zinc-600 text-xs"), g.Text("-"))
+	}
+	var colors, label string
+	switch v {
+	case "critical":
+		colors = "bg-red-900/60 text-red-300 border border-red-700"
+		label = "Critical"
+	case "high":
+		colors = "bg-orange-900/60 text-orange-300 border border-orange-700"
+		label = "High"
+	case "medium":
+		colors = "bg-yellow-900/60 text-yellow-300 border border-yellow-700"
+		label = "Medium"
+	case "low":
+		colors = "bg-blue-900/50 text-blue-300 border border-blue-700"
+		label = "Low"
+	case "very_low":
+		colors = "bg-zinc-800 text-zinc-400 border border-zinc-600"
+		label = "Very Low"
+	default:
+		colors = "bg-zinc-800 text-zinc-400 border border-zinc-600"
+		label = strings.Title(v)
+	}
+	return Span(Class("inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-md "+colors), g.Text(label))
 }
 
 // platformBadge renders a colored badge for the platform name.

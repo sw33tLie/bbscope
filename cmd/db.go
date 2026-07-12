@@ -416,6 +416,190 @@ var addCmd = &cobra.Command{
 	},
 }
 
+var programMetaCmd = &cobra.Command{
+	Use:   "program <platform>/<handle>",
+	Short: "Show full metadata for a single program (rewards, qualifying vulnerabilities, reports stats, etc.)",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		dbURL, err := GetDBConnectionString()
+		if err != nil {
+			return err
+		}
+		db, err := storage.Open(dbURL)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+
+		key := args[0]
+		idx := strings.Index(key, "/")
+		if idx <= 0 {
+			return fmt.Errorf("expected <platform>/<handle>, got %q", key)
+		}
+		platform := key[:idx]
+		handle := key[idx+1:]
+
+		prog, err := db.GetProgramByPlatformHandleAny(context.Background(), platform, handle)
+		if err != nil {
+			return err
+		}
+		if prog == nil {
+			return fmt.Errorf("program %s/%s not found", platform, handle)
+		}
+
+		md, err := db.GetProgramMetadata(context.Background(), prog.ID)
+		if err != nil {
+			return err
+		}
+		if md == nil {
+			fmt.Println("No metadata stored for this program.")
+			return nil
+		}
+
+		fmt.Printf("Program: %s\n", prog.URL)
+		if md.Title != "" {
+			fmt.Printf("Title: %s\n", md.Title)
+		}
+		if md.Tagline != "" {
+			fmt.Printf("Tagline: %s\n", md.Tagline)
+		}
+		if md.CompanyName != "" {
+			fmt.Printf("Company: %s\n", md.CompanyName)
+		}
+		if md.Industry != "" {
+			fmt.Printf("Industry: %s\n", md.Industry)
+		}
+		if md.ProgramType != "" {
+			fmt.Printf("Type: %s\n", md.ProgramType)
+		}
+		fmt.Printf("Bounty: %s  VDP: %s  Public: %s\n",
+			boolOrDash(md.IsBounty), boolOrDash(md.IsVDP), boolOrDash(md.IsPublic))
+		if md.Secured != nil {
+			fmt.Printf("2FA required: %v\n", *md.Secured)
+		}
+		if md.IsDisabled != nil && *md.IsDisabled {
+			fmt.Printf("Status: disabled/paused\n")
+		}
+		if md.SafeHarbor != "" {
+			fmt.Printf("Safe harbor: %s\n", md.SafeHarbor)
+		}
+
+		if md.HasRewardInfo() {
+			fmt.Println("\nRewards:")
+			if md.Currency != "" {
+				fmt.Printf("  Currency: %s\n", md.Currency)
+			}
+			if md.BountyRewardMin != nil {
+				fmt.Printf("  Min: %d %s\n", *md.BountyRewardMin, md.Currency)
+			}
+			if md.BountyRewardMax != nil {
+				fmt.Printf("  Max: %d %s\n", *md.BountyRewardMax, md.Currency)
+			}
+			if len(md.RewardGrids) > 0 {
+				fmt.Println("  Reward grids:")
+				for _, g := range md.RewardGrids {
+					fmt.Printf("    [%s]  info=%s  low=%s  medium=%s  high=%s  critical=%s  exceptional=%s\n",
+						g.Dimension,
+						scope.FormatBountySlot(g.BountyInfoMin, g.BountyInfoMax),
+						scope.FormatBountySlot(g.BountyLowMin, g.BountyLowMax),
+						scope.FormatBountySlot(g.BountyMediumMin, g.BountyMediumMax),
+						scope.FormatBountySlot(g.BountyHighMin, g.BountyHighMax),
+						scope.FormatBountySlot(g.BountyCriticalMin, g.BountyCriticalMax),
+						scope.FormatBountySlot(g.BountyExceptionalMin, g.BountyExceptionalMax))
+				}
+			}
+		}
+
+		if md.ReportsCount != nil || md.TotalPayout != nil || md.AvgReward != nil {
+			fmt.Println("\nReports:")
+			if md.ReportsCount != nil {
+				fmt.Printf("  Total: %d\n", *md.ReportsCount)
+			}
+			if md.TotalPayout != nil {
+				fmt.Printf("  Total payout: %d %s\n", *md.TotalPayout, md.TotalPayoutCurrency)
+			}
+			if md.AvgReward != nil {
+				fmt.Printf("  Avg reward: %d %s\n", *md.AvgReward, md.TotalPayoutCurrency)
+			}
+			if md.AvgFirstResponseDays != nil {
+				fmt.Printf("  Avg first response: %.2f days\n", *md.AvgFirstResponseDays)
+			}
+		}
+		if md.ScopesCount != nil {
+			fmt.Printf("\nScopes count: %d\n", *md.ScopesCount)
+		}
+
+		if len(md.QualifyingVulnerabilities) > 0 {
+			fmt.Println("\nQualifying vulnerabilities:")
+			for _, v := range md.QualifyingVulnerabilities {
+				fmt.Printf("  - %s\n", v)
+			}
+		}
+		if len(md.NonQualifyingVulnerabilities) > 0 {
+			fmt.Println("\nNon-qualifying vulnerabilities:")
+			for _, v := range md.NonQualifyingVulnerabilities {
+				fmt.Printf("  - %s\n", v)
+			}
+		}
+		if len(md.OutOfScopeSummary) > 0 {
+			fmt.Println("\nOut-of-scope (summary):")
+			for _, v := range md.OutOfScopeSummary {
+				fmt.Printf("  - %s\n", v)
+			}
+		}
+
+		if md.InScopeDescription != "" {
+			fmt.Println("\nIn-scope description:")
+			fmt.Println(md.InScopeDescription)
+		}
+		if md.AccountAccess != "" {
+			fmt.Println("\nAccount access:")
+			fmt.Println(md.AccountAccess)
+		}
+		if md.CanCreateTestAccount != nil {
+			fmt.Printf("\nCan create test account: %v\n", *md.CanCreateTestAccount)
+		}
+		if md.UserAgent != "" {
+			fmt.Printf("Suggested User-Agent: %s\n", md.UserAgent)
+		}
+		if md.RequestHeader != "" {
+			fmt.Printf("Required request header: %s\n", md.RequestHeader)
+		}
+		if md.AutomatedToolingLimit != nil {
+			fmt.Printf("Automated tooling limit: %d req/s\n", *md.AutomatedToolingLimit)
+		}
+		if md.VPNRequired != nil && *md.VPNRequired {
+			fmt.Printf("VPN required: %v\n", *md.VPNRequired)
+			if len(md.VNPIPs) > 0 {
+				fmt.Printf("VPN IPs: %s\n", strings.Join(md.VNPIPs, ", "))
+			}
+		}
+		if md.FAQs != "" {
+			fmt.Println("\nFAQs:")
+			fmt.Println(md.FAQs)
+		}
+		if len(md.Tags) > 0 {
+			fmt.Printf("\nTags: %s\n", strings.Join(md.Tags, ", "))
+		}
+		if md.Rules != "" {
+			fmt.Println("\nRules:")
+			fmt.Println(md.Rules)
+		}
+
+		return nil
+	},
+}
+
+func boolOrDash(b *bool) string {
+	if b == nil {
+		return "-"
+	}
+	if *b {
+		return "yes"
+	}
+	return "no"
+}
+
 func init() {
 	rootCmd.AddCommand(dbCmd)
 	dbCmd.AddCommand(statsCmd)
@@ -424,6 +608,7 @@ func init() {
 	dbCmd.AddCommand(findCmd)
 	dbCmd.AddCommand(addCmd)
 	dbCmd.AddCommand(shellCmd)
+	dbCmd.AddCommand(programMetaCmd)
 	addCmd.Flags().StringP("target", "t", "", "Target to add (can be comma-separated)")
 	addCmd.Flags().StringP("category", "c", "wildcard", "Category of the target")
 	addCmd.Flags().StringP("program-url", "u", "custom", "Program URL (default: 'custom')")
