@@ -463,8 +463,7 @@ func findOTPAuthenticatorSelection(body string) (string, string) {
 				return true
 			}
 			field.Get("options").ForEach(func(_, option gjson.Result) bool {
-				optionLabel := strings.ToLower(option.Get("label").String())
-				if !strings.Contains(optionLabel, "otp") {
+				if !optionIsOTP(option) {
 					return true
 				}
 				id = authenticatorOptionID(option)
@@ -478,6 +477,31 @@ func findOTPAuthenticatorSelection(body string) (string, string) {
 		href = "https://login.hackers.bugcrowd.com/idp/idx/challenge"
 	}
 	return href, id
+}
+
+// optionIsOTP reports whether an Okta select-authenticator option is the TOTP
+// authenticator-app factor. Okta labels it "Google Authenticator" (key
+// "google_otp"), so matching on the human label for the substring "otp" misses
+// it — the reliable signals are the option's methodType form field ("otp") or
+// its authenticator key ("google_otp").
+func optionIsOTP(option gjson.Result) bool {
+	if strings.EqualFold(option.Get("relatesTo.key").String(), "google_otp") {
+		return true
+	}
+	isOTP := false
+	option.Get("value.form.value").ForEach(func(_, f gjson.Result) bool {
+		if f.Get("name").String() == "methodType" && strings.EqualFold(f.Get("value").String(), "otp") {
+			isOTP = true
+			return false
+		}
+		return true
+	})
+	if isOTP {
+		return true
+	}
+	// Fallback heuristics for label variants across Okta tenants.
+	label := strings.ToLower(option.Get("label").String())
+	return strings.Contains(label, "otp") || strings.Contains(label, "google authenticator")
 }
 
 func authenticatorOptionID(option gjson.Result) string {
