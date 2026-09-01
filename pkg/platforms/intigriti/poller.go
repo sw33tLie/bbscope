@@ -157,6 +157,13 @@ func (p *Poller) FetchProgramScope(ctx context.Context, handle string, opts plat
 		description := value.Get("description").Str
 
 		if tierID != 5 { // Not out-of-scope
+			// In bounty-only mode, skip individual "No Bounty" tier targets even when
+			// the program as a whole offers bounties on other tiers. The program-level
+			// maxBounty filter in ListProgramHandles only decides whether the program is
+			// fetched at all; without this per-target guard, no-bounty assets leak through.
+			if opts.BountyOnly && tierValue == "No Bounty" {
+				return true
+			}
 			allowedCategories := getCategoryID(opts.Categories)
 			if allowedCategories == nil || isInArray(int(categoryID), allowedCategories) {
 				targets = append(targets, target{
