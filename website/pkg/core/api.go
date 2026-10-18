@@ -22,9 +22,9 @@ import (
 // API cache for program list — separate slots for AI-enhanced and raw modes.
 var (
 	programsCacheMu      sync.RWMutex
-	programsCacheAI      []byte    // AI-enhanced (default)
+	programsCacheAI      []byte // AI-enhanced (default)
 	programsCacheAITime  time.Time
-	programsCacheRaw     []byte    // raw mode
+	programsCacheRaw     []byte // raw mode
 	programsCacheRawTime time.Time
 	programsCacheTTL     = 5 * time.Minute
 )
@@ -271,6 +271,7 @@ func apiProgramDetailHandler(w http.ResponseWriter, r *http.Request) {
 			Category:    t.Category,
 			Description: t.Description,
 			IsBBP:       t.IsBBP,
+			AssetValue:  t.AssetValue,
 		}
 		if t.InScope {
 			inScope = append(inScope, dt)
@@ -281,6 +282,8 @@ func apiProgramDetailHandler(w http.ResponseWriter, r *http.Request) {
 
 	programURL := strings.ReplaceAll(program.URL, "api.yeswehack.com", "yeswehack.com")
 
+	md, _ := db.GetProgramMetadata(ctx, program.ID)
+
 	resp := programDetailResponse{
 		Platform:   program.Platform,
 		Handle:     program.Handle,
@@ -288,6 +291,7 @@ func apiProgramDetailHandler(w http.ResponseWriter, r *http.Request) {
 		IsBBP:      isBBP,
 		InScope:    inScope,
 		OutOfScope: outOfScope,
+		Metadata:   md,
 	}
 
 	respJSON, err := json.Marshal(resp)
@@ -311,15 +315,17 @@ type programDetailTarget struct {
 	Category    string `json:"category"`
 	Description string `json:"description"`
 	IsBBP       bool   `json:"is_bbp"`
+	AssetValue  string `json:"asset_value"`
 }
 
 type programDetailResponse struct {
-	Platform   string                `json:"platform"`
-	Handle     string                `json:"handle"`
-	URL        string                `json:"url"`
-	IsBBP      bool                  `json:"is_bbp"`
-	InScope    []programDetailTarget `json:"in_scope"`
-	OutOfScope []programDetailTarget `json:"out_of_scope"`
+	Platform   string                 `json:"platform"`
+	Handle     string                 `json:"handle"`
+	URL        string                 `json:"url"`
+	IsBBP      bool                   `json:"is_bbp"`
+	InScope    []programDetailTarget  `json:"in_scope"`
+	OutOfScope []programDetailTarget  `json:"out_of_scope"`
+	Metadata   *scope.ProgramMetadata `json:"metadata,omitempty"`
 }
 
 func setCORSHeaders(w http.ResponseWriter) {
@@ -331,10 +337,10 @@ func setCORSHeaders(w http.ResponseWriter) {
 // --- Targets API ---
 
 var (
-	targetsCacheMu   sync.RWMutex
-	targetsCache     = make(map[string]targetsCacheEntry)
-	targetsCacheTTL  = 5 * time.Minute
-	targetsFlight    sync.Map // singleflight: cacheKey -> *sync.Once
+	targetsCacheMu  sync.RWMutex
+	targetsCache    = make(map[string]targetsCacheEntry)
+	targetsCacheTTL = 5 * time.Minute
+	targetsFlight   sync.Map // singleflight: cacheKey -> *sync.Once
 )
 
 type targetsCacheEntry struct {
@@ -703,9 +709,9 @@ func apiUpdatesHandler(w http.ResponseWriter, r *http.Request) {
 // --- Find API ---
 
 type apiFindResponse struct {
-	Query      string             `json:"query"`
-	Programs   []apiFindProgram   `json:"programs"`
-	TotalCount int                `json:"total_count"`
+	Query      string           `json:"query"`
+	Programs   []apiFindProgram `json:"programs"`
+	TotalCount int              `json:"total_count"`
 }
 
 type apiFindProgram struct {

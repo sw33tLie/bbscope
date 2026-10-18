@@ -235,11 +235,16 @@ func processOneProgram(
 	if err != nil {
 		if errors.Is(err, storage.ErrAbortingScopeWipe) {
 			log.Warnf("Potential scope wipe detected for program %s. Skipping update.", pd.Url)
-			// Return the URL so it's still counted as polled, but no changes.
 			return &programResult{programURL: pd.Url}, nil
 		}
 		log.Warnf("Database error for program %s: %v", pd.Url, err)
 		return nil, err
+	}
+
+	if pd.Metadata != nil {
+		if err := db.UpsertProgramMetadata(ctx, pd.Url, pd.Metadata); err != nil {
+			log.Warnf("Could not save metadata for program %s: %v", pd.Url, err)
+		}
 	}
 
 	if !isFirstRun {
@@ -255,10 +260,10 @@ func processOneProgram(
 func buildTargetItems(pd scope.ProgramData) []storage.TargetItem {
 	items := make([]storage.TargetItem, 0, len(pd.InScope)+len(pd.OutOfScope))
 	for _, s := range pd.InScope {
-		items = append(items, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: true, IsBBP: s.IsBBP})
+		items = append(items, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: true, IsBBP: s.IsBBP, AssetValue: s.AssetValue})
 	}
 	for _, s := range pd.OutOfScope {
-		items = append(items, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: false, IsBBP: s.IsBBP})
+		items = append(items, storage.TargetItem{URI: s.Target, Category: s.Category, Description: s.Description, InScope: false, IsBBP: s.IsBBP, AssetValue: s.AssetValue})
 	}
 	return items
 }

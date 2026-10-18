@@ -65,3 +65,17 @@ BC_PUBLIC_ONLY=1
 ## Platform name
 
 Used in database records and API responses: **`bc`**
+
+## Program metadata captured
+
+The Bugcrowd poller extracts and stores the following program-level metadata
+(queryable via `bbscope db program bc/<handle>`):
+
+- Title, tagline, industry, program type, public/private, bounty/VDP flags
+- Reward grids per scope group (P1-P5 = critical/info, with min/max ranges)
+- Bounty reward min/max (derived from all scope groups)
+- Rules (HTML), in-scope description
+- Out-of-scope summary, safe harbor status
+- Test-account-creation flag (from credentialsUrl)
+- Account access instructions (extracted from brief HTML)
+- Scope count, target tags
