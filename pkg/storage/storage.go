@@ -85,9 +85,48 @@ CREATE INDEX IF NOT EXISTS idx_programs_disabled_ignored ON programs(disabled, i
 CREATE INDEX IF NOT EXISTS idx_targets_raw_in_scope ON targets_raw(program_id, in_scope);
 `
 
+// NormalizeConnectionString percent-encodes the user and password of a
+// postgres:// or postgresql:// URL so that passwords containing reserved
+// characters such as '#', '/', '?' or '@' are parsed correctly. Credentials
+// that are already percent-encoded are left as they are. Key/value DSNs and
+// URLs without credentials are returned unchanged.
+func NormalizeConnectionString(connectionString string) string {
+	var scheme string
+	for _, s := range []string{"postgres://", "postgresql://"} {
+		if len(connectionString) >= len(s) && strings.EqualFold(connectionString[:len(s)], s) {
+			scheme = connectionString[:len(s)]
+			break
+		}
+	}
+	if scheme == "" {
+		return connectionString
+	}
+
+	rest := connectionString[len(scheme):]
+	// The host part never contains '@', so the last one ends the userinfo.
+	at := strings.LastIndex(rest, "@")
+	if at < 0 {
+		return connectionString
+	}
+	userinfo, hostAndRest := rest[:at], rest[at+1:]
+
+	username, password, hasPassword := strings.Cut(userinfo, ":")
+	if u, err := url.PathUnescape(username); err == nil {
+		username = u
+	}
+	if hasPassword {
+		if p, err := url.PathUnescape(password); err == nil {
+			password = p
+		}
+		return scheme + url.UserPassword(username, password).String() + "@" + hostAndRest
+	}
+	return scheme + url.User(username).String() + "@" + hostAndRest
+}
+
 func Open(connectionString string) (*DB, error) {
 	// connectionString is expected to be a valid Postgres connection URL or DSN
 	// e.g. "postgres://user:password@localhost/dbname?sslmode=disable"
+	connectionString = NormalizeConnectionString(connectionString)
 	db, err := sql.Open("postgres", connectionString)
 	if err != nil {
 		return nil, err

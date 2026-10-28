@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/sw33tLie/bbscope/v2/internal/utils"
+	"github.com/sw33tLie/bbscope/v2/pkg/storage"
 	"github.com/sw33tLie/bbscope/v2/pkg/whttp"
 
 	homedir "github.com/mitchellh/go-homedir"
@@ -154,5 +155,5 @@ func GetDBConnectionString() (string, error) {
 	if url == "" {
 		return "", fmt.Errorf("db_url not set. Set it in ~/.bbscope.yaml or via DB_URL environment variable")
 	}
-	return url, nil
+	return storage.NormalizeConnectionString(url), nil
 }
