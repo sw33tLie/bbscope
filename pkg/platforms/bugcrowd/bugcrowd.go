@@ -28,9 +28,25 @@ import (
 const (
 	USER_AGENT               = "Mozilla/5.0 (X11; Linux x86_64; rv:82.0) Gecko/20100101 Firefox/82.0"
 	RATE_LIMIT_SLEEP_SECONDS = 5
+	LOGIN_REQUEST_TIMEOUT    = 30 * time.Second
 
 	WAF_BANNED_ERROR = "you are temporarily WAF banned, change IP or wait a few hours"
 )
+
+func newLoginHTTPClient(jar http.CookieJar) *retryablehttp.Client {
+	retryClient := retryablehttp.NewClient()
+	retryClient.Logger = log.New(io.Discard, "", 0)
+	retryClient.RetryMax = 0 // Login redirects have side effects; never replay them automatically.
+	retryClient.CheckRetry = func(_ context.Context, _ *http.Response, _ error) (bool, error) {
+		return false, nil
+	}
+	retryClient.HTTPClient.Jar = jar
+	// Okta and Bugcrowd occasionally leave a connection open without returning
+	// headers. Without a client timeout this blocks the platform poller forever,
+	// preventing hourly retries and leaving its health state stuck at "running".
+	retryClient.HTTPClient.Timeout = LOGIN_REQUEST_TIMEOUT
+	return retryClient
+}
 
 // Rate-limiting types and global channel
 type rateLimitedResult struct {
@@ -81,13 +97,7 @@ func Login(email, password, otpSecret, proxy string) (string, error) {
 		return "", err
 	}
 
-	retryClient := retryablehttp.NewClient()
-	retryClient.Logger = log.New(io.Discard, "", 0)
-	retryClient.RetryMax = 0 // No retries for login flow — redirects have side effects
-	retryClient.CheckRetry = func(_ context.Context, _ *http.Response, _ error) (bool, error) {
-		return false, nil
-	}
-	retryClient.HTTPClient.Jar = jar
+	retryClient := newLoginHTTPClient(jar)
 
 	if proxy != "" {
 		proxyURL, err := url.Parse(proxy)
